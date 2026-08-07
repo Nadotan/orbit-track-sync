@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Fragment as FragmentRow } from "react";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -204,7 +205,7 @@ function AdminPage() {
                     ).length;
                     const open = expanded === p.id;
                     return (
-                      <>
+                      <FragmentRow key={p.id}>
                         <TableRow
                           key={p.id}
                           className="cursor-pointer"
@@ -256,7 +257,7 @@ function AdminPage() {
                             </TableCell>
                           </TableRow>
                         )}
-                      </>
+                      </FragmentRow>
                     );
                   })}
                 </TableBody>
