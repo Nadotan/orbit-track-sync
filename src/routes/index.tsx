@@ -95,7 +95,7 @@ function TrackerPage() {
               cy="152"
               r={R}
               fill="none"
-              stroke="var(--color-accent)"
+              className="stroke-accent"
               strokeWidth="18"
             />
             <circle
@@ -103,13 +103,14 @@ function TrackerPage() {
               cy="152"
               r={R}
               fill="none"
-              stroke="var(--color-primary)"
+              className="stroke-primary"
               strokeWidth="18"
               strokeLinecap="round"
               strokeDasharray={CIRC}
               strokeDashoffset={CIRC * (1 - progress)}
               style={{ transition: "stroke-dashoffset 0.6s linear" }}
             />
+
           </svg>
 
           <div className="absolute flex flex-col items-center">
