@@ -95,7 +95,7 @@ function TrackerPage() {
               cy="152"
               r={R}
               fill="none"
-              stroke="var(--color-muted)"
+              stroke="var(--color-accent)"
               strokeWidth="18"
             />
             <circle
