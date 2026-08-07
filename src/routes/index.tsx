@@ -23,7 +23,7 @@ export const Route = createFileRoute("/")({
       { title: "Time Tracker — Chrona" },
       {
         name: "description",
-        content: "Clock in, clock out and log what you worked on with a live visual timer.",
+        content: "Clock in, clock out and log what you worked on with a live circular timer.",
       },
       { property: "og:title", content: "Time Tracker — Chrona" },
       {
@@ -71,67 +71,102 @@ function TrackerPage() {
     toast.success("Time entry saved");
   }
 
+  // circle progress: one full sweep per hour
+  const R = 132;
+  const CIRC = 2 * Math.PI * R;
+  const progress = running ? ((elapsed / 1000) % 3600) / 3600 : 0;
+
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
-      <div>
+    <div className="mx-auto w-full max-w-4xl space-y-8">
+      <div className="text-center sm:text-left">
         <h1 className="text-2xl font-semibold sm:text-3xl">The Clock</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Track your working session and note what you accomplished.
-        </p>
-      </div>
-
-      <div className="hero-panel overflow-hidden rounded-3xl p-8 text-center shadow-[var(--shadow-soft)] sm:p-12">
-        <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium uppercase tracking-widest">
-          <span
-            className={`size-2 rounded-full ${running ? "animate-pulse bg-primary" : "bg-white/40"}`}
-          />
-          {running ? "Session running" : "Idle"}
-        </div>
-
-        <p className="tabular mt-6 font-mono text-5xl font-bold sm:text-7xl">
-          {formatDuration(elapsed)}
-        </p>
-        <p className="mt-2 text-sm text-white/60">
           {running
-            ? `Started at ${new Date(activeSession!.startTime).toLocaleTimeString()}`
-            : "Press start when you begin working"}
+            ? "You're on the clock. Tap stop when you're done."
+            : "Tap start when you begin working."}
         </p>
-
-        <div className="mt-8">
-          {running ? (
-            <Button
-              size="lg"
-              variant="destructive"
-              className="h-14 rounded-full px-10 text-base"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Square className="size-5" /> Stop Work
-            </Button>
-          ) : (
-            <Button
-              size="lg"
-              className="h-14 rounded-full px-10 text-base"
-              onClick={() => {
-                startSession();
-                setNow(Date.now());
-              }}
-            >
-              <Play className="size-5" /> Start Work
-            </Button>
-          )}
-        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="surface-card flex flex-col items-center gap-6 rounded-[2rem] p-6 sm:p-10">
+        <div className="relative grid place-items-center">
+          <svg width="304" height="304" viewBox="0 0 304 304" className="max-w-full -rotate-90">
+            <circle
+              cx="152"
+              cy="152"
+              r={R}
+              fill="none"
+              stroke="var(--color-muted)"
+              strokeWidth="18"
+            />
+            <circle
+              cx="152"
+              cy="152"
+              r={R}
+              fill="none"
+              stroke="var(--color-primary)"
+              strokeWidth="18"
+              strokeLinecap="round"
+              strokeDasharray={CIRC}
+              strokeDashoffset={CIRC * (1 - progress)}
+              style={{ transition: "stroke-dashoffset 0.6s linear" }}
+            />
+          </svg>
+
+          <div className="absolute flex flex-col items-center">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-widest ${
+                running ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              <span
+                className={`size-1.5 rounded-full ${running ? "animate-pulse bg-primary" : "bg-muted-foreground"}`}
+              />
+              {running ? "Working" : "Idle"}
+            </span>
+            <p className="tabular mt-3 font-mono text-4xl font-bold sm:text-5xl">
+              {formatDuration(elapsed)}
+            </p>
+            <p className="mt-1 max-w-[12rem] text-center text-xs text-muted-foreground">
+              {running
+                ? `Started ${new Date(activeSession!.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                : "Hours : minutes : seconds"}
+            </p>
+          </div>
+        </div>
+
+        {running ? (
+          <Button
+            size="lg"
+            variant="destructive"
+            className="h-14 w-full max-w-xs rounded-full text-base"
+            onClick={() => setDialogOpen(true)}
+          >
+            <Square className="size-5" /> Stop work
+          </Button>
+        ) : (
+          <Button
+            size="lg"
+            className="h-14 w-full max-w-xs rounded-full text-base"
+            onClick={() => {
+              startSession();
+              setNow(Date.now());
+            }}
+          >
+            <Play className="size-5" /> Start work
+          </Button>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <StatCard icon={Clock} label="Today" value={formatHours(todayMs + elapsed)} />
         <StatCard icon={CalendarClock} label="Last 7 days" value={formatHours(weekMs)} />
         <StatCard icon={Flame} label="Entries logged" value={String(myEntries.length)} />
       </div>
 
-      <Card className="surface-card">
+      <Card className="surface-card rounded-3xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <NotebookPen className="size-4 text-primary" /> Recent entries
+            <NotebookPen className="size-4 text-primary" /> Your history
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -146,7 +181,7 @@ function TrackerPage() {
                   <span className="absolute -left-[31px] top-1.5 size-3 rounded-full border-2 border-background bg-primary" />
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium">{formatDateTime(e.startTime)}</span>
-                    <Badge variant="secondary" className="tabular">
+                    <Badge variant="secondary" className="tabular rounded-full">
                       {formatHours(e.durationMs)}
                     </Badge>
                   </div>
@@ -159,9 +194,9 @@ function TrackerPage() {
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-3xl">
           <DialogHeader>
-            <DialogTitle>What did you work on today?</DialogTitle>
+            <DialogTitle>What did you work on?</DialogTitle>
             <DialogDescription>
               Session length {formatDuration(elapsed)} — add a short summary to save this entry.
             </DialogDescription>
@@ -169,15 +204,20 @@ function TrackerPage() {
           <Textarea
             autoFocus
             rows={5}
+            className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
             placeholder="e.g. Fixed the onboarding flow, reviewed PRs, planned next sprint…"
             value={description}
             onChange={(ev) => setDescription(ev.target.value)}
           />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setDialogOpen(false)}
+            >
               Keep tracking
             </Button>
-            <Button onClick={handleStop} disabled={!description.trim()}>
+            <Button className="rounded-full" onClick={handleStop} disabled={!description.trim()}>
               Save entry
             </Button>
           </DialogFooter>
@@ -197,8 +237,8 @@ function StatCard({
   value: string;
 }) {
   return (
-    <div className="surface-card flex items-center gap-3 p-4">
-      <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground">
+    <div className="surface-card flex items-center gap-3 rounded-2xl p-4">
+      <div className="grid size-10 shrink-0 place-items-center rounded-full bg-accent text-accent-foreground">
         <Icon className="size-5" />
       </div>
       <div className="min-w-0">
