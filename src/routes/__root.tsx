@@ -16,6 +16,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppHeader } from "@/components/app-header";
 import { Toaster } from "@/components/ui/sonner";
+import { BottomNav } from "@/components/bottom-nav";
+
 
 function NotFoundComponent() {
   return (
@@ -95,9 +97,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "theme-color", content: "#69369c" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Chrona" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
@@ -107,6 +115,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
+
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
@@ -138,15 +147,17 @@ function RootComponent() {
             <AppSidebar />
             <div className="flex min-w-0 flex-1 flex-col">
               <AppHeader />
-              <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+              <main className="flex-1 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8">
                 <Outlet />
               </main>
             </div>
           </div>
+          <BottomNav />
         </SidebarProvider>
-        <Toaster position="top-right" richColors />
+        <Toaster position="top-center" richColors />
       </AppStoreProvider>
     </QueryClientProvider>
   );
 }
+
 
