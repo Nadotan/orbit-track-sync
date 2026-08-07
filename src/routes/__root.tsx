@@ -138,15 +138,17 @@ function RootComponent() {
             <AppSidebar />
             <div className="flex min-w-0 flex-1 flex-col">
               <AppHeader />
-              <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+              <main className="flex-1 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8">
                 <Outlet />
               </main>
             </div>
           </div>
+          <BottomNav />
         </SidebarProvider>
-        <Toaster position="top-right" richColors />
+        <Toaster position="top-center" richColors />
       </AppStoreProvider>
     </QueryClientProvider>
   );
 }
+
 
