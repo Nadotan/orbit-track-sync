@@ -1,0 +1,15 @@
+{
+  "name": "Chrona — Time & Team",
+  "short_name": "Chrona",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#69369c",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}
