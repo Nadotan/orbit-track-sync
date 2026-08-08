@@ -18,7 +18,7 @@ import {
   seedTimeEntries,
 } from "./seed";
 
-const STORAGE_KEY = "chrona-mock-db-v1";
+const STORAGE_KEY = "chrona-mock-db-v2";
 
 interface DbShape {
   teams: Team[];
@@ -28,6 +28,7 @@ interface DbShape {
   rsvps: Rsvp[];
   notifications: AppNotification[];
   currentUserId: string;
+  authUserId: string | null;
   activeSession: { userId: string; startTime: string } | null;
 }
 
@@ -39,22 +40,43 @@ const initialDb: DbShape = {
   rsvps: seedRsvps,
   notifications: seedNotifications,
   currentUserId: "u2",
+  authUserId: null,
   activeSession: null,
 };
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+export interface AuthResult {
+  ok: boolean;
+  error?: string;
+}
+
+export interface SignUpInput {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface OnboardingInput {
+  name: string;
+  teamId: string | null;
+}
+
 interface AppStore extends DbShape {
   currentUser: Profile;
+  isAuthenticated: boolean;
+  needsOnboarding: boolean;
   setCurrentUserId: (id: string) => void;
+  signUp: (input: SignUpInput) => AuthResult;
+  signIn: (email: string, password: string) => AuthResult;
+  signOut: () => void;
+  completeOnboarding: (input: OnboardingInput) => void;
   startSession: () => void;
   stopSession: (description: string) => void;
   cancelSession: () => void;
   setRsvp: (meetingId: string, status: RsvpStatus) => void;
   rsvpFor: (meetingId: string, userId?: string) => Rsvp | undefined;
   createMeeting: (m: Omit<Meeting, "id">) => void;
-  updateMeeting: (id: string, patch: Partial<Omit<Meeting, "id">>) => void;
-  toggleMeetingLock: (id: string) => void;
   deleteMeeting: (id: string) => void;
   assignTeam: (userId: string, teamId: string | null) => void;
   setRole: (userId: string, role: Profile["role"]) => void;
@@ -85,8 +107,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [db, hydrated]);
 
   const currentUser = useMemo(
-    () => db.profiles.find((p) => p.id === db.currentUserId) ?? db.profiles[0]!,
-    [db.profiles, db.currentUserId],
+    () =>
+      db.profiles.find((p) => p.id === (db.authUserId ?? db.currentUserId)) ?? db.profiles[0]!,
+    [db.profiles, db.currentUserId, db.authUserId],
   );
 
   const teamName = useCallback(
@@ -115,7 +138,57 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     ...db,
     currentUser,
     teamName,
-    setCurrentUserId: (id) => setDb((d) => ({ ...d, currentUserId: id })),
+    isAuthenticated: db.authUserId !== null,
+    needsOnboarding: db.authUserId !== null && !currentUser.onboarded,
+    setCurrentUserId: (id) => setDb((d) => ({ ...d, currentUserId: id, authUserId: id })),
+    signUp: ({ name, email, password }) => {
+      const trimmedEmail = email.trim().toLowerCase();
+      if (!name.trim() || !trimmedEmail || !password) {
+        return { ok: false, error: "Please fill in every field." };
+      }
+      if (password.length < 6) {
+        return { ok: false, error: "Password must be at least 6 characters." };
+      }
+      if (db.profiles.some((p) => p.email.toLowerCase() === trimmedEmail)) {
+        return { ok: false, error: "An account with that email already exists." };
+      }
+      const id = uid();
+      const profile: Profile = {
+        id,
+        name: name.trim(),
+        email: trimmedEmail,
+        password,
+        role: "User",
+        teamId: null,
+        onboarded: false,
+      };
+      setDb((d) => ({
+        ...d,
+        profiles: [...d.profiles, profile],
+        currentUserId: id,
+        authUserId: id,
+      }));
+      return { ok: true };
+    },
+    signIn: (email, password) => {
+      const trimmedEmail = email.trim().toLowerCase();
+      const match = db.profiles.find((p) => p.email.toLowerCase() === trimmedEmail);
+      if (!match || match.password !== password) {
+        return { ok: false, error: "Incorrect email or password." };
+      }
+      setDb((d) => ({ ...d, currentUserId: match.id, authUserId: match.id }));
+      return { ok: true };
+    },
+    signOut: () => setDb((d) => ({ ...d, authUserId: null })),
+    completeOnboarding: ({ name, teamId }) =>
+      setDb((d) => ({
+        ...d,
+        profiles: d.profiles.map((p) =>
+          p.id === (d.authUserId ?? d.currentUserId)
+            ? { ...p, name: name.trim() || p.name, teamId, onboarded: true }
+            : p,
+        ),
+      })),
     startSession: () =>
       setDb((d) => ({
         ...d,
@@ -140,8 +213,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     rsvpFor: (meetingId, userId) =>
       db.rsvps.find((r) => r.meetingId === meetingId && r.userId === (userId ?? db.currentUserId)),
     setRsvp: (meetingId, status) => {
-      const target = db.meetings.find((m) => m.id === meetingId);
-      if (target?.locked && currentUser.role !== "Admin") return;
       setDb((d) => {
         const existing = d.rsvps.find(
           (r) => r.meetingId === meetingId && r.userId === d.currentUserId,
@@ -172,17 +243,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setDb((d) => ({ ...d, meetings: [{ ...m, id: uid() }, ...d.meetings] }));
       notify(`New meeting scheduled: ${m.title}.`, "neutral");
     },
-    updateMeeting: (id, patch) =>
-      setDb((d) => ({
-        ...d,
-        meetings: d.meetings.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-      })),
-    toggleMeetingLock: (id) =>
-      setDb((d) => ({
-        ...d,
-        meetings: d.meetings.map((m) => (m.id === id ? { ...m, locked: !m.locked } : m)),
-      })),
-
     deleteMeeting: (id) =>
       setDb((d) => ({
         ...d,

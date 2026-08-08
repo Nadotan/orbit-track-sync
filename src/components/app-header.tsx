@@ -1,4 +1,5 @@
-import { Bell, ChevronDown, CircleCheck, CircleX, Info } from "lucide-react";
+import { Bell, ChevronDown, CircleCheck, CircleX, Info, LogOut } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,11 +22,13 @@ export function AppHeader() {
     currentUser,
     profiles,
     setCurrentUserId,
+    signOut,
     notifications,
     markNotificationsRead,
     teamName,
   } = useStore();
   const unread = notifications.filter((n) => !n.read).length;
+  const navigate = useNavigate();
 
   return (
     <header className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur sm:px-6">
@@ -111,6 +114,15 @@ export function AppHeader() {
                 <span className="text-xs text-muted-foreground">{p.role}</span>
               </DropdownMenuItem>
             ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => {
+                signOut();
+                navigate({ to: "/sign-in" });
+              }}
+            >
+              <LogOut className="size-4" /> Sign out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
