@@ -140,6 +140,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     rsvpFor: (meetingId, userId) =>
       db.rsvps.find((r) => r.meetingId === meetingId && r.userId === (userId ?? db.currentUserId)),
     setRsvp: (meetingId, status) => {
+      const target = db.meetings.find((m) => m.id === meetingId);
+      if (target?.locked && currentUser.role !== "Admin") return;
       setDb((d) => {
         const existing = d.rsvps.find(
           (r) => r.meetingId === meetingId && r.userId === d.currentUserId,
