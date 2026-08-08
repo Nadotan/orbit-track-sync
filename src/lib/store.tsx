@@ -53,6 +53,8 @@ interface AppStore extends DbShape {
   setRsvp: (meetingId: string, status: RsvpStatus) => void;
   rsvpFor: (meetingId: string, userId?: string) => Rsvp | undefined;
   createMeeting: (m: Omit<Meeting, "id">) => void;
+  updateMeeting: (id: string, patch: Partial<Omit<Meeting, "id">>) => void;
+  toggleMeetingLock: (id: string) => void;
   deleteMeeting: (id: string) => void;
   assignTeam: (userId: string, teamId: string | null) => void;
   setRole: (userId: string, role: Profile["role"]) => void;
