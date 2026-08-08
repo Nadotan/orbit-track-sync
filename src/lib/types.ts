@@ -9,10 +9,8 @@ export interface Profile {
   id: string;
   name: string;
   email: string;
-  password: string;
   role: Role;
   teamId: string | null;
-  onboarded: boolean;
 }
 
 export interface TimeEntry {

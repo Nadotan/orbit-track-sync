@@ -15,51 +15,11 @@ export const seedTeams: Team[] = [
 ];
 
 export const seedProfiles: Profile[] = [
-  {
-    id: "u1",
-    name: "Avery Quinn",
-    email: "avery@northwind.co",
-    password: "password123",
-    role: "Admin",
-    teamId: "t3",
-    onboarded: true,
-  },
-  {
-    id: "u2",
-    name: "Noor Haddad",
-    email: "noor@northwind.co",
-    password: "password123",
-    role: "User",
-    teamId: "t1",
-    onboarded: true,
-  },
-  {
-    id: "u3",
-    name: "Kai Restrepo",
-    email: "kai@northwind.co",
-    password: "password123",
-    role: "User",
-    teamId: "t1",
-    onboarded: true,
-  },
-  {
-    id: "u4",
-    name: "Lena Fischer",
-    email: "lena@northwind.co",
-    password: "password123",
-    role: "User",
-    teamId: "t2",
-    onboarded: true,
-  },
-  {
-    id: "u5",
-    name: "Tobias Reid",
-    email: "tobias@northwind.co",
-    password: "password123",
-    role: "User",
-    teamId: null,
-    onboarded: true,
-  },
+  { id: "u1", name: "Avery Quinn", email: "avery@northwind.co", role: "Admin", teamId: "t3" },
+  { id: "u2", name: "Noor Haddad", email: "noor@northwind.co", role: "User", teamId: "t1" },
+  { id: "u3", name: "Kai Restrepo", email: "kai@northwind.co", role: "User", teamId: "t1" },
+  { id: "u4", name: "Lena Fischer", email: "lena@northwind.co", role: "User", teamId: "t2" },
+  { id: "u5", name: "Tobias Reid", email: "tobias@northwind.co", role: "User", teamId: null },
 ];
 
 export const seedTimeEntries: TimeEntry[] = [
