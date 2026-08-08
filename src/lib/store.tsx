@@ -53,6 +53,8 @@ interface AppStore extends DbShape {
   setRsvp: (meetingId: string, status: RsvpStatus) => void;
   rsvpFor: (meetingId: string, userId?: string) => Rsvp | undefined;
   createMeeting: (m: Omit<Meeting, "id">) => void;
+  updateMeeting: (id: string, patch: Partial<Omit<Meeting, "id">>) => void;
+  toggleMeetingLock: (id: string) => void;
   deleteMeeting: (id: string) => void;
   assignTeam: (userId: string, teamId: string | null) => void;
   setRole: (userId: string, role: Profile["role"]) => void;
@@ -138,6 +140,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     rsvpFor: (meetingId, userId) =>
       db.rsvps.find((r) => r.meetingId === meetingId && r.userId === (userId ?? db.currentUserId)),
     setRsvp: (meetingId, status) => {
+      const target = db.meetings.find((m) => m.id === meetingId);
+      if (target?.locked && currentUser.role !== "Admin") return;
       setDb((d) => {
         const existing = d.rsvps.find(
           (r) => r.meetingId === meetingId && r.userId === d.currentUserId,
@@ -168,6 +172,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setDb((d) => ({ ...d, meetings: [{ ...m, id: uid() }, ...d.meetings] }));
       notify(`New meeting scheduled: ${m.title}.`, "neutral");
     },
+    updateMeeting: (id, patch) =>
+      setDb((d) => ({
+        ...d,
+        meetings: d.meetings.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      })),
+    toggleMeetingLock: (id) =>
+      setDb((d) => ({
+        ...d,
+        meetings: d.meetings.map((m) => (m.id === id ? { ...m, locked: !m.locked } : m)),
+      })),
+
     deleteMeeting: (id) =>
       setDb((d) => ({
         ...d,

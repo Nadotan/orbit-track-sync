@@ -22,12 +22,16 @@ export interface TimeEntry {
   description: string;
 }
 
+export type Recurrence = "none" | "daily" | "weekly" | "biweekly" | "monthly";
+
 export interface Meeting {
   id: string;
   title: string;
   date: string; // yyyy-MM-dd
   time: string; // HH:mm
   teamId: string | "general";
+  recurrence?: Recurrence;
+  locked?: boolean;
 }
 
 export type RsvpStatus = "Attending" | "Declined";
