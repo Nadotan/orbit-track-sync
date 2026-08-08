@@ -1,14 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type {
-  AppNotification,
-  Meeting,
-  Profile,
-  Rsvp,
-  RsvpStatus,
-  Team,
-  TimeEntry,
-} from "./types";
+import type { AppNotification, Meeting, Profile, Rsvp, RsvpStatus, Team, TimeEntry } from "./types";
 import {
   seedMeetings,
   seedNotifications,
@@ -18,7 +10,7 @@ import {
   seedTimeEntries,
 } from "./seed";
 
-const STORAGE_KEY = "chrona-mock-db-v2";
+const STORAGE_KEY = "chrona-mock-db-v3";
 
 interface DbShape {
   teams: Team[];
@@ -46,6 +38,29 @@ const initialDb: DbShape = {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+function isValidDb(value: unknown): value is DbShape {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Partial<DbShape>;
+  return (
+    Array.isArray(v.profiles) &&
+    v.profiles.every(
+      (p) =>
+        p &&
+        typeof p.id === "string" &&
+        typeof p.email === "string" &&
+        typeof p.password === "string" &&
+        typeof p.onboarded === "boolean",
+    ) &&
+    Array.isArray(v.teams) &&
+    Array.isArray(v.meetings) &&
+    Array.isArray(v.rsvps) &&
+    Array.isArray(v.notifications) &&
+    Array.isArray(v.timeEntries) &&
+    typeof v.currentUserId === "string" &&
+    (v.authUserId === null || typeof v.authUserId === "string")
+  );
+}
+
 export interface AuthResult {
   ok: boolean;
   error?: string;
@@ -66,6 +81,7 @@ interface AppStore extends DbShape {
   currentUser: Profile;
   isAuthenticated: boolean;
   needsOnboarding: boolean;
+  hydrated: boolean;
   setCurrentUserId: (id: string) => void;
   signUp: (input: SignUpInput) => AuthResult;
   signIn: (email: string, password: string) => AuthResult;
@@ -94,9 +110,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setDb({ ...initialDb, ...(JSON.parse(raw) as DbShape) });
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw);
+        if (isValidDb(parsed)) {
+          setDb(parsed);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
     } catch {
-      /* ignore */
+      localStorage.removeItem(STORAGE_KEY);
     }
     setHydrated(true);
   }, []);
@@ -107,8 +130,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [db, hydrated]);
 
   const currentUser = useMemo(
-    () =>
-      db.profiles.find((p) => p.id === (db.authUserId ?? db.currentUserId)) ?? db.profiles[0]!,
+    () => db.profiles.find((p) => p.id === (db.authUserId ?? db.currentUserId)) ?? db.profiles[0]!,
     [db.profiles, db.currentUserId, db.authUserId],
   );
 
@@ -138,6 +160,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     ...db,
     currentUser,
     teamName,
+    hydrated,
     isAuthenticated: db.authUserId !== null,
     needsOnboarding: db.authUserId !== null && !currentUser.onboarded,
     setCurrentUserId: (id) => setDb((d) => ({ ...d, currentUserId: id, authUserId: id })),

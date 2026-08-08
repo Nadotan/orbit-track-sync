@@ -10,6 +10,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -19,7 +20,6 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { AppHeader } from "@/components/app-header";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/bottom-nav";
-
 
 function NotFoundComponent() {
   return (
@@ -155,11 +155,12 @@ function RootComponent() {
 }
 
 function AuthGate() {
-  const { isAuthenticated, needsOnboarding } = useStore();
+  const { isAuthenticated, needsOnboarding, hydrated } = useStore();
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (!hydrated) return;
     if (!isAuthenticated && !PUBLIC_ROUTES.has(pathname)) {
       navigate({ to: "/sign-in", replace: true });
       return;
@@ -175,10 +176,21 @@ function AuthGate() {
     ) {
       navigate({ to: "/", replace: true });
     }
-  }, [isAuthenticated, needsOnboarding, pathname, navigate]);
+  }, [hydrated, isAuthenticated, needsOnboarding, pathname, navigate]);
+
+  if (!hydrated) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-background">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   const showAppShell =
-    isAuthenticated && !needsOnboarding && !PUBLIC_ROUTES.has(pathname) && pathname !== ONBOARDING_ROUTE;
+    isAuthenticated &&
+    !needsOnboarding &&
+    !PUBLIC_ROUTES.has(pathname) &&
+    pathname !== ONBOARDING_ROUTE;
 
   if (!showAppShell) {
     return (
