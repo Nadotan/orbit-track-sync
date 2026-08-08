@@ -170,6 +170,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setDb((d) => ({ ...d, meetings: [{ ...m, id: uid() }, ...d.meetings] }));
       notify(`New meeting scheduled: ${m.title}.`, "neutral");
     },
+    updateMeeting: (id, patch) =>
+      setDb((d) => ({
+        ...d,
+        meetings: d.meetings.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      })),
+    toggleMeetingLock: (id) =>
+      setDb((d) => ({
+        ...d,
+        meetings: d.meetings.map((m) => (m.id === id ? { ...m, locked: !m.locked } : m)),
+      })),
+
     deleteMeeting: (id) =>
       setDb((d) => ({
         ...d,
