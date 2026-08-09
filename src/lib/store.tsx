@@ -74,7 +74,7 @@ export interface AppStore extends Db {
   ) => Rsvp | undefined;
 
   createMeeting: (
-    m: Omit<Meeting, "id">,
+    meeting: Omit<Meeting, "id">,
   ) => void;
 
   updateMeeting: (
@@ -83,6 +83,7 @@ export interface AppStore extends Db {
   ) => void;
 
   toggleMeetingLock: (id: string) => void;
+
   deleteMeeting: (id: string) => void;
 
   assignTeam: (
@@ -122,9 +123,7 @@ export interface AppStore extends Db {
 const StoreContext =
   createContext<AppStore | null>(null);
 
-async function fetchDb(
-  userId: string,
-): Promise<Db> {
+async function fetchDb(): Promise<Db> {
   const [
     teams,
     profiles,
@@ -176,82 +175,85 @@ async function fetchDb(
     id: string,
   ): Profile["role"] =>
     (roles.data ?? []).some(
-      (r) =>
-        r.user_id === id &&
-        r.role === "admin",
+      (role) =>
+        role.user_id === id &&
+        role.role === "admin",
     )
       ? "Admin"
       : "User";
 
   return {
     teams: (teams.data ?? []).map(
-      (t) => ({
-        id: t.id,
-        name: t.name,
+      (team) => ({
+        id: team.id,
+        name: team.name,
       }),
     ),
 
     profiles: (
       profiles.data ?? []
-    ).map((p) => ({
-      id: p.id,
-      name: p.name,
-      email: p.email,
-      role: roleOf(p.id),
-      teamId: p.team_id,
-      avatarUrl: p.avatar_url,
-      onboarded: p.onboarded,
+    ).map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      role: roleOf(profile.id),
+      teamId: profile.team_id,
+      avatarUrl: profile.avatar_url,
+
+      /*
+       * Onboarding is NOT stored in profiles anymore.
+       * The current user's value is replaced below
+       * using Supabase Auth app_metadata.
+       */
+      onboarded: false,
     })),
 
     timeEntries: (
       entries.data ?? []
-    ).map((e) => ({
-      id: e.id,
-      userId: e.user_id,
-      startTime: e.start_time,
-      endTime: e.end_time,
-      durationMs: Number(e.duration_ms),
-      description: e.description,
+    ).map((entry) => ({
+      id: entry.id,
+      userId: entry.user_id,
+      startTime: entry.start_time,
+      endTime: entry.end_time,
+      durationMs: Number(entry.duration_ms),
+      description: entry.description,
     })),
 
     meetings: (
       meetings.data ?? []
-    ).map((m) => ({
-      id: m.id,
-      title: m.title,
-      date: m.date,
-      time: m.time,
+    ).map((meeting) => ({
+      id: meeting.id,
+      title: meeting.title,
+      date: meeting.date,
+      time: meeting.time,
       teamId:
-        m.team_id ?? "general",
+        meeting.team_id ?? "general",
       recurrence:
-        (m.recurrence ??
+        (meeting.recurrence ??
           "none") as Recurrence,
-      locked: m.locked ?? false,
+      locked: meeting.locked ?? false,
     })),
 
     rsvps: (
       rsvps.data ?? []
-    ).map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      meetingId: r.meeting_id,
-      status:
-        r.status as RsvpStatus,
-      createdAt: r.created_at,
+    ).map((rsvp) => ({
+      id: rsvp.id,
+      userId: rsvp.user_id,
+      meetingId: rsvp.meeting_id,
+      status: rsvp.status as RsvpStatus,
+      createdAt: rsvp.created_at,
     })),
 
     notifications: (
       notifications.data ?? []
-    ).map((n) => ({
-      id: n.id,
-      message: n.message,
-      createdAt: n.created_at,
-      read: n.read,
+    ).map((notification) => ({
+      id: notification.id,
+      message: notification.message,
+      createdAt: notification.created_at,
+      read: notification.read,
       tone:
-        n.tone as AppNotification["tone"],
+        notification.tone as AppNotification["tone"],
     })),
-
-    ...(userId ? {} : {}),
   };
 }
 
@@ -270,10 +272,31 @@ export function AppStoreProvider({
   const [
     activeSession,
     setActiveSession,
-  ] =
-    useState<ActiveSession | null>(
-      null,
+  ] = useState<ActiveSession | null>(
+    null,
+  );
+
+  /*
+   * Onboarding state now comes from Supabase Auth
+   * app_metadata instead of the profiles table.
+   */
+  const [
+    onboardingComplete,
+    setOnboardingComplete,
+  ] = useState(
+    session.user.app_metadata?.onboarded ===
+      true,
+  );
+
+  useEffect(() => {
+    setOnboardingComplete(
+      session.user.app_metadata?.onboarded ===
+        true,
     );
+  }, [
+    userId,
+    session.user.app_metadata?.onboarded,
+  ]);
 
   useEffect(() => {
     try {
@@ -282,20 +305,22 @@ export function AppStoreProvider({
           SESSION_KEY,
         );
 
-      if (raw) {
-        const parsed =
-          JSON.parse(
-            raw,
-          ) as ActiveSession;
+      if (!raw) {
+        return;
+      }
 
-        if (
-          parsed.userId === userId
-        ) {
-          setActiveSession(parsed);
-        }
+      const parsed =
+        JSON.parse(
+          raw,
+        ) as ActiveSession;
+
+      if (
+        parsed.userId === userId
+      ) {
+        setActiveSession(parsed);
       }
     } catch {
-      // Ignore invalid local data.
+      // Ignore invalid local storage data.
     }
   }, [userId]);
 
@@ -331,8 +356,7 @@ export function AppStoreProvider({
       userId,
     ],
 
-    queryFn: () =>
-      fetchDb(userId),
+    queryFn: fetchDb,
   });
 
   const db =
@@ -340,49 +364,60 @@ export function AppStoreProvider({
 
   const refresh =
     useCallback(() => {
-      void queryClient.invalidateQueries(
-        {
-          queryKey: [
-            "chrona-db",
-          ],
-        },
-      );
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "chrona-db",
+        ],
+      });
     }, [queryClient]);
 
   const currentUser: Profile =
-    useMemo(
-      () =>
+    useMemo(() => {
+      const databaseProfile =
         db.profiles.find(
-          (p) =>
-            p.id === userId,
-        ) ?? {
-          id: userId,
+          (profile) =>
+            profile.id === userId,
+        );
 
-          name:
-            session.user.email?.split(
-              "@",
-            )[0] ??
-            "You",
+      if (databaseProfile) {
+        return {
+          ...databaseProfile,
 
-          email:
-            session.user.email ??
-            "",
+          onboarded:
+            onboardingComplete,
+        };
+      }
 
-          role: "User",
+      return {
+        id: userId,
 
-          teamId: null,
+        name:
+          session.user.user_metadata
+            ?.name ??
+          session.user.email?.split(
+            "@",
+          )[0] ??
+          "You",
 
-          avatarUrl: null,
+        email:
+          session.user.email ?? "",
 
-          onboarded: false,
-        },
+        role: "User",
 
-      [
-        db.profiles,
-        userId,
-        session.user.email,
-      ],
-    );
+        teamId: null,
+
+        avatarUrl: null,
+
+        onboarded:
+          onboardingComplete,
+      };
+    }, [
+      db.profiles,
+      userId,
+      session.user.email,
+      session.user.user_metadata?.name,
+      onboardingComplete,
+    ]);
 
   const teamName =
     useCallback(
@@ -390,19 +425,27 @@ export function AppStoreProvider({
         teamId:
           | string
           | null,
-      ) =>
-        teamId === null
-          ? "Unassigned"
-          : teamId ===
-              "general"
-            ? "General"
-            : (db.teams.find(
-                  (t) =>
-                    t.id ===
-                    teamId,
-                )?.name ??
-              "Unassigned"),
+      ) => {
+        if (
+          teamId === null
+        ) {
+          return "Unassigned";
+        }
 
+        if (
+          teamId === "general"
+        ) {
+          return "General";
+        }
+
+        return (
+          db.teams.find(
+            (team) =>
+              team.id === teamId,
+          )?.name ??
+          "Unassigned"
+        );
+      },
       [db.teams],
     );
 
@@ -412,14 +455,22 @@ export function AppStoreProvider({
         message: string,
         tone: AppNotification["tone"],
       ) => {
-        await supabase
-          .from(
-            "notifications",
-          )
-          .insert({
-            message,
-            tone,
-          });
+        const { error } =
+          await supabase
+            .from(
+              "notifications",
+            )
+            .insert({
+              message,
+              tone,
+            });
+
+        if (error) {
+          console.error(
+            "Failed to create notification:",
+            error,
+          );
+        }
       },
       [],
     );
@@ -431,8 +482,12 @@ export function AppStoreProvider({
 
     currentUser,
 
+    /*
+     * This no longer depends on
+     * public.profiles.onboarded.
+     */
     needsOnboarding:
-      !currentUser.onboarded,
+      !onboardingComplete,
 
     activeSession,
 
@@ -440,15 +495,17 @@ export function AppStoreProvider({
 
     refresh,
 
-    startSession: () =>
+    startSession: () => {
       persistSession({
         userId,
         startTime:
           new Date().toISOString(),
-      }),
+      });
+    },
 
-    cancelSession: () =>
-      persistSession(null),
+    cancelSession: () => {
+      persistSession(null);
+    },
 
     stopSession: (
       description,
@@ -467,24 +524,36 @@ export function AppStoreProvider({
 
       persistSession(null);
 
-      void supabase
-        .from("time_entries")
-        .insert({
-          user_id: userId,
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("time_entries")
+            .insert({
+              user_id: userId,
 
-          start_time:
-            activeSession.startTime,
+              start_time:
+                activeSession.startTime,
 
-          end_time:
-            end.toISOString(),
+              end_time:
+                end.toISOString(),
 
-          duration_ms:
-            end.getTime() -
-            start.getTime(),
+              duration_ms:
+                end.getTime() -
+                start.getTime(),
 
-          description,
-        })
-        .then(refresh);
+              description,
+            });
+
+        if (error) {
+          console.error(
+            "Failed to save time entry:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
     },
 
     rsvpFor: (
@@ -492,10 +561,10 @@ export function AppStoreProvider({
       uid,
     ) =>
       db.rsvps.find(
-        (r) =>
-          r.meetingId ===
+        (rsvp) =>
+          rsvp.meetingId ===
             meetingId &&
-          r.userId ===
+          rsvp.userId ===
             (uid ?? userId),
       ),
 
@@ -505,8 +574,8 @@ export function AppStoreProvider({
     ) => {
       const meeting =
         db.meetings.find(
-          (m) =>
-            m.id ===
+          (candidate) =>
+            candidate.id ===
             meetingId,
         );
 
@@ -533,7 +602,6 @@ export function AppStoreProvider({
 
               status,
             },
-
             {
               onConflict:
                 "user_id,meeting_id",
@@ -564,32 +632,36 @@ export function AppStoreProvider({
       })();
     },
 
-    createMeeting: (m) => {
+    createMeeting: (
+      meeting,
+    ) => {
       void (async () => {
         const {
-          error:
-            meetingError,
+          error: meetingError,
         } = await supabase
           .from("meetings")
           .insert({
-            title: m.title,
+            title:
+              meeting.title,
 
-            date: m.date,
+            date:
+              meeting.date,
 
-            time: m.time,
+            time:
+              meeting.time,
 
             team_id:
-              m.teamId ===
+              meeting.teamId ===
               "general"
                 ? null
-                : m.teamId,
+                : meeting.teamId,
 
             recurrence:
-              m.recurrence ??
+              meeting.recurrence ??
               "none",
 
             locked:
-              m.locked ??
+              meeting.locked ??
               false,
           });
 
@@ -602,7 +674,7 @@ export function AppStoreProvider({
         }
 
         await notify(
-          `New meeting scheduled: ${m.title}.`,
+          `New meeting scheduled: ${meeting.title}.`,
           "neutral",
         );
 
@@ -614,62 +686,74 @@ export function AppStoreProvider({
       id,
       patch,
     ) => {
-      void supabase
-        .from("meetings")
-        .update({
-          ...(patch.title !==
-          undefined
-            ? {
-                title:
-                  patch.title,
-              }
-            : {}),
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("meetings")
+            .update({
+              ...(patch.title !==
+              undefined
+                ? {
+                    title:
+                      patch.title,
+                  }
+                : {}),
 
-          ...(patch.date !==
-          undefined
-            ? {
-                date:
-                  patch.date,
-              }
-            : {}),
+              ...(patch.date !==
+              undefined
+                ? {
+                    date:
+                      patch.date,
+                  }
+                : {}),
 
-          ...(patch.time !==
-          undefined
-            ? {
-                time:
-                  patch.time,
-              }
-            : {}),
+              ...(patch.time !==
+              undefined
+                ? {
+                    time:
+                      patch.time,
+                  }
+                : {}),
 
-          ...(patch.teamId !==
-          undefined
-            ? {
-                team_id:
-                  patch.teamId ===
-                  "general"
-                    ? null
-                    : patch.teamId,
-              }
-            : {}),
+              ...(patch.teamId !==
+              undefined
+                ? {
+                    team_id:
+                      patch.teamId ===
+                      "general"
+                        ? null
+                        : patch.teamId,
+                  }
+                : {}),
 
-          ...(patch.recurrence !==
-          undefined
-            ? {
-                recurrence:
-                  patch.recurrence,
-              }
-            : {}),
+              ...(patch.recurrence !==
+              undefined
+                ? {
+                    recurrence:
+                      patch.recurrence,
+                  }
+                : {}),
 
-          ...(patch.locked !==
-          undefined
-            ? {
-                locked:
-                  patch.locked,
-              }
-            : {}),
-        })
-        .eq("id", id)
-        .then(refresh);
+              ...(patch.locked !==
+              undefined
+                ? {
+                    locked:
+                      patch.locked,
+                  }
+                : {}),
+            })
+            .eq("id", id);
+
+        if (error) {
+          console.error(
+            "Failed to update meeting:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
     },
 
     toggleMeetingLock: (
@@ -677,45 +761,85 @@ export function AppStoreProvider({
     ) => {
       const meeting =
         db.meetings.find(
-          (m) => m.id === id,
+          (candidate) =>
+            candidate.id === id,
         );
 
       if (!meeting) {
         return;
       }
 
-      void supabase
-        .from("meetings")
-        .update({
-          locked:
-            !meeting.locked,
-        })
-        .eq("id", id)
-        .then(refresh);
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("meetings")
+            .update({
+              locked:
+                !meeting.locked,
+            })
+            .eq("id", id);
+
+        if (error) {
+          console.error(
+            "Failed to change meeting lock:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
     },
 
-    deleteMeeting: (id) => {
-      void supabase
-        .from("meetings")
-        .delete()
-        .eq("id", id)
-        .then(refresh);
+    deleteMeeting: (
+      id,
+    ) => {
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("meetings")
+            .delete()
+            .eq("id", id);
+
+        if (error) {
+          console.error(
+            "Failed to delete meeting:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
     },
 
     assignTeam: (
       targetUserId,
       teamId,
     ) => {
-      void supabase
-        .from("profiles")
-        .update({
-          team_id: teamId,
-        })
-        .eq(
-          "id",
-          targetUserId,
-        )
-        .then(refresh);
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("profiles")
+            .update({
+              team_id:
+                teamId,
+            })
+            .eq(
+              "id",
+              targetUserId,
+            );
+
+        if (error) {
+          console.error(
+            "Failed to assign team:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
     },
 
     setRole: (
@@ -723,7 +847,9 @@ export function AppStoreProvider({
       role,
     ) => {
       void (async () => {
-        await supabase
+        const {
+          error: deleteError,
+        } = await supabase
           .from("user_roles")
           .delete()
           .eq(
@@ -731,7 +857,17 @@ export function AppStoreProvider({
             targetUserId,
           );
 
-        await supabase
+        if (deleteError) {
+          console.error(
+            "Failed to remove old role:",
+            deleteError,
+          );
+          return;
+        }
+
+        const {
+          error: insertError,
+        } = await supabase
           .from("user_roles")
           .insert({
             user_id:
@@ -744,17 +880,39 @@ export function AppStoreProvider({
                 : "user",
           });
 
+        if (insertError) {
+          console.error(
+            "Failed to save role:",
+            insertError,
+          );
+          return;
+        }
+
         refresh();
       })();
     },
 
-    createTeam: (name) => {
-      void supabase
-        .from("teams")
-        .insert({
-          name,
-        })
-        .then(refresh);
+    createTeam: (
+      name,
+    ) => {
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("teams")
+            .insert({
+              name,
+            });
+
+        if (error) {
+          console.error(
+            "Failed to create team:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
     },
 
     markNotificationsRead:
@@ -766,50 +924,67 @@ export function AppStoreProvider({
           return;
         }
 
-        void supabase
-          .from(
-            "notifications",
-          )
-          .update({
-            read: true,
-          })
-          .eq("read", false)
-          .then(refresh);
+        void (async () => {
+          const { error } =
+            await supabase
+              .from(
+                "notifications",
+              )
+              .update({
+                read: true,
+              })
+              .eq(
+                "read",
+                false,
+              );
+
+          if (error) {
+            console.error(
+              "Failed to mark notifications as read:",
+              error,
+            );
+            return;
+          }
+
+          refresh();
+        })();
       },
 
-    updateOwnProfile: async (
-      patch,
-    ) => {
-      const { error } =
-        await supabase
-          .from("profiles")
-          .update({
-            ...(patch.name !==
-            undefined
-              ? {
-                  name:
-                    patch.name,
-                }
-              : {}),
+    updateOwnProfile:
+      async (patch) => {
+        const { error } =
+          await supabase
+            .from("profiles")
+            .update({
+              ...(patch.name !==
+              undefined
+                ? {
+                    name:
+                      patch.name,
+                  }
+                : {}),
 
-            ...(patch.avatarUrl !==
-            undefined
-              ? {
-                  avatar_url:
-                    patch.avatarUrl,
-                }
-              : {}),
-          })
-          .eq("id", userId);
+              ...(patch.avatarUrl !==
+              undefined
+                ? {
+                    avatar_url:
+                      patch.avatarUrl,
+                  }
+                : {}),
+            })
+            .eq(
+              "id",
+              userId,
+            );
 
-      if (error) {
-        throw new Error(
-          error.message,
-        );
-      }
+        if (error) {
+          throw new Error(
+            error.message,
+          );
+        }
 
-      refresh();
-    },
+        refresh();
+      },
 
     completeOnboarding:
       async ({
@@ -817,22 +992,14 @@ export function AppStoreProvider({
         teamId,
         avatarUrl,
       }) => {
-        /*
-         * This is now a protected server function.
-         *
-         * It creates the profile when missing and
-         * updates it when it already exists.
-         */
         const updatedProfile =
-          await completeOnboardingProfile(
-            {
-              data: {
-                name,
-                teamId,
-                avatarUrl,
-              },
+          await completeOnboardingProfile({
+            data: {
+              name,
+              teamId,
+              avatarUrl,
             },
-          );
+          });
 
         if (
           !updatedProfile ||
@@ -844,19 +1011,70 @@ export function AppStoreProvider({
         }
 
         /*
-         * Immediately update the current query cache,
-         * so needsOnboarding switches to false without
-         * waiting for a network refresh.
+         * The server changed app_metadata.
+         * Refresh the Supabase session so the new JWT
+         * contains onboarded: true.
+         */
+        const {
+          error:
+            refreshSessionError,
+        } =
+          await supabase.auth.refreshSession();
+
+        if (
+          refreshSessionError
+        ) {
+          console.warn(
+            "Profile completed but session refresh failed:",
+            refreshSessionError,
+          );
+        }
+
+        /*
+         * Update UI immediately.
+         */
+        setOnboardingComplete(
+          true,
+        );
+
+        /*
+         * Update the cached profile so the user sees the
+         * selected name/team/avatar immediately.
          */
         queryClient.setQueryData<Db>(
           [
             "chrona-db",
             userId,
           ],
-
           (previous) => {
             if (!previous) {
-              return previous;
+              return {
+                ...emptyDb,
+                profiles: [
+                  {
+                    id:
+                      updatedProfile.id,
+
+                    name:
+                      updatedProfile.name,
+
+                    email:
+                      updatedProfile.email,
+
+                    role:
+                      currentUser.role,
+
+                    teamId:
+                      updatedProfile.team_id,
+
+                    avatarUrl:
+                      updatedProfile.avatar_url,
+
+                    onboarded:
+                      true,
+                  },
+                ],
+              };
             }
 
             const existing =
@@ -888,12 +1106,14 @@ export function AppStoreProvider({
                   updatedProfile.avatar_url,
 
                 onboarded:
-                  updatedProfile.onboarded,
+                  true,
               };
 
             const hasProfile =
               previous.profiles.some(
-                (existingProfile) =>
+                (
+                  existingProfile,
+                ) =>
                   existingProfile.id ===
                   userId,
               );
@@ -920,17 +1140,15 @@ export function AppStoreProvider({
           },
         );
 
-        await queryClient.invalidateQueries(
-          {
-            queryKey: [
-              "chrona-db",
-              userId,
-            ],
+        await queryClient.invalidateQueries({
+          queryKey: [
+            "chrona-db",
+            userId,
+          ],
 
-            refetchType:
-              "none",
-          },
-        );
+          refetchType:
+            "none",
+        });
       },
 
     signOut: async () => {

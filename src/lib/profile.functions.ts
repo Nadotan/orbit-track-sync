@@ -29,23 +29,10 @@ export const completeOnboardingProfile = createServerFn({
   .middleware([requireSupabaseAuth])
   .validator(onboardingSchema)
   .handler(async ({ data, context }) => {
-    /*
-     * Important:
-     * client.server.ts is server-only and contains the
-     * Lovable-managed privileged Supabase connection.
-     *
-     * It is dynamically imported so none of the privileged
-     * server implementation can enter the browser bundle.
-     */
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
     );
 
-    /*
-     * The user ID is NOT supplied by the browser.
-     * requireSupabaseAuth verified the access token and supplied
-     * context.userId.
-     */
     const {
       data: { user },
       error: userError,
@@ -67,10 +54,6 @@ export const completeOnboardingProfile = createServerFn({
       );
     }
 
-    /*
-     * Do not allow a fake/non-existing team ID to be written
-     * using the privileged server client.
-     */
     if (data.teamId) {
       const {
         data: team,
@@ -93,13 +76,10 @@ export const completeOnboardingProfile = createServerFn({
     }
 
     /*
-     * Upsert instead of update:
+     * Save normal profile data.
      *
-     * - Existing profile -> update it
-     * - Missing profile -> create it
-     *
-     * This fixes the current onboarding bug where a user can
-     * authenticate successfully but has no row in public.profiles.
+     * Do NOT use profiles.onboarded because that column does
+     * not exist in the actual database.
      */
     const {
       data: profile,
@@ -113,14 +93,13 @@ export const completeOnboardingProfile = createServerFn({
           name: data.name,
           team_id: data.teamId,
           avatar_url: data.avatarUrl,
-          onboarded: true,
         },
         {
           onConflict: "id",
         },
       )
       .select(
-        "id, name, email, team_id, avatar_url, onboarded",
+        "id, name, email, team_id, avatar_url",
       )
       .single();
 
@@ -133,11 +112,36 @@ export const completeOnboardingProfile = createServerFn({
       throw new Error(profileError.message);
     }
 
-    if (!profile?.onboarded) {
+    /*
+     * Store onboarding completion in Supabase Auth app_metadata.
+     *
+     * This can only be changed here using the server-side
+     * admin client.
+     */
+    const { error: metadataError } =
+      await supabaseAdmin.auth.admin.updateUserById(
+        context.userId,
+        {
+          app_metadata: {
+            ...(user.app_metadata ?? {}),
+            onboarded: true,
+          },
+        },
+      );
+
+    if (metadataError) {
+      console.error(
+        "Failed to save onboarding status:",
+        metadataError,
+      );
+
       throw new Error(
-        "Your profile could not be completed. Please try again.",
+        `Profile was saved, but onboarding status failed: ${metadataError.message}`,
       );
     }
 
-    return profile;
+    return {
+      ...profile,
+      onboarded: true,
+    };
   });
