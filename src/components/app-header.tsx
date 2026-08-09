@@ -1,7 +1,9 @@
-import { Bell, ChevronDown, CircleCheck, CircleX, Info } from "lucide-react";
+import { Bell, ChevronDown, CircleCheck, CircleX, Info, LogOut } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -16,16 +18,21 @@ import { useStore } from "@/lib/store";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+function initials(name: string) {
+  return (
+    name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?"
+  );
+}
+
 export function AppHeader() {
-  const {
-    currentUser,
-    profiles,
-    setCurrentUserId,
-    notifications,
-    markNotificationsRead,
-    teamName,
-  } = useStore();
+  const { currentUser, notifications, markNotificationsRead, teamName, signOut } = useStore();
   const unread = notifications.filter((n) => !n.read).length;
+  const navigate = useNavigate();
 
   return (
     <header className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur sm:px-6">
@@ -95,6 +102,14 @@ export function AppHeader() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="gap-2">
+              <Avatar className="size-6">
+                {currentUser.avatarUrl && (
+                  <AvatarImage src={currentUser.avatarUrl} alt={currentUser.name} />
+                )}
+                <AvatarFallback className="bg-primary text-[10px] text-primary-foreground">
+                  {initials(currentUser.name)}
+                </AvatarFallback>
+              </Avatar>
               <Badge variant="secondary" className="hidden sm:inline-flex">
                 {currentUser.role}
               </Badge>
@@ -103,14 +118,16 @@ export function AppHeader() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Switch signed-in user (demo)</DropdownMenuLabel>
+            <DropdownMenuLabel className="truncate">{currentUser.email}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {profiles.map((p) => (
-              <DropdownMenuItem key={p.id} onSelect={() => setCurrentUserId(p.id)}>
-                <span className="flex-1 truncate">{p.name}</span>
-                <span className="text-xs text-muted-foreground">{p.role}</span>
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuItem
+              onSelect={() => {
+                void signOut();
+                navigate({ to: "/sign-in" });
+              }}
+            >
+              <LogOut className="size-4" /> Sign out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

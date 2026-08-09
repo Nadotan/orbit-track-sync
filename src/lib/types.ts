@@ -11,6 +11,8 @@ export interface Profile {
   email: string;
   role: Role;
   teamId: string | null;
+  avatarUrl: string | null;
+  onboarded: boolean;
 }
 
 export interface TimeEntry {

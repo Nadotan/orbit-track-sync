@@ -17,8 +17,8 @@ import { useStore } from "@/lib/store";
 import { formatDuration, formatHours, formatDateTime } from "@/lib/format";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/tracker")({
-  head: () => ({
+export const Route = createFileRoute("/_authenticated/")({
+    head: () => ({
     meta: [
       { title: "Time Tracker — Chrona" },
       {

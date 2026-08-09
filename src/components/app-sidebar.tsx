@@ -13,7 +13,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useStore } from "@/lib/store";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const items = [
   { title: "Time Tracker", url: "/", icon: Clock3, admin: false },
@@ -64,6 +64,9 @@ export function AppSidebar() {
       <SidebarFooter className="p-3">
         <div className="flex min-w-0 items-center gap-2.5 rounded-xl bg-sidebar-accent px-2.5 py-2">
           <Avatar className="size-8 shrink-0">
+            {currentUser.avatarUrl && (
+              <AvatarImage src={currentUser.avatarUrl} alt={currentUser.name} />
+            )}
             <AvatarFallback className="bg-sidebar-primary text-xs text-sidebar-primary-foreground">
               {currentUser.name
                 .split(" ")

@@ -7,6 +7,7 @@ import type {
   AppNotification,
   Meeting,
   Profile,
+  Recurrence,
   Rsvp,
   RsvpStatus,
   Team,
@@ -41,6 +42,7 @@ const emptyDb: Db = {
 export interface AppStore extends Db {
   currentUser: Profile;
   loading: boolean;
+  needsOnboarding: boolean;
   activeSession: ActiveSession | null;
   startSession: () => void;
   stopSession: (description: string) => void;
@@ -57,6 +59,11 @@ export interface AppStore extends Db {
   markNotificationsRead: () => void;
   teamName: (teamId: string | null) => string;
   updateOwnProfile: (patch: { name?: string; avatarUrl?: string | null }) => Promise<void>;
+  completeOnboarding: (patch: {
+    name: string;
+    teamId: string | null;
+    avatarUrl: string | null;
+  }) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => void;
 }
@@ -86,6 +93,7 @@ async function fetchDb(userId: string): Promise<Db> {
       role: roleOf(p.id),
       teamId: p.team_id,
       avatarUrl: p.avatar_url,
+      onboarded: p.onboarded,
     })),
     timeEntries: (entries.data ?? []).map((e) => ({
       id: e.id,
@@ -101,8 +109,8 @@ async function fetchDb(userId: string): Promise<Db> {
       date: m.date,
       time: m.time,
       teamId: m.team_id ?? "general",
-      recurrence: (m.recurrence ?? "none") as Meeting["recurrence"],
-      locked: m.locked,
+      recurrence: (m.recurrence ?? "none") as Recurrence,
+      locked: m.locked ?? false,
     })),
     rsvps: (rsvps.data ?? []).map((r) => ({
       id: r.id,
@@ -164,6 +172,7 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
         role: "User",
         teamId: null,
         avatarUrl: null,
+        onboarded: false,
       },
     [db.profiles, userId, session.user.email],
   );
@@ -186,6 +195,7 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
     ...db,
     loading: isLoading,
     currentUser,
+    needsOnboarding: !currentUser.onboarded,
     activeSession,
     teamName,
     refresh,
@@ -215,7 +225,10 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
       void (async () => {
         await supabase
           .from("rsvps")
-          .upsert({ user_id: userId, meeting_id: meetingId, status }, { onConflict: "user_id,meeting_id" });
+          .upsert(
+            { user_id: userId, meeting_id: meetingId, status },
+            { onConflict: "user_id,meeting_id" },
+          );
         await notify(
           status === "Attending"
             ? `${currentUser.name} is attending ${meeting?.title}.`
@@ -258,11 +271,7 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
     toggleMeetingLock: (id) => {
       const m = db.meetings.find((x) => x.id === id);
       if (!m) return;
-      void supabase
-        .from("meetings")
-        .update({ locked: !m.locked })
-        .eq("id", id)
-        .then(refresh);
+      void supabase.from("meetings").update({ locked: !m.locked }).eq("id", id).then(refresh);
     },
     deleteMeeting: (id) => {
       void supabase.from("meetings").delete().eq("id", id).then(refresh);
@@ -288,11 +297,7 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
     },
     markNotificationsRead: () => {
       if (currentUser.role !== "Admin") return;
-      void supabase
-        .from("notifications")
-        .update({ read: true })
-        .eq("read", false)
-        .then(refresh);
+      void supabase.from("notifications").update({ read: true }).eq("read", false).then(refresh);
     },
     updateOwnProfile: async (patch) => {
       await supabase
@@ -300,6 +305,18 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
         .update({
           ...(patch.name !== undefined ? { name: patch.name } : {}),
           ...(patch.avatarUrl !== undefined ? { avatar_url: patch.avatarUrl } : {}),
+        })
+        .eq("id", userId);
+      refresh();
+    },
+    completeOnboarding: async ({ name, teamId, avatarUrl }) => {
+      await supabase
+        .from("profiles")
+        .update({
+          name,
+          team_id: teamId,
+          avatar_url: avatarUrl,
+          onboarded: true,
         })
         .eq("id", userId);
       refresh();
