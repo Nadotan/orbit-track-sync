@@ -39,7 +39,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Meeting, Profile, Recurrence } from "@/lib/types";
 
-export const Route = createFileRoute("/meetings")({
+export const Route = createFileRoute("/_authenticated/meetings")({
   head: () => ({
     meta: [
       { title: "Meetings Hub — Chrona" },
