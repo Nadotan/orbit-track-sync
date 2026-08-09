@@ -36,7 +36,7 @@ import { useStore } from "@/lib/store";
 import { formatDateTime, formatHours } from "@/lib/format";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/admin")({
+export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
       { title: "Admin Dashboard — Chrona" },
