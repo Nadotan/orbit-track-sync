@@ -310,7 +310,7 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
       refresh();
     },
     completeOnboarding: async ({ name, teamId, avatarUrl }) => {
-      await supabase
+      const { data: updatedProfile, error } = await supabase
         .from("profiles")
         .update({
           name,
@@ -318,8 +318,26 @@ export function AppStoreProvider({ session, children }: { session: Session; chil
           avatar_url: avatarUrl,
           onboarded: true,
         })
-        .eq("id", userId);
-      refresh();
+        .eq("id", userId)
+        .select("id, name, email, team_id, avatar_url, onboarded")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      if (!updatedProfile?.onboarded) {
+        throw new Error("Onboarding was not saved. Please try again.");
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ["chrona-db", userId],
+      });
+
+      await queryClient.refetchQueries({
+        queryKey: ["chrona-db", userId],
+        type: "active",
+      });
     },
     signOut: async () => {
       persistSession(null);

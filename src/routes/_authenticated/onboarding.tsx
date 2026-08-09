@@ -98,12 +98,29 @@ function OnboardingPage() {
   }
 
   async function finish() {
-    setFinishing(true);
-    await completeOnboarding({ name: name.trim() || currentUser.name, teamId, avatarUrl });
-    setFinishing(false);
+  setFinishing(true);
+
+  try {
+    await completeOnboarding({
+      name: name.trim() || currentUser.name,
+      teamId,
+      avatarUrl,
+    });
+
     toast.success("You're all set — welcome to Chrona!");
     navigate({ to: "/" });
+  } catch (error) {
+    console.error("Failed to complete onboarding:", error);
+
+    toast.error(
+      error instanceof Error
+        ? error.message
+        : "Could not save your profile. Please try again.",
+    );
+  } finally {
+    setFinishing(false);
   }
+}
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10 sm:px-6">
