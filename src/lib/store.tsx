@@ -284,18 +284,18 @@ export function AppStoreProvider({
     onboardingComplete,
     setOnboardingComplete,
   ] = useState(
-    session.user.app_metadata?.onboarded ===
+    session.user.app_metadata?.['onboarded'] ===
       true,
   );
 
   useEffect(() => {
     setOnboardingComplete(
-      session.user.app_metadata?.onboarded ===
+      session.user.app_metadata?.['onboarded'] ===
         true,
     );
   }, [
     userId,
-    session.user.app_metadata?.onboarded,
+    session.user.app_metadata?.['onboarded'],
   ]);
 
   useEffect(() => {
@@ -393,7 +393,7 @@ export function AppStoreProvider({
 
         name:
           session.user.user_metadata
-            ?.name ??
+            ?.['name'] ??
           session.user.email?.split(
             "@",
           )[0] ??
@@ -415,7 +415,7 @@ export function AppStoreProvider({
       db.profiles,
       userId,
       session.user.email,
-      session.user.user_metadata?.name,
+      session.user.user_metadata?.['name'],
       onboardingComplete,
     ]);
 
