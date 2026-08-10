@@ -20,6 +20,7 @@ import {
   markTimerStopped,
   notifyMeetingCreated,
   notifyRsvpChange,
+  sweepReminders,
 } from "./push.functions";
 
 import type {
@@ -303,6 +304,12 @@ export function AppStoreProvider({
     userId,
     session.user.app_metadata?.['onboarded'],
   ]);
+
+  useEffect(() => {
+    void sweepReminders().catch(
+      () => undefined,
+    );
+  }, [userId]);
 
   useEffect(() => {
     try {
