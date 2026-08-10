@@ -18,6 +18,7 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedMeetingsRouteImport } from './routes/_authenticated/meetings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedTrackerRouteImport } from './routes/_authenticated/tracker'
+import { Route as ApiPublicCronRemindersRouteImport } from './routes/api/public/cron/reminders'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -63,6 +64,11 @@ const AuthenticatedTrackerRoute = AuthenticatedTrackerRouteImport.update({
   path: '/tracker',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const ApiPublicCronRemindersRoute = ApiPublicCronRemindersRouteImport.update({
+  id: '/api/public/cron/reminders',
+  path: '/api/public/cron/reminders',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/tracker': typeof AuthenticatedTrackerRoute
+  '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
 export interface FileRoutesByTo {
   '/auth-callback': typeof AuthCallbackRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/tracker': typeof AuthenticatedTrackerRoute
   '/': typeof AuthenticatedIndexRoute
+  '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/tracker': typeof AuthenticatedTrackerRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/meetings'
     | '/onboarding'
     | '/tracker'
+    | '/api/public/cron/reminders'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth-callback'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/tracker'
     | '/'
+    | '/api/public/cron/reminders'
   id:
     | '__root__'
     | '/_authenticated'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/_authenticated/onboarding'
     | '/_authenticated/tracker'
     | '/_authenticated/'
+    | '/api/public/cron/reminders'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -135,6 +147,7 @@ export interface RootRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
+  ApiPublicCronRemindersRoute: typeof ApiPublicCronRemindersRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -202,6 +215,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTrackerRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/api/public/cron/reminders': {
+      id: '/api/public/cron/reminders'
+      path: '/api/public/cron/reminders'
+      fullPath: '/api/public/cron/reminders'
+      preLoaderRoute: typeof ApiPublicCronRemindersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -230,17 +250,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
+  ApiPublicCronRemindersRoute: ApiPublicCronRemindersRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

@@ -15,6 +15,13 @@ import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
 import { completeOnboardingProfile } from "./profile.functions";
+import {
+  markTimerRunning,
+  markTimerStopped,
+  notifyMeetingCreated,
+  notifyRsvpChange,
+  sweepReminders,
+} from "./push.functions";
 
 import type {
   AppNotification,
@@ -284,19 +291,25 @@ export function AppStoreProvider({
     onboardingComplete,
     setOnboardingComplete,
   ] = useState(
-    session.user.app_metadata?.onboarded ===
+    session.user.app_metadata?.['onboarded'] ===
       true,
   );
 
   useEffect(() => {
     setOnboardingComplete(
-      session.user.app_metadata?.onboarded ===
+      session.user.app_metadata?.['onboarded'] ===
         true,
     );
   }, [
     userId,
-    session.user.app_metadata?.onboarded,
+    session.user.app_metadata?.['onboarded'],
   ]);
+
+  useEffect(() => {
+    void sweepReminders().catch(
+      () => undefined,
+    );
+  }, [userId]);
 
   useEffect(() => {
     try {
@@ -393,7 +406,7 @@ export function AppStoreProvider({
 
         name:
           session.user.user_metadata
-            ?.name ??
+            ?.['name'] ??
           session.user.email?.split(
             "@",
           )[0] ??
@@ -415,7 +428,7 @@ export function AppStoreProvider({
       db.profiles,
       userId,
       session.user.email,
-      session.user.user_metadata?.name,
+      session.user.user_metadata?.['name'],
       onboardingComplete,
     ]);
 
@@ -496,15 +509,25 @@ export function AppStoreProvider({
     refresh,
 
     startSession: () => {
+      const startTime =
+        new Date().toISOString();
+
       persistSession({
         userId,
-        startTime:
-          new Date().toISOString(),
+        startTime,
       });
+
+      void markTimerRunning({
+        data: { startedAt: startTime },
+      }).catch(() => undefined);
     },
 
     cancelSession: () => {
       persistSession(null);
+
+      void markTimerStopped().catch(
+        () => undefined,
+      );
     },
 
     stopSession: (
@@ -523,6 +546,10 @@ export function AppStoreProvider({
         );
 
       persistSession(null);
+
+      void markTimerStopped().catch(
+        () => undefined,
+      );
 
       void (async () => {
         const { error } =
@@ -587,6 +614,14 @@ export function AppStoreProvider({
         return;
       }
 
+      const previous =
+        db.rsvps.find(
+          (rsvp) =>
+            rsvp.meetingId ===
+              meetingId &&
+            rsvp.userId === userId,
+        )?.status ?? null;
+
       void (async () => {
         const {
           error: rsvpError,
@@ -628,6 +663,17 @@ export function AppStoreProvider({
             : "negative",
         );
 
+        void notifyRsvpChange({
+          data: {
+            meetingId,
+            status,
+            previousStatus:
+              previous,
+          },
+        }).catch(
+          () => undefined,
+        );
+
         refresh();
       })();
     },
@@ -637,6 +683,7 @@ export function AppStoreProvider({
     ) => {
       void (async () => {
         const {
+          data: createdMeeting,
           error: meetingError,
         } = await supabase
           .from("meetings")
@@ -663,7 +710,9 @@ export function AppStoreProvider({
             locked:
               meeting.locked ??
               false,
-          });
+          })
+          .select("id")
+          .maybeSingle();
 
         if (meetingError) {
           console.error(
@@ -677,6 +726,17 @@ export function AppStoreProvider({
           `New meeting scheduled: ${meeting.title}.`,
           "neutral",
         );
+
+        if (createdMeeting?.id) {
+          void notifyMeetingCreated({
+            data: {
+              meetingId:
+                createdMeeting.id,
+            },
+          }).catch(
+            () => undefined,
+          );
+        }
 
         refresh();
       })();
