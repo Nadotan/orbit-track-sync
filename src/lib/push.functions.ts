@@ -19,8 +19,8 @@ const meetingSchema = z.object({
 
 const rsvpChangeSchema = z.object({
   meetingId: z.string().uuid(),
-  status: z.enum(["Attending", "Not attending"]),
-  previousStatus: z.enum(["Attending", "Not attending"]).nullable(),
+  status: z.enum(["Attending", "Declined"]),
+  previousStatus: z.enum(["Attending", "Declined"]).nullable(),
 });
 
 const timerSchema = z.object({
