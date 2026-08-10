@@ -51,14 +51,17 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
 
       try {
         const request = await buildPushPayload(
-          { data: payload, options: { ttl: 60 * 60 * 12 } },
+          {
+            data: { ...payload } as Record<string, string>,
+            options: { ttl: 60 * 60 * 12 },
+          },
           subscription,
           vapid,
         );
 
         const response = await fetch(row.endpoint, {
           method: request.method,
-          headers: request.headers,
+          headers: request.headers as unknown as HeadersInit,
           body: request.body as BodyInit,
         });
 
