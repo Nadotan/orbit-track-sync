@@ -160,3 +160,11 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
 
     return { sent };
   });
+
+/** Opportunistic reminder sweep, triggered when a signed-in user opens the app. */
+export const sweepReminders = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { runReminderSweepThrottled } = await import("./push.server");
+    return runReminderSweepThrottled();
+  });

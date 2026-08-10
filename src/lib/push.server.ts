@@ -120,9 +120,6 @@ let lastSweep = 0;
 
 /** Runs the reminder sweep: long-running clocks and un-answered upcoming meetings. */
 export async function runReminderSweep() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { sendPushToUsers, audienceForMeeting } = await import("@/lib/push.server");
-
   const now = Date.now();
   let clockReminders = 0;
   let rsvpReminders = 0;
@@ -208,4 +205,12 @@ export async function runReminderSweep() {
   }
 
   return { clockReminders, rsvpReminders };
+}
+
+/** Sweep at most once every 15 minutes, for opportunistic triggers from the app. */
+export async function runReminderSweepThrottled() {
+  const now = Date.now();
+  if (now - lastSweep < 15 * 60 * 1000) return { skipped: true };
+  lastSweep = now;
+  return runReminderSweep();
 }
