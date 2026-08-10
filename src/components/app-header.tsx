@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { PushToggle } from "@/components/push-toggle";
 import { useStore } from "@/lib/store";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,8 @@ export function AppHeader() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        <PushToggle />
+
         {currentUser.role === "Admin" && (
           <Sheet onOpenChange={(o) => o && markNotificationsRead()}>
             <SheetTrigger asChild>
