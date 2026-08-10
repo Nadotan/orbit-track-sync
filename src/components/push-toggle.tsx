@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
@@ -53,7 +54,8 @@ export function PushToggle() {
   };
 
   return (
-    <Tooltip>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
       <TooltipTrigger asChild>
         <Button
           variant="outline"
@@ -72,6 +74,7 @@ export function PushToggle() {
       <TooltipContent>
         {enabled ? "Push notifications on" : "Turn on push notifications"}
       </TooltipContent>
-    </Tooltip>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
