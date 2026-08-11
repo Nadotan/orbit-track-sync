@@ -438,7 +438,8 @@ export function AppStoreProvider({
       userId,
     ],
 
-    queryFn: fetchDb,
+    queryFn: () =>
+      fetchDb(userId),
   });
 
   const db =
