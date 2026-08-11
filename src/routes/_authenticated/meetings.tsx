@@ -42,12 +42,12 @@ import type { Meeting, Profile, Recurrence } from "@/lib/types";
 export const Route = createFileRoute("/_authenticated/meetings")({
   head: () => ({
     meta: [
-      { title: "Meetings Hub — Chrona" },
+      { title: "Meetings Hub — POM" },
       {
         name: "description",
         content: "See who is attending your team meetings, RSVP in one tap and review history.",
       },
-      { property: "og:title", content: "Meetings Hub — Chrona" },
+      { property: "og:title", content: "Meetings Hub — POM" },
       {
         property: "og:description",
         content: "Upcoming meetings filtered to your team, attendee lists and past meeting history.",

@@ -33,7 +33,7 @@ export function AppSidebar() {
             <Timer className="size-5" />
           </div>
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="truncate font-display text-base font-semibold">Chrona</p>
+            <p className="truncate font-display text-base font-semibold">POM</p>
             <p className="truncate text-xs text-sidebar-foreground/60">Org &amp; Time Ops</p>
           </div>
         </div>

@@ -103,16 +103,16 @@ export const Route = createRootRouteWithContext<{
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "Chrona — Time Tracking & Team Operations",
+        title: "POM — Time Tracking & Team Operations",
       },
       {
         name: "description",
         content:
-          "Chrona brings time tracking, meeting RSVPs and team analytics into one modern workspace.",
+          "POM brings time tracking, meeting RSVPs and team analytics into one modern workspace.",
       },
       {
         property: "og:title",
-        content: "Chrona — Time Tracking & Team Operations",
+        content: "POM — Time Tracking & Team Operations",
       },
       {
         property: "og:description",
@@ -145,7 +145,7 @@ export const Route = createRootRouteWithContext<{
       },
       {
         name: "apple-mobile-web-app-title",
-        content: "Chrona",
+        content: "POM",
       },
     ],
 

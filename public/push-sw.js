@@ -1,4 +1,4 @@
-/* Chrona push messaging service worker.
+/* POM push messaging service worker.
  * Handles web-push delivery only — it does not cache the app shell. */
 
 self.addEventListener("install", () => {
@@ -15,10 +15,10 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch (error) {
-    data = { title: "Chrona", body: event.data ? event.data.text() : "" };
+    data = { title: "POM", body: event.data ? event.data.text() : "" };
   }
 
-  const title = data.title || "Chrona";
+  const title = data.title || "POM";
 
   event.waitUntil(
     self.registration.showNotification(title, {

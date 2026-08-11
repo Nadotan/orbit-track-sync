@@ -11,14 +11,20 @@ const onboardingSchema = z.object({
 
   teamId: z.string().uuid().nullable(),
 
+  /*
+   * Either a storage object path inside the private avatars
+   * bucket ("<user-id>/avatar-123.jpg") or an absolute URL.
+   */
   avatarUrl: z
     .string()
-    .url()
+    .trim()
+    .min(1)
+    .max(500)
     .refine(
       (value) =>
-        value.startsWith("https://") ||
-        value.startsWith("http://"),
-      "Invalid avatar URL.",
+        /^https?:\/\//i.test(value) ||
+        /^[A-Za-z0-9._\-/]+$/.test(value),
+      "Invalid avatar reference.",
     )
     .nullable(),
 });

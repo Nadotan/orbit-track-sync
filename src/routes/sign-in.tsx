@@ -21,7 +21,7 @@ export const Route = createFileRoute("/sign-in")({
   head: () => ({
     meta: [
       {
-        title: "Sign in — Chrona",
+        title: "Sign in — POM",
       },
     ],
   }),
@@ -93,7 +93,7 @@ function SignInPage() {
   return (
     <AuthShell
       eyebrow="Welcome back"
-      title="Sign in to Chrona"
+      title="Sign in to POM"
       subtitle="Enter your credentials to access your workspace."
     >
       <form

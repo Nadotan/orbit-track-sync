@@ -17,12 +17,13 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useStore } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
+import { signAvatarPath } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
   head: () => ({
-    meta: [{ title: "Welcome to Chrona" }],
+    meta: [{ title: "Welcome to POM" }],
   }),
   component: OnboardingPage,
 });
@@ -49,6 +50,7 @@ function OnboardingPage() {
   const [name, setName] = useState(currentUser.name);
   const [teamId, setTeamId] = useState<string | null>(currentUser.teamId);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(currentUser.avatarUrl);
+  const [avatarPath, setAvatarPath] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
@@ -80,8 +82,8 @@ function OnboardingPage() {
       return;
     }
 
-    const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-    setAvatarUrl(data.publicUrl);
+    setAvatarPath(path);
+    setAvatarUrl(await signAvatarPath(path));
     toast.success("Photo uploaded");
   }
 
@@ -104,10 +106,10 @@ function OnboardingPage() {
     await completeOnboarding({
       name: name.trim() || currentUser.name,
       teamId,
-      avatarUrl,
+      avatarUrl: avatarPath,
     });
 
-    toast.success("You're all set — welcome to Chrona!");
+    toast.success("You're all set — welcome to POM!");
     navigate({ to: "/" });
   } catch (error) {
     console.error("Failed to complete onboarding:", error);
@@ -138,7 +140,7 @@ function OnboardingPage() {
         {step === 0 && (
           <div className="space-y-5">
             <div>
-              <h1 className="text-2xl font-semibold">Welcome to Chrona</h1>
+              <h1 className="text-2xl font-semibold">Welcome to POM</h1>
               <p className="mt-1.5 text-sm text-muted-foreground">
                 Let's get your profile ready. This only takes a minute.
               </p>
@@ -254,7 +256,7 @@ function OnboardingPage() {
                 You're all set, {name.split(" ")[0] || "there"}
               </h1>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                Here's a quick look at what you can do in Chrona.
+                Here's a quick look at what you can do in POM.
               </p>
             </div>
 

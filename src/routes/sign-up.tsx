@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  MailCheck,
   UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ export const Route = createFileRoute("/sign-up")({
     meta: [
       {
         title:
-          "Create your account — Chrona",
+          "Create your account — POM",
       },
     ],
   }),
@@ -48,6 +49,10 @@ function SignUpPage() {
   const [error, setError] =
     useState<string | null>(null);
   const [submitting, setSubmitting] =
+    useState(false);
+  const [verifyEmail, setVerifyEmail] =
+    useState<string | null>(null);
+  const [resending, setResending] =
     useState(false);
 
   async function handleSubmit(
@@ -107,15 +112,7 @@ function SignUpPage() {
        * but does not return a session yet.
        */
       if (!data.session) {
-        toast.success(
-          "Check your inbox to confirm your email.",
-        );
-
-        await navigate({
-          to: "/sign-in",
-          replace: true,
-        });
-
+        setVerifyEmail(email.trim());
         return;
       }
 
@@ -145,6 +142,97 @@ function SignUpPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleResend() {
+    if (!verifyEmail || resending) return;
+
+    setResending(true);
+
+    try {
+      const { error: resendError } =
+        await supabase.auth.resend({
+          type: "signup",
+          email: verifyEmail,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth-callback`,
+          },
+
+        });
+
+      if (resendError) throw resendError;
+
+      toast.success(
+        "Verification email sent again.",
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Could not resend the email.",
+      );
+    } finally {
+      setResending(false);
+    }
+  }
+
+  if (verifyEmail) {
+    return (
+      <AuthShell
+        eyebrow="One last step"
+        title="Verify your email"
+        subtitle="Your account is created — confirm your email address to activate it."
+      >
+        <div className="space-y-5">
+          <div className="flex items-start gap-3 rounded-2xl bg-accent p-4 text-left">
+            <MailCheck className="mt-0.5 size-5 shrink-0 text-primary" />
+
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                We sent a verification link to{" "}
+                <span className="text-primary">
+                  {verifyEmail}
+                </span>
+              </p>
+
+              <p className="text-sm text-muted-foreground">
+                Open the email and tap the link to
+                finish setting up your account. It
+                can take a minute to arrive — check
+                your spam folder too.
+              </p>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full rounded-full"
+            onClick={handleResend}
+            disabled={resending}
+          >
+            {resending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <MailCheck className="size-4" />
+            )}
+
+            {resending
+              ? "Sending..."
+              : "Resend verification email"}
+          </Button>
+
+          <Button
+            asChild
+            className="w-full rounded-full"
+          >
+            <Link to="/sign-in">
+              I've verified — sign in
+            </Link>
+          </Button>
+        </div>
+      </AuthShell>
+    );
   }
 
   return (
