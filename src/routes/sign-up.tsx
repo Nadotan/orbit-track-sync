@@ -22,7 +22,7 @@ export const Route = createFileRoute("/sign-up")({
     meta: [
       {
         title:
-          "Create your account — Chrona",
+          "Create your account — POM",
       },
     ],
   }),

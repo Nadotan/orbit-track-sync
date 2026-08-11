@@ -225,7 +225,7 @@ export function ClockPushMonitor() {
        * Example:
        *
        * Clock started 4 hours ago,
-       * Chrona was closed,
+       * POM was closed,
        * user opens it now.
        *
        * Ask the server if a reminder is due.

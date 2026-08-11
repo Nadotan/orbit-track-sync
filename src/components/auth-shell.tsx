@@ -25,7 +25,7 @@ export function AuthShell({
           <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15">
             <Timer className="size-5" />
           </div>
-          <p className="font-display text-lg font-semibold">Chrona</p>
+          <p className="font-display text-lg font-semibold">POM</p>
         </div>
 
         <div className="max-w-sm space-y-6">
@@ -45,7 +45,7 @@ export function AuthShell({
         </div>
 
         <p className="text-xs text-white/60">
-          © {new Date().getFullYear()} Chrona. All rights reserved.
+          © {new Date().getFullYear()} POM. All rights reserved.
         </p>
       </div>
 
@@ -55,7 +55,7 @@ export function AuthShell({
             <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
               <Timer className="size-5" />
             </div>
-            <p className="font-display text-lg font-semibold">Chrona</p>
+            <p className="font-display text-lg font-semibold">POM</p>
           </div>
 
           <div>

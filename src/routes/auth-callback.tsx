@@ -12,7 +12,7 @@ export const Route = createFileRoute("/auth-callback")({
   head: () => ({
     meta: [
       {
-        title: "Confirming your account — Chrona",
+        title: "Confirming your account — POM",
       },
     ],
   }),
@@ -156,7 +156,7 @@ function AuthCallbackPage() {
           </h1>
 
           <p className="mt-2 text-sm text-muted-foreground">
-            Please wait while we finish setting up your Chrona account.
+            Please wait while we finish setting up your POM account.
           </p>
 
           <Loader2 className="mx-auto mt-6 size-6 animate-spin text-primary" />
@@ -179,7 +179,7 @@ function AuthCallbackPage() {
 
           <p className="mt-2 text-sm text-muted-foreground">
             Your email has been confirmed successfully. Sign in to
-            continue to Chrona.
+            continue to POM.
           </p>
 
           <Button asChild className="mt-6 rounded-full">

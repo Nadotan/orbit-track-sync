@@ -22,7 +22,7 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
   head: () => ({
-    meta: [{ title: "Welcome to Chrona" }],
+    meta: [{ title: "Welcome to POM" }],
   }),
   component: OnboardingPage,
 });
@@ -107,7 +107,7 @@ function OnboardingPage() {
       avatarUrl,
     });
 
-    toast.success("You're all set — welcome to Chrona!");
+    toast.success("You're all set — welcome to POM!");
     navigate({ to: "/" });
   } catch (error) {
     console.error("Failed to complete onboarding:", error);
@@ -138,7 +138,7 @@ function OnboardingPage() {
         {step === 0 && (
           <div className="space-y-5">
             <div>
-              <h1 className="text-2xl font-semibold">Welcome to Chrona</h1>
+              <h1 className="text-2xl font-semibold">Welcome to POM</h1>
               <p className="mt-1.5 text-sm text-muted-foreground">
                 Let's get your profile ready. This only takes a minute.
               </p>
@@ -254,7 +254,7 @@ function OnboardingPage() {
                 You're all set, {name.split(" ")[0] || "there"}
               </h1>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                Here's a quick look at what you can do in Chrona.
+                Here's a quick look at what you can do in POM.
               </p>
             </div>
 

@@ -291,7 +291,7 @@ export async function adminUserIds() {
 }
 
 /**
- * Called when Chrona is closed while
+ * Called when POM is closed while
  * the user's clock is still running.
  *
  * This DOES NOT stop the clock.
@@ -382,7 +382,7 @@ export async function sendClockClosedPush(
         "Your clock is still running",
 
       body:
-        `You closed Chrona, but your clock is still running (${timeText}).`,
+        `You closed POM, but your clock is still running (${timeText}).`,
 
       url:
         "/",

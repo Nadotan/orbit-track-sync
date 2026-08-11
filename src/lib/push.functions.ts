@@ -337,7 +337,7 @@ export const sendClockReminder =
 /**
  * New meeting -> immediate Web Push.
  *
- * Recipients do not need Chrona open.
+ * Recipients do not need POM open.
  */
 export const notifyMeetingCreated =
   createServerFn({

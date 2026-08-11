@@ -36,7 +36,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
-      { title: "Time Tracker — Chrona" },
+      { title: "Time Tracker — POM" },
       {
         name: "description",
         content:
@@ -44,7 +44,7 @@ export const Route = createFileRoute("/_authenticated/")({
       },
       {
         property: "og:title",
-        content: "Time Tracker — Chrona",
+        content: "Time Tracker — POM",
       },
       {
         property: "og:description",

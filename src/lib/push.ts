@@ -43,7 +43,7 @@ export async function getPushSubscription() {
 export async function enablePush() {
   if (!isPushSupported()) {
     throw new Error(
-      "Push notifications aren't supported here. On iPhone, add Chrona to your home screen first.",
+      "Push notifications aren't supported here. On iPhone, add POM to your home screen first.",
     );
   }
 
