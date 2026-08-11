@@ -16,6 +16,10 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { completeOnboardingProfile } from "./profile.functions";
 import {
+  getAdminDirectory,
+  setUserRole,
+} from "./admin.functions";
+import {
   markTimerRunning,
   markTimerStopped,
   notifyMeetingCreated,
