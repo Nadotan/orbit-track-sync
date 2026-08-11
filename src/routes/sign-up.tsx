@@ -155,11 +155,9 @@ function SignUpPage() {
           type: "signup",
           email: verifyEmail,
           options: {
-            emailRedirectTo:
-              typeof window !== "undefined"
-                ? `${window.location.origin}/auth-callback`
-                : undefined,
+            emailRedirectTo: `${window.location.origin}/auth-callback`,
           },
+
         });
 
       if (resendError) throw resendError;
