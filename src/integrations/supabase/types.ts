@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       active_timers: {
         Row: {
+          closed_notified_at: string | null
           created_at: string
           last_reminded_at: string | null
           started_at: string
@@ -23,6 +24,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          closed_notified_at?: string | null
           created_at?: string
           last_reminded_at?: string | null
           started_at?: string
@@ -30,6 +32,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          closed_notified_at?: string | null
           created_at?: string
           last_reminded_at?: string | null
           started_at?: string

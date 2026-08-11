@@ -296,6 +296,9 @@ export async function adminUserIds() {
  *
  * This DOES NOT stop the clock.
  */
+const CLOSED_PUSH_COOLDOWN_MS =
+  30 * 60 * 1000;
+
 export async function sendClockClosedPush(
   userId: string,
 ) {
@@ -308,7 +311,7 @@ export async function sendClockClosedPush(
         "active_timers",
       )
       .select(
-        "started_at",
+        "started_at, closed_notified_at",
       )
       .eq(
         "user_id",
@@ -326,6 +329,27 @@ export async function sendClockClosedPush(
   }
 
   if (!timer) {
+    return 0;
+  }
+
+  /*
+   * Leaving the app briefly (switching apps,
+   * locking the phone) can fire this more than
+   * once — only warn every 30 minutes.
+   */
+  const lastClosedPush =
+    timer.closed_notified_at
+      ? new Date(
+          timer.closed_notified_at,
+        ).getTime()
+      : null;
+
+  if (
+    lastClosedPush !== null &&
+    Number.isFinite(lastClosedPush) &&
+    Date.now() - lastClosedPush <
+      CLOSED_PUSH_COOLDOWN_MS
+  ) {
     return 0;
   }
 
@@ -375,22 +399,50 @@ export async function sendClockClosedPush(
       }`;
   }
 
-  return sendPushToUsers(
-    [userId],
-    {
-      title:
-        "Your clock is still running",
+  const sent =
+    await sendPushToUsers(
+      [userId],
+      {
+        title:
+          "Your clock is still running",
 
-      body:
-        `You closed POM, but your clock is still running (${timeText}).`,
+        body:
+          `You closed POM, but your clock is still running (${timeText}).`,
 
-      url:
-        "/",
+        url:
+          "/",
 
-      tag:
-        "clock-app-closed",
-    },
-  );
+        tag:
+          "clock-app-closed",
+      },
+    );
+
+  if (sent > 0) {
+    const {
+      error: updateError,
+    } =
+      await supabaseAdmin
+        .from(
+          "active_timers",
+        )
+        .update({
+          closed_notified_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "user_id",
+          userId,
+        );
+
+    if (updateError) {
+      console.error(
+        "[push] Failed to record closed-app reminder",
+        updateError,
+      );
+    }
+  }
+
+  return sent;
 }
 
 /**

@@ -1,0 +1,1 @@
+ALTER TABLE public.active_timers ADD COLUMN IF NOT EXISTS closed_notified_at timestamptz;
