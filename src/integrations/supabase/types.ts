@@ -81,6 +81,7 @@ export type Database = {
       }
       notifications: {
         Row: {
+          actor_id: string | null
           created_at: string
           id: string
           message: string
@@ -88,6 +89,7 @@ export type Database = {
           tone: string
         }
         Insert: {
+          actor_id?: string | null
           created_at?: string
           id?: string
           message: string
@@ -95,6 +97,7 @@ export type Database = {
           tone?: string
         }
         Update: {
+          actor_id?: string | null
           created_at?: string
           id?: string
           message?: string
@@ -303,13 +306,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
-      }
+      [_ in never]: never
     }
     Enums: {
       app_role: "admin" | "user"
