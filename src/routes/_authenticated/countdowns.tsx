@@ -54,7 +54,7 @@ const GLOBAL_COUNTDOWN:
     "pom-global-countdown",
 
   title:
-    "The Countdown",
+    "Kickoff 2027🥳💜",
 
   subtitle:
     "Piece Of Mind",
