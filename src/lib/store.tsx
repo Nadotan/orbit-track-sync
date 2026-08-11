@@ -977,43 +977,22 @@ export function AppStoreProvider({
       role,
     ) => {
       void (async () => {
-        const {
-          error: deleteError,
-        } = await supabase
-          .from("user_roles")
-          .delete()
-          .eq(
-            "user_id",
-            targetUserId,
-          );
+        try {
+          await setUserRole({
+            data: {
+              userId:
+                targetUserId,
 
-        if (deleteError) {
-          console.error(
-            "Failed to remove old role:",
-            deleteError,
-          );
-          return;
-        }
-
-        const {
-          error: insertError,
-        } = await supabase
-          .from("user_roles")
-          .insert({
-            user_id:
-              targetUserId,
-
-            role:
-              role ===
-              "Admin"
-                ? "admin"
-                : "user",
+              role:
+                role === "Admin"
+                  ? "admin"
+                  : "user",
+            },
           });
-
-        if (insertError) {
+        } catch (error) {
           console.error(
             "Failed to save role:",
-            insertError,
+            error,
           );
           return;
         }
