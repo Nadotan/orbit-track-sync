@@ -134,7 +134,9 @@ export interface AppStore extends Db {
 const StoreContext =
   createContext<AppStore | null>(null);
 
-async function fetchDb(): Promise<Db> {
+async function fetchDb(
+  currentUserId: string,
+): Promise<Db> {
   const [
     teams,
     profiles,
@@ -151,7 +153,9 @@ async function fetchDb(): Promise<Db> {
 
     supabase
       .from("profiles")
-      .select("*")
+      .select(
+        "id, name, avatar_url, team_id, created_at",
+      )
       .order("name"),
 
     supabase
@@ -182,16 +186,74 @@ async function fetchDb(): Promise<Db> {
       }),
   ]);
 
+  /*
+   * Roles are self-scoped by row level security, so a
+   * normal member only ever sees their own role.
+   */
+  const roleMap = new Map<
+    string,
+    Profile["role"]
+  >(
+    (roles.data ?? [])
+      .filter(
+        (role) =>
+          role.role === "admin",
+      )
+      .map(
+        (role) =>
+          [
+            role.user_id,
+            "Admin" as const,
+          ] satisfies [
+            string,
+            Profile["role"],
+          ],
+      ),
+  );
+
+  const emailMap = new Map<
+    string,
+    string
+  >();
+
+  /*
+   * Email addresses are not readable by other members.
+   * Admins load them through a secured server action.
+   */
+  if (
+    roleMap.get(currentUserId) ===
+    "Admin"
+  ) {
+    try {
+      const directory =
+        await getAdminDirectory();
+
+      for (const entry of directory.emails) {
+        emailMap.set(
+          entry.id,
+          entry.email,
+        );
+      }
+
+      for (const entry of directory.roles) {
+        if (
+          entry.role === "admin"
+        ) {
+          roleMap.set(
+            entry.userId,
+            "Admin",
+          );
+        }
+      }
+    } catch {
+      // Directory is optional; fall back to limited data.
+    }
+  }
+
   const roleOf = (
     id: string,
   ): Profile["role"] =>
-    (roles.data ?? []).some(
-      (role) =>
-        role.user_id === id &&
-        role.role === "admin",
-    )
-      ? "Admin"
-      : "User";
+    roleMap.get(id) ?? "User";
 
   return {
     teams: (teams.data ?? []).map(
@@ -206,10 +268,13 @@ async function fetchDb(): Promise<Db> {
     ).map((profile) => ({
       id: profile.id,
       name: profile.name,
-      email: profile.email,
+      email:
+        emailMap.get(profile.id) ??
+        "",
       role: roleOf(profile.id),
       teamId: profile.team_id,
       avatarUrl: profile.avatar_url,
+
 
       /*
        * Onboarding is NOT stored in profiles anymore.
