@@ -17,6 +17,7 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useStore } from "@/lib/store";
 import { supabase } from "@/integrations/supabase/client";
+import { signAvatarPath } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -49,6 +50,7 @@ function OnboardingPage() {
   const [name, setName] = useState(currentUser.name);
   const [teamId, setTeamId] = useState<string | null>(currentUser.teamId);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(currentUser.avatarUrl);
+  const [avatarPath, setAvatarPath] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
@@ -80,8 +82,8 @@ function OnboardingPage() {
       return;
     }
 
-    const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-    setAvatarUrl(data.publicUrl);
+    setAvatarPath(path);
+    setAvatarUrl(await signAvatarPath(path));
     toast.success("Photo uploaded");
   }
 
@@ -104,7 +106,7 @@ function OnboardingPage() {
     await completeOnboarding({
       name: name.trim() || currentUser.name,
       teamId,
-      avatarUrl,
+      avatarUrl: avatarPath,
     });
 
     toast.success("You're all set — welcome to POM!");
