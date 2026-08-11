@@ -357,20 +357,31 @@ export const notifyMeetingCreated =
       }) => {
         const {
           data:
-            isAdmin,
+            adminRole,
         } =
           await context
             .supabase
-            .rpc(
-              "has_role",
-              {
-                _user_id:
-                  context.userId,
+            .from(
+              "user_roles",
+            )
+            .select(
+              "role",
+            )
+            .eq(
+              "user_id",
+              context.userId,
+            )
+            .eq(
+              "role",
+              "admin",
+            )
+            .maybeSingle();
 
-                _role:
-                  "admin",
-              },
-            );
+        const isAdmin =
+          Boolean(
+            adminRole,
+          );
+
 
         if (
           !isAdmin

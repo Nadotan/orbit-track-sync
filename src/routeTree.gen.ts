@@ -18,6 +18,7 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedMeetingsRouteImport } from './routes/_authenticated/meetings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedTrackerRouteImport } from './routes/_authenticated/tracker'
+import { Route as ApiTimerClosedRouteImport } from './routes/api/timer-closed'
 import { Route as ApiPublicCronRemindersRouteImport } from './routes/api/public/cron/reminders'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -64,6 +65,11 @@ const AuthenticatedTrackerRoute = AuthenticatedTrackerRouteImport.update({
   path: '/tracker',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const ApiTimerClosedRoute = ApiTimerClosedRouteImport.update({
+  id: '/api/timer-closed',
+  path: '/api/timer-closed',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicCronRemindersRoute = ApiPublicCronRemindersRouteImport.update({
   id: '/api/public/cron/reminders',
   path: '/api/public/cron/reminders',
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/tracker': typeof AuthenticatedTrackerRoute
+  '/api/timer-closed': typeof ApiTimerClosedRoute
   '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
 export interface FileRoutesByTo {
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/tracker': typeof AuthenticatedTrackerRoute
+  '/api/timer-closed': typeof ApiTimerClosedRoute
   '/': typeof AuthenticatedIndexRoute
   '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/_authenticated/meetings': typeof AuthenticatedMeetingsRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/tracker': typeof AuthenticatedTrackerRoute
+  '/api/timer-closed': typeof ApiTimerClosedRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/meetings'
     | '/onboarding'
     | '/tracker'
+    | '/api/timer-closed'
     | '/api/public/cron/reminders'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/meetings'
     | '/onboarding'
     | '/tracker'
+    | '/api/timer-closed'
     | '/'
     | '/api/public/cron/reminders'
   id:
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/_authenticated/meetings'
     | '/_authenticated/onboarding'
     | '/_authenticated/tracker'
+    | '/api/timer-closed'
     | '/_authenticated/'
     | '/api/public/cron/reminders'
   fileRoutesById: FileRoutesById
@@ -147,6 +159,7 @@ export interface RootRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
+  ApiTimerClosedRoute: typeof ApiTimerClosedRoute
   ApiPublicCronRemindersRoute: typeof ApiPublicCronRemindersRoute
 }
 
@@ -215,6 +228,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTrackerRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/api/timer-closed': {
+      id: '/api/timer-closed'
+      path: '/api/timer-closed'
+      fullPath: '/api/timer-closed'
+      preLoaderRoute: typeof ApiTimerClosedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/cron/reminders': {
       id: '/api/public/cron/reminders'
       path: '/api/public/cron/reminders'
@@ -250,6 +270,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
+  ApiTimerClosedRoute: ApiTimerClosedRoute,
   ApiPublicCronRemindersRoute: ApiPublicCronRemindersRoute,
 }
 export const routeTree = rootRouteImport

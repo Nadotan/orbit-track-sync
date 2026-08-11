@@ -14,9 +14,9 @@ export const Route = createFileRoute("/api/public/cron/reminders")({
 
         const { runReminderSweep } = await import("@/lib/push.server");
 
-        const { clockReminders, rsvpReminders } = await runReminderSweep();
+        const { rsvpReminders } = await runReminderSweep();
 
-        return Response.json({ clockReminders, rsvpReminders });
+        return Response.json({ rsvpReminders });
       },
     },
   },
