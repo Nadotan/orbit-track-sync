@@ -255,6 +255,16 @@ async function fetchDb(
   ): Profile["role"] =>
     roleMap.get(id) ?? "User";
 
+  /*
+   * Avatars are stored in a private bucket, so object paths
+   * are resolved into signed URLs for display.
+   */
+  const avatarMap = await signAvatarPaths(
+    (profiles.data ?? []).map(
+      (profile) => profile.avatar_url,
+    ),
+  );
+
   return {
     teams: (teams.data ?? []).map(
       (team) => ({
@@ -273,7 +283,12 @@ async function fetchDb(
         "",
       role: roleOf(profile.id),
       teamId: profile.team_id,
-      avatarUrl: profile.avatar_url,
+      avatarUrl: profile.avatar_url
+        ? (avatarMap.get(
+            profile.avatar_url,
+          ) ?? profile.avatar_url)
+        : null,
+
 
 
       /*
