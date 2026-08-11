@@ -267,17 +267,20 @@ export function ClockPushMonitor() {
       return;
     }
 
-    const handlePageHide =
-      (
-        event:
-          PageTransitionEvent,
-      ) => {
-        /*
-         * Don't treat the browser's
-         * back-forward cache as a real close.
-         */
+    /*
+     * Phones almost never fire "pagehide" when the
+     * app is swiped away or the screen locks, but
+     * they do fire "visibilitychange" first.
+     *
+     * Fire once per hidden episode.
+     */
+    let notifiedWhileHidden =
+      false;
+
+    const notifyClosed =
+      () => {
         if (
-          event.persisted
+          notifiedWhileHidden
         ) {
           return;
         }
@@ -291,10 +294,13 @@ export function ClockPushMonitor() {
           return;
         }
 
+        notifiedWhileHidden =
+          true;
+
         /*
          * keepalive allows this small request
          * to continue while the page is
-         * unloading.
+         * unloading or backgrounded.
          */
         void fetch(
           "/api/timer-closed",
@@ -319,12 +325,53 @@ export function ClockPushMonitor() {
         );
       };
 
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+          "hidden"
+        ) {
+          notifyClosed();
+        } else {
+          notifiedWhileHidden =
+            false;
+        }
+      };
+
+    const handlePageHide =
+      (
+        event:
+          PageTransitionEvent,
+      ) => {
+        /*
+         * Don't treat the browser's
+         * back-forward cache as a real close.
+         */
+        if (
+          event.persisted
+        ) {
+          return;
+        }
+
+        notifyClosed();
+      };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
+
     window.addEventListener(
       "pagehide",
       handlePageHide,
     );
 
     return () => {
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
+
       window.removeEventListener(
         "pagehide",
         handlePageHide,
