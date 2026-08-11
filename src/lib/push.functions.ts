@@ -511,6 +511,48 @@ export const notifyRsvpChange =
             "@/integrations/supabase/client.server"
           );
 
+        /*
+         * Never trust the client-supplied status.
+         *
+         * Only notify when the caller really holds an RSVP on
+         * this meeting and it really matches the claimed new
+         * status (i.e. the change actually happened).
+         */
+        const {
+          data:
+            storedRsvp,
+          error:
+            storedRsvpError,
+        } =
+          await supabaseAdmin
+            .from(
+              "rsvps",
+            )
+            .select(
+              "status",
+            )
+            .eq(
+              "meeting_id",
+              data.meetingId,
+            )
+            .eq(
+              "user_id",
+              context.userId,
+            )
+            .maybeSingle();
+
+        if (
+          storedRsvpError ||
+          !storedRsvp ||
+          storedRsvp.status !==
+            data.status
+        ) {
+          return {
+            sent:
+              0,
+          };
+        }
+
         const {
           sendPushToUsers,
           adminUserIds,
