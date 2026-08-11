@@ -15,6 +15,7 @@ import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
 import { completeOnboardingProfile } from "./profile.functions";
+import { signAvatarPaths, signAvatarPath } from "./avatars";
 import {
   getAdminDirectory,
   setUserRole,
@@ -1134,6 +1135,11 @@ export function AppStoreProvider({
           );
         }
 
+        const signedAvatarUrl =
+          await signAvatarPath(
+            updatedProfile.avatar_url,
+          );
+
         /*
          * The server changed app_metadata.
          * Refresh the Supabase session so the new JWT
@@ -1192,7 +1198,7 @@ export function AppStoreProvider({
                       updatedProfile.team_id,
 
                     avatarUrl:
-                      updatedProfile.avatar_url,
+                      signedAvatarUrl,
 
                     onboarded:
                       true,
@@ -1227,7 +1233,7 @@ export function AppStoreProvider({
                   updatedProfile.team_id,
 
                 avatarUrl:
-                  updatedProfile.avatar_url,
+                  signedAvatarUrl,
 
                 onboarded:
                   true,
