@@ -399,22 +399,50 @@ export async function sendClockClosedPush(
       }`;
   }
 
-  return sendPushToUsers(
-    [userId],
-    {
-      title:
-        "Your clock is still running",
+  const sent =
+    await sendPushToUsers(
+      [userId],
+      {
+        title:
+          "Your clock is still running",
 
-      body:
-        `You closed POM, but your clock is still running (${timeText}).`,
+        body:
+          `You closed POM, but your clock is still running (${timeText}).`,
 
-      url:
-        "/",
+        url:
+          "/",
 
-      tag:
-        "clock-app-closed",
-    },
-  );
+        tag:
+          "clock-app-closed",
+      },
+    );
+
+  if (sent > 0) {
+    const {
+      error: updateError,
+    } =
+      await supabaseAdmin
+        .from(
+          "active_timers",
+        )
+        .update({
+          closed_notified_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "user_id",
+          userId,
+        );
+
+    if (updateError) {
+      console.error(
+        "[push] Failed to record closed-app reminder",
+        updateError,
+      );
+    }
+  }
+
+  return sent;
 }
 
 /**
