@@ -292,22 +292,49 @@ function AdminPage() {
                     <p className="truncate text-xs text-muted-foreground">{p.email}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Select
-                      value={p.teamId ?? "none"}
-                      onValueChange={(v) => assignTeam(p.id, v === "none" ? null : v)}
-                    >
-                      <SelectTrigger className="w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Unassigned</SelectItem>
-                        {teams.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-44 justify-between font-normal">
+                          <span className="truncate">
+                            {p.teamIds.length === 0
+                              ? "Unassigned"
+                              : p.teamIds.length === 1
+                                ? teamName(p.teamIds[0]!)
+                                : `${p.teamIds.length} teams`}
+                          </span>
+                          <ChevronDown className="size-4 opacity-60" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-56 space-y-2 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">Teams</p>
+                        {teams.length === 0 && (
+                          <p className="text-xs text-muted-foreground">No teams yet.</p>
+                        )}
+                        {teams.map((t) => {
+                          const checked = p.teamIds.includes(t.id);
+                          return (
+                            <label
+                              key={t.id}
+                              className="flex cursor-pointer items-center gap-2 text-sm"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(value) =>
+                                  setUserTeams(
+                                    p.id,
+                                    value
+                                      ? [...p.teamIds, t.id]
+                                      : p.teamIds.filter((id) => id !== t.id),
+                                  )
+                                }
+                              />
+                              <span className="truncate">{t.name}</span>
+                            </label>
+                          );
+                        })}
+                      </PopoverContent>
+                    </Popover>
+
                     <Select
                       value={p.role}
                       onValueChange={(v) => setRole(p.id, v as "Admin" | "User")}
