@@ -1083,6 +1083,86 @@ export function AppStoreProvider({
       })();
     },
 
+    /*
+     * Multi-team membership. Rows in team_members are the
+     * source of truth; profiles.team_id keeps the first team
+     * so older single-team logic keeps working.
+     */
+    setUserTeams: (
+      targetUserId,
+      teamIds,
+    ) => {
+      void (async () => {
+        const unique =
+          Array.from(
+            new Set(teamIds),
+          );
+
+        const { error: deleteError } =
+          await supabase
+            .from("team_members")
+            .delete()
+            .eq(
+              "user_id",
+              targetUserId,
+            );
+
+        if (deleteError) {
+          console.error(
+            "Failed to update teams:",
+            deleteError,
+          );
+          return;
+        }
+
+        if (unique.length > 0) {
+          const { error: insertError } =
+            await supabase
+              .from("team_members")
+              .insert(
+                unique.map(
+                  (teamId) => ({
+                    user_id:
+                      targetUserId,
+                    team_id: teamId,
+                  }),
+                ),
+              );
+
+          if (insertError) {
+            console.error(
+              "Failed to update teams:",
+              insertError,
+            );
+            return;
+          }
+        }
+
+        const { error: profileError } =
+          await supabase
+            .from("profiles")
+            .update({
+              team_id:
+                unique[0] ?? null,
+            })
+            .eq(
+              "id",
+              targetUserId,
+            );
+
+        if (profileError) {
+          console.error(
+            "Failed to update primary team:",
+            profileError,
+          );
+        }
+
+        refresh();
+      })();
+    },
+
+
+
     setRole: (
       targetUserId,
       role,
