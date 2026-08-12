@@ -169,3 +169,7 @@
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
+
+#lovable-badge {
+  display: none !important;
+}
