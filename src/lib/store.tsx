@@ -543,6 +543,9 @@ export function AppStoreProvider({
 
         teamId: null,
 
+        teamIds: [],
+
+
         avatarUrl: null,
 
         onboarded:
