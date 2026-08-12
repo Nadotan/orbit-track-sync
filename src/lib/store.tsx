@@ -154,6 +154,7 @@ async function fetchDb(
     meetings,
     rsvps,
     notifications,
+    memberships,
   ] = await Promise.all([
     supabase
       .from("teams")
@@ -193,7 +194,30 @@ async function fetchDb(
       .order("created_at", {
         ascending: false,
       }),
+
+    supabase
+      .from("team_members")
+      .select("user_id, team_id"),
   ]);
+
+  const membershipMap = new Map<
+    string,
+    string[]
+  >();
+
+  for (const row of memberships.data ?? []) {
+    const list =
+      membershipMap.get(row.user_id) ??
+      [];
+
+    list.push(row.team_id);
+
+    membershipMap.set(
+      row.user_id,
+      list,
+    );
+  }
+
 
   /*
    * Roles are self-scoped by row level security, so a
