@@ -71,7 +71,7 @@ function AdminPage() {
     rsvps,
     timeEntries,
     teamName,
-    assignTeam,
+    setUserTeams,
     setRole,
     createTeam,
     createMeeting,
