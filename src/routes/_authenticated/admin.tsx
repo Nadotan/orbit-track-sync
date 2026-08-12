@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Send,
   ShieldAlert,
   Trash2,
   Users,
@@ -34,6 +35,9 @@ import {
 } from "@/components/ui/table";
 import { useStore } from "@/lib/store";
 import { formatDateTime, formatHours } from "@/lib/format";
+import { Textarea } from "@/components/ui/textarea";
+import { useServerFn } from "@tanstack/react-start";
+import { broadcastPush } from "@/lib/push.functions";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/admin")({
@@ -174,7 +178,13 @@ function AdminPage() {
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="people">Teams &amp; Users</TabsTrigger>
           <TabsTrigger value="meetings">Meetings</TabsTrigger>
+          <TabsTrigger value="push">Admin Push</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="push" className="mt-4">
+          <AdminPushPanel />
+        </TabsContent>
+
 
         <TabsContent value="analytics" className="mt-4">
           <Card className="surface-card">
@@ -477,5 +487,89 @@ function Stat({
         <p className="tabular truncate text-xl font-semibold">{value}</p>
       </div>
     </div>
+  );
+}
+
+function AdminPushPanel() {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const send = useServerFn(broadcastPush);
+
+  const canSend =
+    title.trim().length > 0 && body.trim().length > 0 && !sending;
+
+  return (
+    <Card className="surface-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Send className="size-4 text-primary" />
+          Send a push to everyone
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="push-title">Title</Label>
+          <Input
+            id="push-title"
+            maxLength={80}
+            placeholder="e.g. Office closed tomorrow"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="push-body">Description</Label>
+          <Textarea
+            id="push-body"
+            rows={4}
+            maxLength={300}
+            className="resize-none rounded-2xl"
+            placeholder="What do you want everyone to know?"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </div>
+
+        <Button
+          className="rounded-full"
+          disabled={!canSend}
+          onClick={async () => {
+            setSending(true);
+
+            try {
+              const result = await send({
+                data: {
+                  title: title.trim(),
+                  body: body.trim(),
+                },
+              });
+
+              toast.success(
+                `Push sent to ${result.sent} device${
+                  result.sent === 1 ? "" : "s"
+                }`,
+              );
+
+              setTitle("");
+              setBody("");
+            } catch {
+              toast.error("Could not send the push");
+            } finally {
+              setSending(false);
+            }
+          }}
+        >
+          {sending ? "Sending…" : "Send push"}
+        </Button>
+
+        <p className="text-xs text-muted-foreground">
+          Only members who enabled alerts on their device will receive it.
+        </p>
+      </CardContent>
+    </Card>
   );
 }

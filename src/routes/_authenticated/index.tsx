@@ -7,6 +7,8 @@ import {
   Clock,
   CalendarClock,
   Flame,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,11 +65,16 @@ function TrackerPage() {
     startSession,
     stopSession,
     timeEntries,
+    updateTimeEntry,
+    deleteTimeEntry,
   } = useStore();
 
   const [now, setNow] = useState(() => Date.now());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [description, setDescription] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const running = activeSession?.userId === currentUser.id;
 
@@ -283,6 +290,31 @@ function TrackerPage() {
                     >
                       {formatHours(e.durationMs)}
                     </Badge>
+
+                    <div className="ml-auto flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 rounded-full"
+                        aria-label="Edit entry"
+                        onClick={() => {
+                          setEditingId(e.id);
+                          setEditText(e.description);
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 rounded-full"
+                        aria-label="Delete entry"
+                        onClick={() => setDeletingId(e.id)}
+                      >
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
 
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -292,6 +324,7 @@ function TrackerPage() {
               ))}
             </ol>
           )}
+
         </CardContent>
       </Card>
 
@@ -339,6 +372,97 @@ function TrackerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={editingId !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingId(null);
+        }}
+      >
+        <DialogContent className="rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit entry</DialogTitle>
+
+            <DialogDescription>
+              Update what you worked on during this session.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Textarea
+            autoFocus
+            rows={5}
+            className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
+            value={editText}
+            onChange={(ev) => setEditText(ev.target.value)}
+          />
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setEditingId(null)}
+            >
+              Cancel
+            </Button>
+
+            <Button
+              className="rounded-full"
+              disabled={!editText.trim()}
+              onClick={() => {
+                if (!editingId) return;
+
+                updateTimeEntry(editingId, editText.trim());
+                setEditingId(null);
+                toast.success("Entry updated");
+              }}
+            >
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deletingId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingId(null);
+        }}
+      >
+        <DialogContent className="rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Delete this entry?</DialogTitle>
+
+            <DialogDescription>
+              This removes the logged time permanently.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setDeletingId(null)}
+            >
+              Keep it
+            </Button>
+
+            <Button
+              variant="destructive"
+              className="rounded-full"
+              onClick={() => {
+                if (!deletingId) return;
+
+                deleteTimeEntry(deletingId);
+                setDeletingId(null);
+                toast.success("Entry deleted");
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

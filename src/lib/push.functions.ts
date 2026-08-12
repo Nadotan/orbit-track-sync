@@ -665,3 +665,93 @@ export const sweepReminders =
         return runReminderSweepThrottled();
       },
     );
+const broadcastSchema =
+  z.object({
+    title:
+      z.string()
+        .trim()
+        .min(1)
+        .max(80),
+
+    body:
+      z.string()
+        .trim()
+        .min(1)
+        .max(300),
+  });
+
+/**
+ * Admin broadcast: sends a Web Push
+ * to every registered device.
+ */
+export const broadcastPush =
+  createServerFn({
+    method:
+      "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      broadcastSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          data: adminRole,
+        } =
+          await context
+            .supabase
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", context.userId)
+            .eq("role", "admin")
+            .maybeSingle();
+
+        if (!adminRole) {
+          throw new Error("Forbidden");
+        }
+
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const {
+          sendPushToUsers,
+        } =
+          await import("./push.server");
+
+        const {
+          data: profiles,
+          error,
+        } =
+          await supabaseAdmin
+            .from("profiles")
+            .select("id");
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        const sent =
+          await sendPushToUsers(
+            (profiles ?? []).map(
+              (profile) => profile.id,
+            ),
+            {
+              title: data.title,
+              body: data.body,
+              url: "/",
+              tag: `admin-broadcast-${Date.now()}`,
+            },
+          );
+
+        return { sent };
+      },
+    );
