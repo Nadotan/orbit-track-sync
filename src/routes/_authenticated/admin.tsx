@@ -174,7 +174,13 @@ function AdminPage() {
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="people">Teams &amp; Users</TabsTrigger>
           <TabsTrigger value="meetings">Meetings</TabsTrigger>
+          <TabsTrigger value="push">Admin Push</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="push" className="mt-4">
+          <AdminPushPanel />
+        </TabsContent>
+
 
         <TabsContent value="analytics" className="mt-4">
           <Card className="surface-card">
