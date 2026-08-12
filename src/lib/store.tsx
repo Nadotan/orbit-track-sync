@@ -1285,6 +1285,12 @@ export function AppStoreProvider({
                     teamId:
                       updatedProfile.team_id,
 
+                    teamIds:
+                      updatedProfile.team_id
+                        ? [updatedProfile.team_id]
+                        : [],
+
+
                     avatarUrl:
                       signedAvatarUrl,
 
