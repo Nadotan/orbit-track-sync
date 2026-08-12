@@ -75,6 +75,14 @@ export interface AppStore extends Db {
   stopSession: (description: string) => void;
   cancelSession: () => void;
 
+  updateTimeEntry: (
+    id: string,
+    description: string,
+  ) => void;
+
+  deleteTimeEntry: (id: string) => void;
+
+
   setRsvp: (
     meetingId: string,
     status: RsvpStatus,
