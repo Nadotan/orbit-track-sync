@@ -158,8 +158,9 @@ function MeetingsPage() {
 
   function breakdown(meeting: Meeting) {
     const audience = profiles.filter(
-      (p) => meeting.teamId === "general" || p.teamId === meeting.teamId,
+      (p) => meeting.teamId === "general" || p.teamIds.includes(meeting.teamId),
     );
+
     const status = (p: Profile) =>
       rsvps.find((r) => r.meetingId === meeting.id && r.userId === p.id)?.status;
     return {
