@@ -126,7 +126,7 @@ function MeetingsPage() {
 
   const { upcoming, past } = useMemo(() => {
     const mine = meetings.filter(
-      (m) => m.teamId === "general" || m.teamId === currentUser.teamId,
+      (m) => m.teamId === "general" || currentUser.teamIds.includes(m.teamId),
     );
     const up: { m: Meeting; when: Date }[] = [];
     const old: { m: Meeting; when: Date }[] = [];
@@ -138,7 +138,8 @@ function MeetingsPage() {
     old.sort((a, b) => b.when.getTime() - a.when.getTime());
     return { upcoming: up, past: old };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetings, currentUser.teamId]);
+  }, [meetings, currentUser.teamIds]);
+
 
   const list = tab === "upcoming" ? upcoming : past;
   const openMeeting = meetings.find((m) => m.id === openId) ?? null;
@@ -157,8 +158,9 @@ function MeetingsPage() {
 
   function breakdown(meeting: Meeting) {
     const audience = profiles.filter(
-      (p) => meeting.teamId === "general" || p.teamId === meeting.teamId,
+      (p) => meeting.teamId === "general" || p.teamIds.includes(meeting.teamId),
     );
+
     const status = (p: Profile) =>
       rsvps.find((r) => r.meetingId === meeting.id && r.userId === p.id)?.status;
     return {
@@ -208,7 +210,12 @@ function MeetingsPage() {
       <div>
         <h1 className="text-2xl font-semibold sm:text-3xl">Meetings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          General meetings plus everything for {teamName(currentUser.teamId)}.
+          General meetings plus everything for{" "}
+          {currentUser.teamIds.length > 0
+            ? currentUser.teamIds.map((id) => teamName(id)).join(", ")
+            : teamName(currentUser.teamId)}
+          .
+
         </p>
       </div>
 

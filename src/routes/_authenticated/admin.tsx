@@ -25,6 +25,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+
 import {
   Table,
   TableBody,
@@ -68,7 +71,7 @@ function AdminPage() {
     rsvps,
     timeEntries,
     teamName,
-    assignTeam,
+    setUserTeams,
     setRole,
     createTeam,
     createMeeting,
@@ -102,7 +105,7 @@ function AdminPage() {
       profiles.filter((p) =>
         weekMeetings.some(
           (m) =>
-            (m.teamId === "general" || m.teamId === p.teamId) &&
+            (m.teamId === "general" || p.teamIds.includes(m.teamId)) &&
             !rsvps.some((r) => r.meetingId === m.id && r.userId === p.id),
         ),
       ),
@@ -230,7 +233,10 @@ function AdminPage() {
                           </TableCell>
                           <TableCell className="font-medium">{p.name}</TableCell>
                           <TableCell className="text-muted-foreground">
-                            {teamName(p.teamId)}
+                            {p.teamIds.length > 0
+                              ? p.teamIds.map((id) => teamName(id)).join(", ")
+                              : teamName(p.teamId)}
+
                           </TableCell>
                           <TableCell className="tabular text-right">
                             {formatHours(hours)}
@@ -292,22 +298,49 @@ function AdminPage() {
                     <p className="truncate text-xs text-muted-foreground">{p.email}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Select
-                      value={p.teamId ?? "none"}
-                      onValueChange={(v) => assignTeam(p.id, v === "none" ? null : v)}
-                    >
-                      <SelectTrigger className="w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Unassigned</SelectItem>
-                        {teams.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-44 justify-between font-normal">
+                          <span className="truncate">
+                            {p.teamIds.length === 0
+                              ? "Unassigned"
+                              : p.teamIds.length === 1
+                                ? teamName(p.teamIds[0]!)
+                                : `${p.teamIds.length} teams`}
+                          </span>
+                          <ChevronDown className="size-4 opacity-60" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-56 space-y-2 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">Teams</p>
+                        {teams.length === 0 && (
+                          <p className="text-xs text-muted-foreground">No teams yet.</p>
+                        )}
+                        {teams.map((t) => {
+                          const checked = p.teamIds.includes(t.id);
+                          return (
+                            <label
+                              key={t.id}
+                              className="flex cursor-pointer items-center gap-2 text-sm"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(value) =>
+                                  setUserTeams(
+                                    p.id,
+                                    value
+                                      ? [...p.teamIds, t.id]
+                                      : p.teamIds.filter((id) => id !== t.id),
+                                  )
+                                }
+                              />
+                              <span className="truncate">{t.name}</span>
+                            </label>
+                          );
+                        })}
+                      </PopoverContent>
+                    </Popover>
+
                     <Select
                       value={p.role}
                       onValueChange={(v) => setRole(p.id, v as "Admin" | "User")}
@@ -339,7 +372,7 @@ function AdminPage() {
                   >
                     <span className="truncate">{t.name}</span>
                     <Badge variant="secondary">
-                      {profiles.filter((p) => p.teamId === t.id).length}
+                      {profiles.filter((p) => p.teamIds.includes(t.id)).length}
                     </Badge>
                   </li>
                 ))}

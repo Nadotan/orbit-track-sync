@@ -221,21 +221,44 @@ export async function audienceForMeeting(
     | string
     | null,
 ) {
-  const query =
-    supabaseAdmin
-      .from("profiles")
-      .select("id");
+  if (teamId) {
+    const {
+      data,
+      error,
+    } =
+      await supabaseAdmin
+        .from("team_members")
+        .select("user_id")
+        .eq(
+          "team_id",
+          teamId,
+        );
+
+    if (error) {
+      console.error(
+        "[push] Failed to load meeting audience",
+        error,
+      );
+
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        (data ?? []).map(
+          (row) => row.user_id,
+        ),
+      ),
+    );
+  }
 
   const {
     data,
     error,
   } =
-    teamId
-      ? await query.eq(
-          "team_id",
-          teamId,
-        )
-      : await query;
+    await supabaseAdmin
+      .from("profiles")
+      .select("id");
 
   if (error) {
     console.error(
@@ -245,6 +268,7 @@ export async function audienceForMeeting(
 
     return [];
   }
+
 
   return (
     data ??
