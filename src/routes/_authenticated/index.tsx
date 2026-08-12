@@ -283,6 +283,31 @@ function TrackerPage() {
                     >
                       {formatHours(e.durationMs)}
                     </Badge>
+
+                    <div className="ml-auto flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 rounded-full"
+                        aria-label="Edit entry"
+                        onClick={() => {
+                          setEditingId(e.id);
+                          setEditText(e.description);
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 rounded-full"
+                        aria-label="Delete entry"
+                        onClick={() => setDeletingId(e.id)}
+                      >
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
 
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -292,6 +317,7 @@ function TrackerPage() {
               ))}
             </ol>
           )}
+
         </CardContent>
       </Card>
 
