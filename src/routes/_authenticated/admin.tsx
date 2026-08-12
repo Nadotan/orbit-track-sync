@@ -233,7 +233,10 @@ function AdminPage() {
                           </TableCell>
                           <TableCell className="font-medium">{p.name}</TableCell>
                           <TableCell className="text-muted-foreground">
-                            {teamName(p.teamId)}
+                            {p.teamIds.length > 0
+                              ? p.teamIds.map((id) => teamName(id)).join(", ")
+                              : teamName(p.teamId)}
+
                           </TableCell>
                           <TableCell className="tabular text-right">
                             {formatHours(hours)}
