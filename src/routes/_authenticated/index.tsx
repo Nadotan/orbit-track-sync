@@ -65,11 +65,16 @@ function TrackerPage() {
     startSession,
     stopSession,
     timeEntries,
+    updateTimeEntry,
+    deleteTimeEntry,
   } = useStore();
 
   const [now, setNow] = useState(() => Date.now());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [description, setDescription] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const running = activeSession?.userId === currentUser.id;
 
