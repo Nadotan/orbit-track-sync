@@ -105,7 +105,7 @@ function AdminPage() {
       profiles.filter((p) =>
         weekMeetings.some(
           (m) =>
-            (m.teamId === "general" || m.teamId === p.teamId) &&
+            (m.teamId === "general" || p.teamIds.includes(m.teamId)) &&
             !rsvps.some((r) => r.meetingId === m.id && r.userId === p.id),
         ),
       ),
