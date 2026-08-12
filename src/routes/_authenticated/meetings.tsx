@@ -210,7 +210,12 @@ function MeetingsPage() {
       <div>
         <h1 className="text-2xl font-semibold sm:text-3xl">Meetings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          General meetings plus everything for {teamName(currentUser.teamId)}.
+          General meetings plus everything for{" "}
+          {currentUser.teamIds.length > 0
+            ? currentUser.teamIds.map((id) => teamName(id)).join(", ")
+            : teamName(currentUser.teamId)}
+          .
+
         </p>
       </div>
 
