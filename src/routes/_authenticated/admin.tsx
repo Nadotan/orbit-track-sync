@@ -372,7 +372,7 @@ function AdminPage() {
                   >
                     <span className="truncate">{t.name}</span>
                     <Badge variant="secondary">
-                      {profiles.filter((p) => p.teamId === t.id).length}
+                      {profiles.filter((p) => p.teamIds.includes(t.id)).length}
                     </Badge>
                   </li>
                 ))}
