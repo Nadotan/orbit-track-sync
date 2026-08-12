@@ -126,7 +126,7 @@ function MeetingsPage() {
 
   const { upcoming, past } = useMemo(() => {
     const mine = meetings.filter(
-      (m) => m.teamId === "general" || m.teamId === currentUser.teamId,
+      (m) => m.teamId === "general" || currentUser.teamIds.includes(m.teamId),
     );
     const up: { m: Meeting; when: Date }[] = [];
     const old: { m: Meeting; when: Date }[] = [];
@@ -138,7 +138,8 @@ function MeetingsPage() {
     old.sort((a, b) => b.when.getTime() - a.when.getTime());
     return { upcoming: up, past: old };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetings, currentUser.teamId]);
+  }, [meetings, currentUser.teamIds]);
+
 
   const list = tab === "upcoming" ? upcoming : past;
   const openMeeting = meetings.find((m) => m.id === openId) ?? null;
