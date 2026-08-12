@@ -677,6 +677,53 @@ export function AppStoreProvider({
       })();
     },
 
+    updateTimeEntry: (
+      id,
+      description,
+    ) => {
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("time_entries")
+            .update({ description })
+            .eq("id", id)
+            .eq("user_id", userId);
+
+        if (error) {
+          console.error(
+            "Failed to update time entry:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
+    },
+
+    deleteTimeEntry: (id) => {
+      void (async () => {
+        const { error } =
+          await supabase
+            .from("time_entries")
+            .delete()
+            .eq("id", id)
+            .eq("user_id", userId);
+
+        if (error) {
+          console.error(
+            "Failed to delete time entry:",
+            error,
+          );
+          return;
+        }
+
+        refresh();
+      })();
+    },
+
+
+
     rsvpFor: (
       meetingId,
       uid,
