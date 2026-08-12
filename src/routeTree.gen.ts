@@ -15,6 +15,7 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedCountdownsRouteImport } from './routes/_authenticated/countdowns'
 import { Route as AuthenticatedMeetingsRouteImport } from './routes/_authenticated/meetings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedTrackerRouteImport } from './routes/_authenticated/tracker'
@@ -50,6 +51,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedCountdownsRoute = AuthenticatedCountdownsRouteImport.update({
+  id: '/countdowns',
+  path: '/countdowns',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedMeetingsRoute = AuthenticatedMeetingsRouteImport.update({
   id: '/meetings',
   path: '/meetings',
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/tracker': typeof AuthenticatedTrackerRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/tracker': typeof AuthenticatedTrackerRoute
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/countdowns': typeof AuthenticatedCountdownsRoute
   '/_authenticated/meetings': typeof AuthenticatedMeetingsRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/tracker': typeof AuthenticatedTrackerRoute
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/admin'
+    | '/countdowns'
     | '/meetings'
     | '/onboarding'
     | '/tracker'
@@ -133,6 +143,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/admin'
+    | '/countdowns'
     | '/meetings'
     | '/onboarding'
     | '/tracker'
@@ -146,6 +157,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/_authenticated/admin'
+    | '/_authenticated/countdowns'
     | '/_authenticated/meetings'
     | '/_authenticated/onboarding'
     | '/_authenticated/tracker'
@@ -207,6 +219,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/countdowns': {
+      id: '/_authenticated/countdowns'
+      path: '/countdowns'
+      fullPath: '/countdowns'
+      preLoaderRoute: typeof AuthenticatedCountdownsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/meetings': {
       id: '/_authenticated/meetings'
       path: '/meetings'
@@ -247,6 +266,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedCountdownsRoute: typeof AuthenticatedCountdownsRoute
   AuthenticatedMeetingsRoute: typeof AuthenticatedMeetingsRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedTrackerRoute: typeof AuthenticatedTrackerRoute
@@ -255,6 +275,7 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedCountdownsRoute: AuthenticatedCountdownsRoute,
   AuthenticatedMeetingsRoute: AuthenticatedMeetingsRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedTrackerRoute: AuthenticatedTrackerRoute,
@@ -276,3 +297,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
