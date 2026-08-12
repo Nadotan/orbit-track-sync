@@ -111,6 +111,13 @@ export interface AppStore extends Db {
     teamId: string | null,
   ) => void;
 
+  setUserTeams: (
+    userId: string,
+    teamIds: string[],
+  ) => void;
+
+
+
   setRole: (
     userId: string,
     role: Profile["role"],
