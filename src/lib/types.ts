@@ -11,6 +11,7 @@ export interface Profile {
   email: string;
   role: Role;
   teamId: string | null;
+  teamIds: string[];
   avatarUrl: string | null;
   onboarded: boolean;
 }
