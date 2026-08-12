@@ -316,6 +316,12 @@ async function fetchDb(
         "",
       role: roleOf(profile.id),
       teamId: profile.team_id,
+      teamIds:
+        membershipMap.get(profile.id) ??
+        (profile.team_id
+          ? [profile.team_id]
+          : []),
+
       avatarUrl: profile.avatar_url
         ? (avatarMap.get(
             profile.avatar_url,
