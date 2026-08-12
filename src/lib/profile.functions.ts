@@ -119,6 +119,31 @@ export const completeOnboardingProfile = createServerFn({
     }
 
     /*
+     * Keep the multi-team membership list in sync with the
+     * team picked during onboarding.
+     */
+    if (data.teamId) {
+      const { error: membershipError } =
+        await supabaseAdmin
+          .from("team_members")
+          .upsert(
+            {
+              user_id: context.userId,
+              team_id: data.teamId,
+            },
+            { onConflict: "user_id,team_id" },
+          );
+
+      if (membershipError) {
+        console.error(
+          "Failed to save team membership:",
+          membershipError,
+        );
+      }
+    }
+
+
+    /*
      * Store onboarding completion in Supabase Auth app_metadata.
      *
      * This can only be changed here using the server-side
