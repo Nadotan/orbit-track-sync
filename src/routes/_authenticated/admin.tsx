@@ -1,10 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment as FragmentRow } from "react";
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { Fragment as FragmentRow, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BellOff,
@@ -20,16 +15,25 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useServerFn } from "@tanstack/react-start";
+import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -38,18 +42,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
   Table,
   TableBody,
   TableCell,
@@ -57,38 +49,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useStore } from "@/lib/store";
-import { formatDateTime, formatHours } from "@/lib/format";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useServerFn } from "@tanstack/react-start";
+import { supabase } from "@/integrations/supabase/client";
+import { formatDateTime, formatHours } from "@/lib/format";
 import {
   broadcastPush,
   getPushAdminStatus,
 } from "@/lib/push.functions";
-import { toast } from "sonner";
-import type {
-  Meeting,
-  Profile,
-  Rsvp,
-} from "@/lib/types";
+import { useStore } from "@/lib/store";
+import type { Meeting, Profile, Rsvp } from "@/lib/types";
 
-export const Route = createFileRoute(
-  "/_authenticated/admin",
-)({
+export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
-      {
-        title: "Admin Dashboard — POM",
-      },
+      { title: "Admin Dashboard — POM" },
       {
         name: "description",
         content:
           "Team management, meeting scheduling and workforce time analytics for admins.",
       },
-      {
-        property: "og:title",
-        content: "Admin Dashboard — POM",
-      },
+      { property: "og:title", content: "Admin Dashboard — POM" },
       {
         property: "og:description",
         content:
@@ -99,28 +85,10 @@ export const Route = createFileRoute(
   component: AdminPage,
 });
 
-type AdminTab =
-  | "analytics"
-  | "people"
-  | "meetings"
-  | "push";
-
-type QueryMetric =
-  | "unanswered"
-  | "attending";
-
-type QueryRule =
-  | "all"
-  | "none"
-  | "at-least"
-  | "at-most"
-  | "less-than-half";
-
-type QueryPeriod =
-  | "next7"
-  | "next14"
-  | "thisMonth"
-  | "allUpcoming";
+type AdminTab = "analytics" | "rsvp" | "people" | "meetings" | "push";
+type QueryMetric = "unanswered" | "attending";
+type QueryRule = "all" | "none" | "at-least" | "at-most" | "less-than-half";
+type QueryPeriod = "next7" | "next14" | "thisMonth" | "allUpcoming";
 
 interface PersonMeetingSummary {
   id: string;
@@ -130,132 +98,54 @@ interface PersonMeetingSummary {
   answered: number;
   unanswered: number;
   attending: number;
-  declined: number;
+  notAttending: number;
+  cancelled: number;
 }
 
-function effectiveTeamIds(
-  profile: Profile,
-) {
-  if (
-    profile.teamIds.length >
-    0
-  ) {
-    return profile.teamIds;
-  }
-
-  return profile.teamId
-    ? [profile.teamId]
-    : [];
+function effectiveTeamIds(profile: Profile) {
+  if (profile.teamIds.length > 0) return profile.teamIds;
+  return profile.teamId ? [profile.teamId] : [];
 }
 
-function nextOccurrence(
-  meeting: Meeting,
-  from: Date,
-) {
-  const occurrence =
-    new Date(
-      `${meeting.date}T${meeting.time}`,
-    );
+function nextOccurrence(meeting: Meeting, from: Date) {
+  const occurrence = new Date(`${meeting.date}T${meeting.time}`);
+  const recurrence = meeting.recurrence ?? "none";
 
-  const recurrence =
-    meeting.recurrence ??
-    "none";
-
-  if (
-    recurrence === "none"
-  ) {
-    return occurrence;
-  }
+  if (recurrence === "none") return occurrence;
 
   let guard = 0;
-
-  while (
-    occurrence < from &&
-    guard++ < 500
-  ) {
-    if (
-      recurrence === "daily"
-    ) {
-      occurrence.setDate(
-        occurrence.getDate() +
-          1,
-      );
-    } else if (
-      recurrence ===
-      "weekly"
-    ) {
-      occurrence.setDate(
-        occurrence.getDate() +
-          7,
-      );
-    } else if (
-      recurrence ===
-      "biweekly"
-    ) {
-      occurrence.setDate(
-        occurrence.getDate() +
-          14,
-      );
+  while (occurrence < from && guard++ < 500) {
+    if (recurrence === "daily") {
+      occurrence.setDate(occurrence.getDate() + 1);
+    } else if (recurrence === "weekly") {
+      occurrence.setDate(occurrence.getDate() + 7);
+    } else if (recurrence === "biweekly") {
+      occurrence.setDate(occurrence.getDate() + 14);
     } else {
-      occurrence.setMonth(
-        occurrence.getMonth() +
-          1,
-      );
+      occurrence.setMonth(occurrence.getMonth() + 1);
     }
   }
 
   return occurrence;
 }
 
-function meetingMatchesPeriod(
-  meeting: Meeting,
-  period: QueryPeriod,
-  now: Date,
-) {
-  const occurrence =
-    nextOccurrence(
-      meeting,
-      now,
-    );
+function meetingMatchesPeriod(meeting: Meeting, period: QueryPeriod, now: Date) {
+  const occurrence = nextOccurrence(meeting, now);
 
-  if (
-    occurrence < now
-  ) {
-    return false;
+  if (occurrence < now) return false;
+  if (period === "allUpcoming") return true;
+
+  if (period === "next7") {
+    return occurrence.getTime() <= now.getTime() + 7 * 86400_000;
   }
 
-  if (
-    period ===
-    "allUpcoming"
-  ) {
-    return true;
-  }
-
-  if (
-    period === "next7"
-  ) {
-    return (
-      occurrence.getTime() <=
-      now.getTime() +
-        7 * 86400_000
-    );
-  }
-
-  if (
-    period === "next14"
-  ) {
-    return (
-      occurrence.getTime() <=
-      now.getTime() +
-        14 * 86400_000
-    );
+  if (period === "next14") {
+    return occurrence.getTime() <= now.getTime() + 14 * 86400_000;
   }
 
   return (
-    occurrence.getFullYear() ===
-      now.getFullYear() &&
-    occurrence.getMonth() ===
-      now.getMonth()
+    occurrence.getFullYear() === now.getFullYear() &&
+    occurrence.getMonth() === now.getMonth()
   );
 }
 
@@ -264,166 +154,109 @@ function buildMeetingSummaries(
   meetings: Meeting[],
   rsvps: Rsvp[],
   teamFilter: string,
+  cancelledRsvpIds: ReadonlySet<string>,
 ): PersonMeetingSummary[] {
   return profiles
     .filter((person) => {
-      if (
-        teamFilter === "all"
-      ) {
-        return true;
-      }
-
-      return effectiveTeamIds(
-        person,
-      ).includes(
-        teamFilter,
-      );
+      if (teamFilter === "all") return true;
+      return effectiveTeamIds(person).includes(teamFilter);
     })
     .map((person) => {
-      const personTeams =
-        effectiveTeamIds(
-          person,
-        );
+      const personTeams = effectiveTeamIds(person);
+      const relevantMeetings = meetings.filter((meeting) => {
+        if (meeting.teamId === "general") return true;
 
-      const relevantMeetings =
-        meetings.filter(
-          (meeting) => {
-            if (
-              meeting.teamId ===
-              "general"
-            ) {
-              return true;
-            }
+        if (teamFilter !== "all") {
+          return (
+            meeting.teamId === teamFilter && personTeams.includes(meeting.teamId)
+          );
+        }
 
-            if (
-              teamFilter !==
-              "all"
-            ) {
-              return (
-                meeting.teamId ===
-                  teamFilter &&
-                personTeams.includes(
-                  meeting.teamId,
-                )
-              );
-            }
-
-            return personTeams.includes(
-              meeting.teamId,
-            );
-          },
-        );
+        return personTeams.includes(meeting.teamId);
+      });
 
       let answered = 0;
       let attending = 0;
-      let declined = 0;
+      let notAttending = 0;
+      let cancelled = 0;
 
       for (const meeting of relevantMeetings) {
-        const response =
-          rsvps.find(
-            (rsvp) =>
-              rsvp.meetingId ===
-                meeting.id &&
-              rsvp.userId ===
-                person.id,
-          );
+        const response = rsvps.find(
+          (rsvp) =>
+            rsvp.meetingId === meeting.id && rsvp.userId === person.id,
+        );
 
-        if (!response) {
-          continue;
-        }
+        if (!response) continue;
 
         answered += 1;
 
-        if (
-          response.status ===
-          "Attending"
-        ) {
+        if (response.status === "Attending") {
           attending += 1;
-        } else if (
-          response.status ===
-          "Declined"
-        ) {
-          declined += 1;
+        } else if (cancelledRsvpIds.has(response.id)) {
+          cancelled += 1;
+        } else {
+          notAttending += 1;
         }
       }
 
       return {
         id: person.id,
         name: person.name,
-        teamIds:
-          personTeams,
-        total:
-          relevantMeetings.length,
+        teamIds: personTeams,
+        total: relevantMeetings.length,
         answered,
-        unanswered:
-          relevantMeetings.length -
-          answered,
+        unanswered: relevantMeetings.length - answered,
         attending,
-        declined,
+        notAttending,
+        cancelled,
       };
     });
 }
 
+function attendanceStats(
+  rsvps: Rsvp[],
+  userId: string,
+  cancelledRsvpIds: ReadonlySet<string>,
+) {
+  let attended = 0;
+  let notAttended = 0;
+  let cancelled = 0;
+
+  for (const rsvp of rsvps) {
+    if (rsvp.userId !== userId) continue;
+
+    if (rsvp.status === "Attending") {
+      attended += 1;
+    } else if (cancelledRsvpIds.has(rsvp.id)) {
+      cancelled += 1;
+    } else {
+      notAttended += 1;
+    }
+  }
+
+  return { attended, notAttended, cancelled };
+}
+
 function matchesQuery(
-  summary:
-    PersonMeetingSummary,
+  summary: PersonMeetingSummary,
   metric: QueryMetric,
   rule: QueryRule,
   amount: number,
 ) {
-  if (
-    summary.total === 0
-  ) {
-    return false;
-  }
+  if (summary.total === 0) return false;
 
-  const value =
-    metric === "unanswered"
-      ? summary.unanswered
-      : summary.attending;
+  const value = metric === "unanswered" ? summary.unanswered : summary.attending;
 
-  if (
-    rule === "all"
-  ) {
-    return (
-      value ===
-      summary.total
-    );
-  }
+  if (rule === "all") return value === summary.total;
+  if (rule === "none") return value === 0;
+  if (rule === "at-least") return value >= amount;
+  if (rule === "at-most") return value <= amount;
 
-  if (
-    rule === "none"
-  ) {
-    return value === 0;
-  }
-
-  if (
-    rule === "at-least"
-  ) {
-    return (
-      value >= amount
-    );
-  }
-
-  if (
-    rule === "at-most"
-  ) {
-    return (
-      value <= amount
-    );
-  }
-
-  return (
-    value /
-      summary.total <
-    0.5
-  );
+  return value / summary.total < 0.5;
 }
 
 function AdminPage() {
-  const store =
-    useStore();
-
+  const store = useStore();
   const {
     currentUser,
     profiles,
@@ -439,383 +272,175 @@ function AdminPage() {
     deleteMeeting,
   } = store;
 
-  const [
-    expanded,
-    setExpanded,
-  ] = useState<
-    string | null
-  >(null);
-
-  const [
-    newTeam,
-    setNewTeam,
-  ] = useState("");
-
-  const [
-    adminTab,
-    setAdminTab,
-  ] =
-    useState<AdminTab>(
-      "analytics",
-    );
-
-  const [
-    queryMetric,
-    setQueryMetric,
-  ] =
-    useState<QueryMetric>(
-      "unanswered",
-    );
-
-  const [
-    queryRule,
-    setQueryRule,
-  ] =
-    useState<QueryRule>(
-      "at-least",
-    );
-
-  const [
-    queryAmount,
-    setQueryAmount,
-  ] = useState(1);
-
-  const [
-    queryPeriod,
-    setQueryPeriod,
-  ] =
-    useState<QueryPeriod>(
-      "next7",
-    );
-
-  const [
-    queryTeam,
-    setQueryTeam,
-  ] = useState("all");
-
-  const [
-    form,
-    setForm,
-  ] = useState({
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [newTeam, setNewTeam] = useState("");
+  const [adminTab, setAdminTab] = useState<AdminTab>("analytics");
+  const [queryMetric, setQueryMetric] = useState<QueryMetric>("unanswered");
+  const [queryRule, setQueryRule] = useState<QueryRule>("at-least");
+  const [queryAmount, setQueryAmount] = useState(1);
+  const [queryPeriod, setQueryPeriod] = useState<QueryPeriod>("next7");
+  const [queryTeam, setQueryTeam] = useState("all");
+  const [cancelledRsvpIds, setCancelledRsvpIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [form, setForm] = useState({
     title: "",
     date: "",
     time: "",
     teamId: "general",
   });
 
-  const activeToday =
-    useMemo(() => {
-      const today =
-        new Date().toDateString();
+  useEffect(() => {
+    if (currentUser.role !== "Admin") return;
 
-      const ids =
-        new Set(
-          timeEntries
-            .filter(
-              (entry) =>
-                new Date(
-                  entry.endTime,
-                ).toDateString() ===
-                today,
-            )
-            .map(
-              (entry) =>
-                entry.userId,
-            ),
-        );
+    let active = true;
 
-      if (
-        store.activeSession
-      ) {
-        ids.add(
-          store.activeSession
-            .userId,
-        );
+    void (async () => {
+      const { data, error } = await supabase.from("rsvps").select("*");
+
+      if (error) {
+        console.error("Failed to load RSVP cancellation flags:", error);
+        return;
       }
 
-      return ids.size;
-    }, [
-      timeEntries,
-      store.activeSession,
-    ]);
+      const rows = (data ?? []) as Array<{
+        id: string;
+        cancelled?: boolean | null;
+      }>;
 
-  const now =
-    new Date();
+      if (!active) return;
 
-  const next7Meetings =
-    meetings.filter(
-      (meeting) =>
-        meetingMatchesPeriod(
-          meeting,
-          "next7",
-          now,
+      setCancelledRsvpIds(
+        new Set(
+          rows
+            .filter((row) => row.cancelled === true)
+            .map((row) => row.id),
         ),
+      );
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser.role, rsvps]);
+
+  const activeToday = useMemo(() => {
+    const today = new Date().toDateString();
+    const ids = new Set(
+      timeEntries
+        .filter(
+          (entry) => new Date(entry.endTime).toDateString() === today,
+        )
+        .map((entry) => entry.userId),
     );
 
-  const next7Summaries =
-    buildMeetingSummaries(
-      profiles,
-      next7Meetings,
-      rsvps,
-      "all",
-    );
+    if (store.activeSession) ids.add(store.activeSession.userId);
+    return ids.size;
+  }, [timeEntries, store.activeSession]);
 
-  const missingRsvpCount =
-    next7Summaries.reduce(
-      (total, person) =>
-        total +
-        person.unanswered,
-      0,
-    );
+  const now = new Date();
+  const next7Meetings = meetings.filter((meeting) =>
+    meetingMatchesPeriod(meeting, "next7", now),
+  );
+  const next7Summaries = buildMeetingSummaries(
+    profiles,
+    next7Meetings,
+    rsvps,
+    "all",
+    cancelledRsvpIds,
+  );
+  const missingRsvpCount = next7Summaries.reduce(
+    (total, person) => total + person.unanswered,
+    0,
+  );
+  const missingPeopleCount = next7Summaries.filter(
+    (person) => person.unanswered > 0,
+  ).length;
 
-  const missingPeopleCount =
-    next7Summaries.filter(
-      (person) =>
-        person.unanswered >
-        0,
-    ).length;
+  const queryMeetings = meetings.filter((meeting) =>
+    meetingMatchesPeriod(meeting, queryPeriod, now),
+  );
+  const querySummaries = buildMeetingSummaries(
+    profiles,
+    queryMeetings,
+    rsvps,
+    queryTeam,
+    cancelledRsvpIds,
+  );
+  const queryResults = querySummaries
+    .filter((summary) =>
+      matchesQuery(summary, queryMetric, queryRule, queryAmount),
+    )
+    .sort((a, b) => {
+      if (queryMetric === "unanswered") {
+        return b.unanswered - a.unanswered || a.name.localeCompare(b.name);
+      }
 
-  const queryMeetings =
-    meetings.filter(
-      (meeting) =>
-        meetingMatchesPeriod(
-          meeting,
-          queryPeriod,
-          now,
-        ),
-    );
+      return a.attending - b.attending || a.name.localeCompare(b.name);
+    });
 
-  const querySummaries =
-    buildMeetingSummaries(
-      profiles,
-      queryMeetings,
-      rsvps,
-      queryTeam,
-    );
+  const totalHours = timeEntries.reduce(
+    (total, entry) => total + entry.durationMs,
+    0,
+  );
 
-  const queryResults =
-    querySummaries
-      .filter((summary) =>
-        matchesQuery(
-          summary,
-          queryMetric,
-          queryRule,
-          queryAmount,
-        ),
-      )
-      .sort((a, b) => {
-        if (
-          queryMetric ===
-          "unanswered"
-        ) {
-          return (
-            b.unanswered -
-              a.unanswered ||
-            a.name.localeCompare(
-              b.name,
-            )
-          );
-        }
-
-        return (
-          a.attending -
-            b.attending ||
-          a.name.localeCompare(
-            b.name,
-          )
-        );
-      });
-
-  const totalHours =
-    timeEntries.reduce(
-      (total, entry) =>
-        total +
-        entry.durationMs,
-      0,
-    );
-
-  if (
-    currentUser.role !==
-    "Admin"
-  ) {
+  if (currentUser.role !== "Admin") {
     return (
       <div className="surface-card mx-auto mt-10 max-w-md p-10 text-center">
         <ShieldAlert className="mx-auto size-8 text-destructive" />
-
-        <h1 className="mt-4 text-xl font-semibold">
-          Admins only
-        </h1>
-
+        <h1 className="mt-4 text-xl font-semibold">Admins only</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Switch to an admin
-          account from the user
-          menu to view this
-          dashboard.
+          Switch to an admin account from the user menu to view this dashboard.
         </p>
       </div>
     );
   }
 
-  function submitMeeting(
-    event:
-      React.FormEvent,
-  ) {
+  function submitMeeting(event: React.FormEvent) {
     event.preventDefault();
 
-    if (
-      !form.title ||
-      !form.date ||
-      !form.time
-    ) {
-      return;
-    }
+    if (!form.title || !form.date || !form.time) return;
 
     createMeeting(form);
-
-    setForm({
-      title: "",
-      date: "",
-      time: "",
-      teamId: "general",
-    });
-
-    toast.success(
-      "Meeting created",
-    );
+    setForm({ title: "", date: "", time: "", teamId: "general" });
+    toast.success("Meeting created");
   }
 
-  function applyPreset(
-    metric: QueryMetric,
-    rule: QueryRule,
-    amount = 1,
-  ) {
-    setQueryMetric(
-      metric,
-    );
-
-    setQueryRule(
-      rule,
-    );
-
-    setQueryAmount(
-      amount,
-    );
+  function applyPreset(metric: QueryMetric, rule: QueryRule, amount = 1) {
+    setQueryMetric(metric);
+    setQueryRule(rule);
+    setQueryAmount(amount);
   }
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 pb-24 md:pb-8">
       <div>
-        <h1 className="text-2xl font-semibold sm:text-3xl">
-          Admin Dashboard
-        </h1>
-
+        <h1 className="text-2xl font-semibold sm:text-3xl">Admin Dashboard</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Organisation-wide time,
-          attendance and team
-          operations.
+          Organisation-wide time, attendance and team operations.
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat
-          label="Active today"
-          value={String(
-            activeToday,
-          )}
-          icon={Users}
-        />
-
-        <Stat
-          label="Hours logged"
-          value={formatHours(
-            totalHours,
-          )}
-          icon={Clock}
-        />
-
+        <Stat label="Active today" value={String(activeToday)} icon={Users} />
+        <Stat label="Hours logged" value={formatHours(totalHours)} icon={Clock} />
         <Stat
           label="Next 7 days"
-          value={String(
-            next7Meetings.length,
-          )}
-          icon={
-            CalendarPlus
-          }
+          value={String(next7Meetings.length)}
+          icon={CalendarPlus}
         />
-
         <Stat
           label="Missing RSVPs"
-          value={String(
-            missingRsvpCount,
-          )}
-          icon={
-            AlertTriangle
-          }
+          value={String(missingRsvpCount)}
+          icon={AlertTriangle}
           tone="warning"
         />
       </div>
 
-      <PeopleQueryPanel
-        teams={teams}
-        teamName={teamName}
-        queryMetric={
-          queryMetric
-        }
-        queryRule={
-          queryRule
-        }
-        queryAmount={
-          queryAmount
-        }
-        queryPeriod={
-          queryPeriod
-        }
-        queryTeam={
-          queryTeam
-        }
-        queryResults={
-          queryResults
-        }
-        meetingsInScope={
-          queryMeetings.length
-        }
-        missingRsvpCount={
-          missingRsvpCount
-        }
-        missingPeopleCount={
-          missingPeopleCount
-        }
-        setQueryMetric={
-          setQueryMetric
-        }
-        setQueryRule={
-          setQueryRule
-        }
-        setQueryAmount={
-          setQueryAmount
-        }
-        setQueryPeriod={
-          setQueryPeriod
-        }
-        setQueryTeam={
-          setQueryTeam
-        }
-        applyPreset={
-          applyPreset
-        }
-      />
-
       <Tabs
         value={adminTab}
-        onValueChange={(
-          value,
-        ) =>
-          setAdminTab(
-            value as AdminTab,
-          )
-        }
+        onValueChange={(value) => setAdminTab(value as AdminTab)}
       >
-        {/* Mobile section selector */}
         <div className="md:hidden">
           <Label
             htmlFor="admin-section"
@@ -826,13 +451,7 @@ function AdminPage() {
 
           <Select
             value={adminTab}
-            onValueChange={(
-              value,
-            ) =>
-              setAdminTab(
-                value as AdminTab,
-              )
-            }
+            onValueChange={(value) => setAdminTab(value as AdminTab)}
           >
             <SelectTrigger
               id="admin-section"
@@ -840,448 +459,250 @@ function AdminPage() {
             >
               <SelectValue />
             </SelectTrigger>
-
             <SelectContent>
-              <SelectItem value="analytics">
-                Analytics
-              </SelectItem>
-
-              <SelectItem value="people">
-                Teams & Users
-              </SelectItem>
-
-              <SelectItem value="meetings">
-                Meetings
-              </SelectItem>
-
-              <SelectItem value="push">
-                Admin Push
-              </SelectItem>
+              <SelectItem value="analytics">Analytics</SelectItem>
+              <SelectItem value="rsvp">RSVP Insights</SelectItem>
+              <SelectItem value="people">Teams &amp; Users</SelectItem>
+              <SelectItem value="meetings">Meetings</SelectItem>
+              <SelectItem value="push">Admin Push</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        {/* Desktop tabs */}
-        <TabsList className="hidden w-full grid-cols-4 md:grid">
-          <TabsTrigger value="analytics">
-            Analytics
-          </TabsTrigger>
-
-          <TabsTrigger value="people">
-            Teams &amp; Users
-          </TabsTrigger>
-
-          <TabsTrigger value="meetings">
-            Meetings
-          </TabsTrigger>
-
-          <TabsTrigger value="push">
-            Admin Push
-          </TabsTrigger>
+        <TabsList className="hidden w-full grid-cols-5 md:grid">
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="rsvp">RSVP Insights</TabsTrigger>
+          <TabsTrigger value="people">Teams &amp; Users</TabsTrigger>
+          <TabsTrigger value="meetings">Meetings</TabsTrigger>
+          <TabsTrigger value="push">Admin Push</TabsTrigger>
         </TabsList>
 
-        <TabsContent
-          value="analytics"
-          className="mt-4"
-        >
+        <TabsContent value="analytics" className="mt-4">
           <Card className="surface-card">
             <CardHeader>
-              <CardTitle className="text-base">
-                Employee tracking
-              </CardTitle>
+              <CardTitle className="text-base">Employee tracking</CardTitle>
             </CardHeader>
 
             <CardContent className="md:px-0">
-              {/* Mobile analytics */}
               <div className="space-y-3 md:hidden">
-                {profiles.map(
-                  (profile) => {
-                    const entries =
-                      timeEntries.filter(
-                        (entry) =>
-                          entry.userId ===
-                          profile.id,
-                      );
+                {profiles.map((profile) => {
+                  const entries = timeEntries.filter(
+                    (entry) => entry.userId === profile.id,
+                  );
+                  const hours = entries.reduce(
+                    (total, entry) => total + entry.durationMs,
+                    0,
+                  );
+                  const { attended, notAttended, cancelled } = attendanceStats(
+                    rsvps,
+                    profile.id,
+                    cancelledRsvpIds,
+                  );
+                  const open = expanded === profile.id;
+                  const profileTeams = effectiveTeamIds(profile);
 
-                    const hours =
-                      entries.reduce(
-                        (
-                          total,
-                          entry,
-                        ) =>
-                          total +
-                          entry.durationMs,
-                        0,
-                      );
-
-                    const attended =
-                      rsvps.filter(
-                        (rsvp) =>
-                          rsvp.userId ===
-                            profile.id &&
-                          rsvp.status ===
-                            "Attending",
-                      ).length;
-
-                    const declined =
-                      rsvps.filter(
-                        (rsvp) =>
-                          rsvp.userId ===
-                            profile.id &&
-                          rsvp.status ===
-                            "Declined",
-                      ).length;
-
-                    const open =
-                      expanded ===
-                      profile.id;
-
-                    const profileTeams =
-                      effectiveTeamIds(
-                        profile,
-                      );
-
-                    return (
-                      <div
-                        key={
-                          profile.id
-                        }
-                        className="overflow-hidden rounded-2xl border border-border"
+                  return (
+                    <div
+                      key={profile.id}
+                      className="overflow-hidden rounded-2xl border border-border"
+                    >
+                      <button
+                        type="button"
+                        className="w-full p-4 text-left"
+                        onClick={() => setExpanded(open ? null : profile.id)}
                       >
-                        <button
-                          type="button"
-                          className="w-full p-4 text-left"
-                          onClick={() =>
-                            setExpanded(
-                              open
-                                ? null
-                                : profile.id,
-                            )
-                          }
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate font-medium">
-                                {
-                                  profile.name
-                                }
-                              </p>
-
-                              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                                {profileTeams.length >
-                                0
-                                  ? profileTeams
-                                      .map(
-                                        (
-                                          id,
-                                        ) =>
-                                          teamName(
-                                            id,
-                                          ),
-                                      )
-                                      .join(
-                                        ", ",
-                                      )
-                                  : "Unassigned"}
-                              </p>
-                            </div>
-
-                            {open ? (
-                              <ChevronDown className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                            )}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{profile.name}</p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {profileTeams.length > 0
+                                ? profileTeams.map((id) => teamName(id)).join(", ")
+                                : "Unassigned"}
+                            </p>
                           </div>
 
-                          <div className="mt-4 grid grid-cols-3 gap-2">
-                            <MiniMetric
-                              label="Hours"
-                              value={formatHours(
-                                hours,
-                              )}
-                            />
+                          {open ? (
+                            <ChevronDown className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                          )}
+                        </div>
 
-                            <MiniMetric
-                              label="Attending"
-                              value={String(
-                                attended,
-                              )}
-                              tone="success"
-                            />
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          <MiniMetric label="Hours" value={formatHours(hours)} />
+                          <MiniMetric
+                            label="Attended"
+                            value={String(attended)}
+                            tone="success"
+                          />
+                          <MiniMetric
+                            label="Not attended"
+                            value={String(notAttended)}
+                            tone="warning"
+                          />
+                          <MiniMetric
+                            label="Cancelled"
+                            value={String(cancelled)}
+                            tone="danger"
+                          />
+                        </div>
+                      </button>
 
-                            <MiniMetric
-                              label="Declined"
-                              value={String(
-                                declined,
-                              )}
-                              tone="danger"
-                            />
-                          </div>
-                        </button>
-
-                        {open && (
-                          <div className="border-t border-border bg-muted/30 p-4">
-                            {entries.length ===
-                            0 ? (
-                              <p className="text-sm text-muted-foreground">
-                                No work
-                                notes logged
-                                yet.
-                              </p>
-                            ) : (
-                              <ul className="space-y-3">
-                                {entries.map(
-                                  (
-                                    entry,
-                                  ) => (
-                                    <li
-                                      key={
-                                        entry.id
-                                      }
-                                      className="text-sm"
-                                    >
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="font-medium">
-                                          {formatDateTime(
-                                            entry.startTime,
-                                          )}
-                                        </span>
-
-                                        <Badge variant="secondary">
-                                          {formatHours(
-                                            entry.durationMs,
-                                          )}
-                                        </Badge>
-                                      </div>
-
-                                      <p className="mt-1 text-muted-foreground">
-                                        {
-                                          entry.description
-                                        }
-                                      </p>
-                                    </li>
-                                  ),
-                                )}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  },
-                )}
+                      {open && (
+                        <div className="border-t border-border bg-muted/30 p-4">
+                          {entries.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No work notes logged yet.
+                            </p>
+                          ) : (
+                            <ul className="space-y-3">
+                              {entries.map((entry) => (
+                                <li key={entry.id} className="text-sm">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-medium">
+                                      {formatDateTime(entry.startTime)}
+                                    </span>
+                                    <Badge variant="secondary">
+                                      {formatHours(entry.durationMs)}
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-1 text-muted-foreground">
+                                    {entry.description}
+                                  </p>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
-              {/* Desktop analytics */}
               <div className="hidden md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10" />
-
-                      <TableHead>
-                        Employee
-                      </TableHead>
-
-                      <TableHead>
-                        Team
-                      </TableHead>
-
-                      <TableHead className="text-right">
-                        Hours
-                      </TableHead>
-
-                      <TableHead className="text-right">
-                        Attended
-                      </TableHead>
-
-                      <TableHead className="text-right">
-                        Cancelled
-                      </TableHead>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Team</TableHead>
+                      <TableHead className="text-right">Hours</TableHead>
+                      <TableHead className="text-right">Attended</TableHead>
+                      <TableHead className="text-right">Not attended</TableHead>
+                      <TableHead className="text-right">Cancelled</TableHead>
                     </TableRow>
                   </TableHeader>
 
                   <TableBody>
-                    {profiles.map(
-                      (
-                        profile,
-                      ) => {
-                        const entries =
-                          timeEntries.filter(
-                            (
-                              entry,
-                            ) =>
-                              entry.userId ===
-                              profile.id,
-                          );
+                    {profiles.map((profile) => {
+                      const entries = timeEntries.filter(
+                        (entry) => entry.userId === profile.id,
+                      );
+                      const hours = entries.reduce(
+                        (total, entry) => total + entry.durationMs,
+                        0,
+                      );
+                      const { attended, notAttended, cancelled } = attendanceStats(
+                        rsvps,
+                        profile.id,
+                        cancelledRsvpIds,
+                      );
+                      const open = expanded === profile.id;
+                      const profileTeams = effectiveTeamIds(profile);
 
-                        const hours =
-                          entries.reduce(
-                            (
-                              total,
-                              entry,
-                            ) =>
-                              total +
-                              entry.durationMs,
-                            0,
-                          );
-
-                        const attended =
-                          rsvps.filter(
-                            (
-                              rsvp,
-                            ) =>
-                              rsvp.userId ===
-                                profile.id &&
-                              rsvp.status ===
-                                "Attending",
-                          ).length;
-
-                        const declined =
-                          rsvps.filter(
-                            (
-                              rsvp,
-                            ) =>
-                              rsvp.userId ===
-                                profile.id &&
-                              rsvp.status ===
-                                "Declined",
-                          ).length;
-
-                        const open =
-                          expanded ===
-                          profile.id;
-
-                        const profileTeams =
-                          effectiveTeamIds(
-                            profile,
-                          );
-
-                        return (
-                          <FragmentRow
-                            key={
-                              profile.id
-                            }
+                      return (
+                        <FragmentRow key={profile.id}>
+                          <TableRow
+                            className="cursor-pointer"
+                            onClick={() => setExpanded(open ? null : profile.id)}
                           >
-                            <TableRow
-                              className="cursor-pointer"
-                              onClick={() =>
-                                setExpanded(
-                                  open
-                                    ? null
-                                    : profile.id,
-                                )
-                              }
-                            >
-                              <TableCell>
-                                {open ? (
-                                  <ChevronDown className="size-4" />
+                            <TableCell>
+                              {open ? (
+                                <ChevronDown className="size-4" />
+                              ) : (
+                                <ChevronRight className="size-4" />
+                              )}
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              {profile.name}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {profileTeams.length > 0
+                                ? profileTeams.map((id) => teamName(id)).join(", ")
+                                : "Unassigned"}
+                            </TableCell>
+                            <TableCell className="tabular text-right">
+                              {formatHours(hours)}
+                            </TableCell>
+                            <TableCell className="tabular text-right text-success">
+                              {attended}
+                            </TableCell>
+                            <TableCell className="tabular text-right text-warning">
+                              {notAttended}
+                            </TableCell>
+                            <TableCell className="tabular text-right text-destructive">
+                              {cancelled}
+                            </TableCell>
+                          </TableRow>
+
+                          {open && (
+                            <TableRow className="bg-muted/40 hover:bg-muted/40">
+                              <TableCell colSpan={7}>
+                                {entries.length === 0 ? (
+                                  <p className="py-2 text-sm text-muted-foreground">
+                                    No work notes logged yet.
+                                  </p>
                                 ) : (
-                                  <ChevronRight className="size-4" />
+                                  <ul className="space-y-3 py-2">
+                                    {entries.map((entry) => (
+                                      <li key={entry.id} className="text-sm">
+                                        <span className="font-medium">
+                                          {formatDateTime(entry.startTime)}
+                                        </span>
+                                        <span className="tabular ml-2 text-muted-foreground">
+                                          {formatHours(entry.durationMs)}
+                                        </span>
+                                        <p className="text-muted-foreground">
+                                          {entry.description}
+                                        </p>
+                                      </li>
+                                    ))}
+                                  </ul>
                                 )}
-                              </TableCell>
-
-                              <TableCell className="font-medium">
-                                {
-                                  profile.name
-                                }
-                              </TableCell>
-
-                              <TableCell className="text-muted-foreground">
-                                {profileTeams.length >
-                                0
-                                  ? profileTeams
-                                      .map(
-                                        (
-                                          id,
-                                        ) =>
-                                          teamName(
-                                            id,
-                                          ),
-                                      )
-                                      .join(
-                                        ", ",
-                                      )
-                                  : "Unassigned"}
-                              </TableCell>
-
-                              <TableCell className="tabular text-right">
-                                {formatHours(
-                                  hours,
-                                )}
-                              </TableCell>
-
-                              <TableCell className="tabular text-right text-success">
-                                {
-                                  attended
-                                }
-                              </TableCell>
-
-                              <TableCell className="tabular text-right text-destructive">
-                                {
-                                  declined
-                                }
                               </TableCell>
                             </TableRow>
-
-                            {open && (
-                              <TableRow className="bg-muted/40 hover:bg-muted/40">
-                                <TableCell colSpan={6}>
-                                  {entries.length ===
-                                  0 ? (
-                                    <p className="py-2 text-sm text-muted-foreground">
-                                      No
-                                      work
-                                      notes
-                                      logged
-                                      yet.
-                                    </p>
-                                  ) : (
-                                    <ul className="space-y-3 py-2">
-                                      {entries.map(
-                                        (
-                                          entry,
-                                        ) => (
-                                          <li
-                                            key={
-                                              entry.id
-                                            }
-                                            className="text-sm"
-                                          >
-                                            <span className="font-medium">
-                                              {formatDateTime(
-                                                entry.startTime,
-                                              )}
-                                            </span>
-
-                                            <span className="tabular ml-2 text-muted-foreground">
-                                              {formatHours(
-                                                entry.durationMs,
-                                              )}
-                                            </span>
-
-                                            <p className="text-muted-foreground">
-                                              {
-                                                entry.description
-                                              }
-                                            </p>
-                                          </li>
-                                        ),
-                                      )}
-                                    </ul>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </FragmentRow>
-                        );
-                      },
-                    )}
+                          )}
+                        </FragmentRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="rsvp" className="mt-4">
+          <RsvpInsightsPanel
+            teams={teams}
+            teamName={teamName}
+            queryMetric={queryMetric}
+            queryRule={queryRule}
+            queryAmount={queryAmount}
+            queryPeriod={queryPeriod}
+            queryTeam={queryTeam}
+            queryResults={queryResults}
+            meetingsInScope={queryMeetings.length}
+            missingRsvpCount={missingRsvpCount}
+            missingPeopleCount={missingPeopleCount}
+            setQueryMetric={setQueryMetric}
+            setQueryRule={setQueryRule}
+            setQueryAmount={setQueryAmount}
+            setQueryPeriod={setQueryPeriod}
+            setQueryTeam={setQueryTeam}
+            applyPreset={applyPreset}
+          />
         </TabsContent>
 
         <TabsContent
@@ -1290,270 +711,161 @@ function AdminPage() {
         >
           <Card className="surface-card">
             <CardHeader>
-              <CardTitle className="text-base">
-                Assign users to
-                teams
-              </CardTitle>
+              <CardTitle className="text-base">Assign users to teams</CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-3">
-              {profiles.map(
-                (profile) => {
-                  const profileTeams =
-                    effectiveTeamIds(
-                      profile,
-                    );
+              {profiles.map((profile) => {
+                const profileTeams = effectiveTeamIds(profile);
 
-                  return (
-                    <div
-                      key={
-                        profile.id
-                      }
-                      className="flex flex-col gap-4 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="break-words text-sm font-medium">
-                          {
-                            profile.name
-                          }
-                        </p>
+                return (
+                  <div
+                    key={profile.id}
+                    className="flex flex-col gap-4 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-medium">
+                        {profile.name}
+                      </p>
+                      <p className="mt-0.5 break-all text-xs text-muted-foreground">
+                        {profile.email}
+                      </p>
+                    </div>
 
-                        <p className="mt-0.5 break-all text-xs text-muted-foreground">
-                          {
-                            profile.email
-                          }
-                        </p>
+                    <div className="grid w-full grid-cols-1 gap-3 sm:flex sm:w-auto sm:shrink-0 sm:items-end sm:gap-2">
+                      <div className="space-y-1.5 sm:space-y-0">
+                        <Label className="text-xs text-muted-foreground sm:sr-only">
+                          Teams
+                        </Label>
+
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className="w-full justify-between font-normal sm:w-44"
+                            >
+                              <span className="truncate">
+                                {profileTeams.length === 0
+                                  ? "Unassigned"
+                                  : profileTeams.length === 1
+                                    ? teamName(profileTeams[0]!)
+                                    : `${profileTeams.length} teams`}
+                              </span>
+                              <ChevronDown className="size-4 opacity-60" />
+                            </Button>
+                          </PopoverTrigger>
+
+                          <PopoverContent
+                            align="start"
+                            className="w-64 space-y-2 p-3"
+                          >
+                            <p className="text-xs font-medium text-muted-foreground">
+                              Teams
+                            </p>
+
+                            {teams.length === 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                No teams yet.
+                              </p>
+                            )}
+
+                            {teams.map((team) => {
+                              const checked = profileTeams.includes(team.id);
+
+                              return (
+                                <label
+                                  key={team.id}
+                                  className="flex cursor-pointer items-center gap-2 text-sm"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(value) =>
+                                      setUserTeams(
+                                        profile.id,
+                                        value
+                                          ? [...profileTeams, team.id]
+                                          : profileTeams.filter(
+                                              (id) => id !== team.id,
+                                            ),
+                                      )
+                                    }
+                                  />
+                                  <span className="truncate">{team.name}</span>
+                                </label>
+                              );
+                            })}
+                          </PopoverContent>
+                        </Popover>
                       </div>
 
-                      <div className="grid w-full grid-cols-1 gap-3 sm:flex sm:w-auto sm:shrink-0 sm:items-end sm:gap-2">
-                        <div className="space-y-1.5 sm:space-y-0">
-                          <Label className="text-xs text-muted-foreground sm:sr-only">
-                            Teams
-                          </Label>
+                      <div className="space-y-1.5 sm:space-y-0">
+                        <Label className="text-xs text-muted-foreground sm:sr-only">
+                          Role
+                        </Label>
 
-                          <Popover>
-                            <PopoverTrigger
-                              asChild
-                            >
-                              <Button
-                                variant="outline"
-                                className="w-full justify-between font-normal sm:w-44"
-                              >
-                                <span className="truncate">
-                                  {profileTeams.length ===
-                                  0
-                                    ? "Unassigned"
-                                    : profileTeams.length ===
-                                        1
-                                      ? teamName(
-                                          profileTeams[0]!,
-                                        )
-                                      : `${profileTeams.length} teams`}
-                                </span>
-
-                                <ChevronDown className="size-4 opacity-60" />
-                              </Button>
-                            </PopoverTrigger>
-
-                            <PopoverContent
-                              align="start"
-                              className="w-64 space-y-2 p-3"
-                            >
-                              <p className="text-xs font-medium text-muted-foreground">
-                                Teams
-                              </p>
-
-                              {teams.length ===
-                                0 && (
-                                <p className="text-xs text-muted-foreground">
-                                  No
-                                  teams
-                                  yet.
-                                </p>
-                              )}
-
-                              {teams.map(
-                                (
-                                  team,
-                                ) => {
-                                  const checked =
-                                    profileTeams.includes(
-                                      team.id,
-                                    );
-
-                                  return (
-                                    <label
-                                      key={
-                                        team.id
-                                      }
-                                      className="flex cursor-pointer items-center gap-2 text-sm"
-                                    >
-                                      <Checkbox
-                                        checked={
-                                          checked
-                                        }
-                                        onCheckedChange={(
-                                          value,
-                                        ) =>
-                                          setUserTeams(
-                                            profile.id,
-                                            value
-                                              ? [
-                                                  ...profileTeams,
-                                                  team.id,
-                                                ]
-                                              : profileTeams.filter(
-                                                  (
-                                                    id,
-                                                  ) =>
-                                                    id !==
-                                                    team.id,
-                                                ),
-                                          )
-                                        }
-                                      />
-
-                                      <span className="truncate">
-                                        {
-                                          team.name
-                                        }
-                                      </span>
-                                    </label>
-                                  );
-                                },
-                              )}
-                            </PopoverContent>
-                          </Popover>
-                        </div>
-
-                        <div className="space-y-1.5 sm:space-y-0">
-                          <Label className="text-xs text-muted-foreground sm:sr-only">
-                            Role
-                          </Label>
-
-                          <Select
-                            value={
-                              profile.role
-                            }
-                            onValueChange={(
-                              value,
-                            ) =>
-                              setRole(
-                                profile.id,
-                                value as
-                                  | "Admin"
-                                  | "User",
-                              )
-                            }
-                          >
-                            <SelectTrigger className="w-full sm:w-28">
-                              <SelectValue />
-                            </SelectTrigger>
-
-                            <SelectContent>
-                              <SelectItem value="User">
-                                User
-                              </SelectItem>
-
-                              <SelectItem value="Admin">
-                                Admin
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <Select
+                          value={profile.role}
+                          onValueChange={(value) =>
+                            setRole(profile.id, value as "Admin" | "User")
+                          }
+                        >
+                          <SelectTrigger className="w-full sm:w-28">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="User">User</SelectItem>
+                            <SelectItem value="Admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
-                  );
-                },
-              )}
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
 
           <Card className="surface-card h-fit">
             <CardHeader>
-              <CardTitle className="text-base">
-                Teams
-              </CardTitle>
+              <CardTitle className="text-base">Teams</CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-3">
               <ul className="space-y-2">
-                {teams.map(
-                  (team) => (
-                    <li
-                      key={
-                        team.id
+                {teams.map((team) => (
+                  <li
+                    key={team.id}
+                    className="flex items-center justify-between rounded-xl bg-muted px-3 py-2 text-sm"
+                  >
+                    <span className="truncate">{team.name}</span>
+                    <Badge variant="secondary">
+                      {
+                        profiles.filter((profile) =>
+                          effectiveTeamIds(profile).includes(team.id),
+                        ).length
                       }
-                      className="flex items-center justify-between rounded-xl bg-muted px-3 py-2 text-sm"
-                    >
-                      <span className="truncate">
-                        {
-                          team.name
-                        }
-                      </span>
-
-                      <Badge variant="secondary">
-                        {
-                          profiles.filter(
-                            (
-                              profile,
-                            ) =>
-                              effectiveTeamIds(
-                                profile,
-                              ).includes(
-                                team.id,
-                              ),
-                          ).length
-                        }
-                      </Badge>
-                    </li>
-                  ),
-                )}
+                    </Badge>
+                  </li>
+                ))}
               </ul>
 
               <form
                 className="flex flex-col gap-2 sm:flex-row"
-                onSubmit={(
-                  event,
-                ) => {
+                onSubmit={(event) => {
                   event.preventDefault();
+                  if (!newTeam.trim()) return;
 
-                  if (
-                    !newTeam.trim()
-                  ) {
-                    return;
-                  }
-
-                  createTeam(
-                    newTeam.trim(),
-                  );
-
+                  createTeam(newTeam.trim());
                   setNewTeam("");
-
-                  toast.success(
-                    "Team created",
-                  );
+                  toast.success("Team created");
                 }}
               >
                 <Input
                   placeholder="New team name"
-                  value={
-                    newTeam
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setNewTeam(
-                      event.target
-                        .value,
-                    )
-                  }
+                  value={newTeam}
+                  onChange={(event) => setNewTeam(event.target.value)}
                 />
-
-                <Button
-                  type="submit"
-                  className="sm:w-auto"
-                >
+                <Button type="submit" className="sm:w-auto">
                   Add
                 </Button>
               </form>
@@ -1567,38 +879,18 @@ function AdminPage() {
         >
           <Card className="surface-card h-fit">
             <CardHeader>
-              <CardTitle className="text-base">
-                Create meeting
-              </CardTitle>
+              <CardTitle className="text-base">Create meeting</CardTitle>
             </CardHeader>
 
             <CardContent>
-              <form
-                className="space-y-4"
-                onSubmit={
-                  submitMeeting
-                }
-              >
+              <form className="space-y-4" onSubmit={submitMeeting}>
                 <div className="space-y-2">
-                  <Label htmlFor="title">
-                    Title
-                  </Label>
-
+                  <Label htmlFor="title">Title</Label>
                   <Input
                     id="title"
-                    value={
-                      form.title
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setForm({
-                        ...form,
-                        title:
-                          event
-                            .target
-                            .value,
-                      })
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm({ ...form, title: event.target.value })
                     }
                     placeholder="Quarterly planning"
                   />
@@ -1606,113 +898,54 @@ function AdminPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="date">
-                      Date
-                    </Label>
-
+                    <Label htmlFor="date">Date</Label>
                     <Input
                       id="date"
                       type="date"
-                      value={
-                        form.date
-                      }
-                      onChange={(
-                        event,
-                      ) =>
-                        setForm({
-                          ...form,
-                          date:
-                            event
-                              .target
-                              .value,
-                        })
+                      value={form.date}
+                      onChange={(event) =>
+                        setForm({ ...form, date: event.target.value })
                       }
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="time">
-                      Time
-                    </Label>
-
+                    <Label htmlFor="time">Time</Label>
                     <Input
                       id="time"
                       type="time"
-                      value={
-                        form.time
-                      }
-                      onChange={(
-                        event,
-                      ) =>
-                        setForm({
-                          ...form,
-                          time:
-                            event
-                              .target
-                              .value,
-                        })
+                      value={form.time}
+                      onChange={(event) =>
+                        setForm({ ...form, time: event.target.value })
                       }
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>
-                    Audience
-                  </Label>
-
+                  <Label>Audience</Label>
                   <Select
-                    value={
-                      form.teamId
-                    }
-                    onValueChange={(
-                      value,
-                    ) =>
-                      setForm({
-                        ...form,
-                        teamId:
-                          value,
-                      })
+                    value={form.teamId}
+                    onValueChange={(value) =>
+                      setForm({ ...form, teamId: value })
                     }
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
-
                     <SelectContent>
-                      <SelectItem value="general">
-                        General
-                        (everyone)
-                      </SelectItem>
-
-                      {teams.map(
-                        (
-                          team,
-                        ) => (
-                          <SelectItem
-                            key={
-                              team.id
-                            }
-                            value={
-                              team.id
-                            }
-                          >
-                            {
-                              team.name
-                            }
-                          </SelectItem>
-                        ),
-                      )}
+                      <SelectItem value="general">General (everyone)</SelectItem>
+                      {teams.map((team) => (
+                        <SelectItem key={team.id} value={team.id}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                >
+                <Button type="submit" className="w-full">
                   <CalendarPlus className="size-4" />
-
                   Schedule meeting
                 </Button>
               </form>
@@ -1721,84 +954,54 @@ function AdminPage() {
 
           <Card className="surface-card">
             <CardHeader>
-              <CardTitle className="text-base">
-                All meetings
-              </CardTitle>
+              <CardTitle className="text-base">All meetings</CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-3">
-              {meetings.map(
-                (meeting) => (
-                  <div
-                    key={
-                      meeting.id
-                    }
-                    className="flex flex-col gap-3 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="break-words text-sm font-medium">
-                        {
-                          meeting.title
-                        }
-                      </p>
-
-                      <p className="mt-1 break-words text-xs text-muted-foreground">
-                        {
-                          meeting.date
-                        }{" "}
-                        ·{" "}
-                        {
-                          meeting.time
-                        }{" "}
-                        ·{" "}
-                        {teamName(
-                          meeting.teamId ===
-                            "general"
-                            ? "general"
-                            : meeting.teamId,
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
-                      <Badge variant="secondary">
-                        {
-                          rsvps.filter(
-                            (
-                              rsvp,
-                            ) =>
-                              rsvp.meetingId ===
-                                meeting.id &&
-                              rsvp.status ===
-                                "Attending",
-                          ).length
-                        }{" "}
-                        in
-                      </Badge>
-
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() =>
-                          deleteMeeting(
-                            meeting.id,
-                          )
-                        }
-                      >
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
-                    </div>
+              {meetings.map((meeting) => (
+                <div
+                  key={meeting.id}
+                  className="flex flex-col gap-3 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium">
+                      {meeting.title}
+                    </p>
+                    <p className="mt-1 break-words text-xs text-muted-foreground">
+                      {meeting.date} · {meeting.time} ·{" "}
+                      {teamName(
+                        meeting.teamId === "general" ? "general" : meeting.teamId,
+                      )}
+                    </p>
                   </div>
-                ),
-              )}
+
+                  <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
+                    <Badge variant="secondary">
+                      {
+                        rsvps.filter(
+                          (rsvp) =>
+                            rsvp.meetingId === meeting.id &&
+                            rsvp.status === "Attending",
+                        ).length
+                      }{" "}
+                      in
+                    </Badge>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteMeeting(meeting.id)}
+                    >
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent
-          value="push"
-          className="mt-4"
-        >
+        <TabsContent value="push" className="mt-4">
           <AdminPushPanel />
         </TabsContent>
       </Tabs>
@@ -1806,7 +1009,7 @@ function AdminPage() {
   );
 }
 
-function PeopleQueryPanel({
+function RsvpInsightsPanel({
   teams,
   teamName,
   queryMetric,
@@ -1825,55 +1028,25 @@ function PeopleQueryPanel({
   setQueryTeam,
   applyPreset,
 }: {
-  teams: {
-    id: string;
-    name: string;
-  }[];
-  teamName: (
-    id: string | null,
-  ) => string;
+  teams: { id: string; name: string }[];
+  teamName: (id: string | null) => string;
   queryMetric: QueryMetric;
   queryRule: QueryRule;
   queryAmount: number;
   queryPeriod: QueryPeriod;
   queryTeam: string;
-  queryResults:
-    PersonMeetingSummary[];
+  queryResults: PersonMeetingSummary[];
   meetingsInScope: number;
   missingRsvpCount: number;
   missingPeopleCount: number;
-  setQueryMetric: (
-    value: QueryMetric,
-  ) => void;
-  setQueryRule: (
-    value: QueryRule,
-  ) => void;
-  setQueryAmount: (
-    value: number,
-  ) => void;
-  setQueryPeriod: (
-    value: QueryPeriod,
-  ) => void;
-  setQueryTeam: (
-    value: string,
-  ) => void;
-  applyPreset: (
-    metric: QueryMetric,
-    rule: QueryRule,
-    amount?: number,
-  ) => void;
+  setQueryMetric: (value: QueryMetric) => void;
+  setQueryRule: (value: QueryRule) => void;
+  setQueryAmount: (value: number) => void;
+  setQueryPeriod: (value: QueryPeriod) => void;
+  setQueryTeam: (value: string) => void;
+  applyPreset: (metric: QueryMetric, rule: QueryRule, amount?: number) => void;
 }) {
-  const usesAmount =
-    queryRule ===
-      "at-least" ||
-    queryRule ===
-      "at-most";
-
-  const metricLabel =
-    queryMetric ===
-    "unanswered"
-      ? "unanswered"
-      : "attending";
+  const usesAmount = queryRule === "at-least" || queryRule === "at-most";
 
   return (
     <Card className="surface-card overflow-hidden">
@@ -1882,37 +1055,23 @@ function PeopleQueryPanel({
           <div>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Search className="size-5 text-primary" />
-
-              Find people
+              RSVP Insights
             </CardTitle>
-
             <p className="mt-1 text-sm text-muted-foreground">
-              Query RSVP
-              responses across
-              meetings and teams.
+              Find members by their RSVP and attendance status.
             </p>
           </div>
 
           <div className="rounded-2xl bg-warning/10 px-4 py-3 text-sm">
-            <span className="font-semibold text-warning">
-              {
-                missingRsvpCount
-              }
-            </span>{" "}
+            <span className="font-semibold text-warning">{missingRsvpCount}</span>{" "}
             missing RSVPs from{" "}
-            <span className="font-semibold">
-              {
-                missingPeopleCount
-              }
-            </span>{" "}
-            people in the next
-            7 days
+            <span className="font-semibold">{missingPeopleCount}</span> people in
+            the next 7 days
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-5">
-        {/* Quick queries */}
         <div>
           <Label className="mb-2 block text-xs uppercase tracking-wide text-muted-foreground">
             Quick queries
@@ -1924,344 +1083,171 @@ function PeopleQueryPanel({
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                applyPreset(
-                  "unanswered",
-                  "all",
-                )
-              }
+              onClick={() => applyPreset("unanswered", "all")}
             >
               No answers
             </Button>
-
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                applyPreset(
-                  "unanswered",
-                  "at-least",
-                  1,
-                )
-              }
+              onClick={() => applyPreset("unanswered", "at-least", 1)}
             >
               Missing 1+
             </Button>
-
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                applyPreset(
-                  "unanswered",
-                  "at-least",
-                  2,
-                )
-              }
+              onClick={() => applyPreset("unanswered", "at-least", 2)}
             >
               Missing 2+
             </Button>
-
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                applyPreset(
-                  "unanswered",
-                  "none",
-                )
-              }
+              onClick={() => applyPreset("unanswered", "none")}
             >
               Answered all
             </Button>
-
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                applyPreset(
-                  "attending",
-                  "none",
-                )
-              }
+              onClick={() => applyPreset("attending", "none")}
             >
               Attend none
             </Button>
-
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                applyPreset(
-                  "attending",
-                  "at-most",
-                  1,
-                )
-              }
+              onClick={() => applyPreset("attending", "at-most", 1)}
             >
               Attend ≤1
             </Button>
-
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                applyPreset(
-                  "attending",
-                  "less-than-half",
-                )
-              }
+              onClick={() => applyPreset("attending", "less-than-half")}
             >
               Attend &lt;50%
             </Button>
           </div>
         </div>
 
-        {/* Query controls */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="space-y-2">
-            <Label>
-              Period
-            </Label>
-
+            <Label>Period</Label>
             <Select
-              value={
-                queryPeriod
-              }
-              onValueChange={(
-                value,
-              ) =>
-                setQueryPeriod(
-                  value as QueryPeriod,
-                )
-              }
+              value={queryPeriod}
+              onValueChange={(value) => setQueryPeriod(value as QueryPeriod)}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-
               <SelectContent>
-                <SelectItem value="next7">
-                  Next 7 days
-                </SelectItem>
-
-                <SelectItem value="next14">
-                  Next 14 days
-                </SelectItem>
-
-                <SelectItem value="thisMonth">
-                  This month
-                </SelectItem>
-
-                <SelectItem value="allUpcoming">
-                  All upcoming
-                </SelectItem>
+                <SelectItem value="next7">Next 7 days</SelectItem>
+                <SelectItem value="next14">Next 14 days</SelectItem>
+                <SelectItem value="thisMonth">This month</SelectItem>
+                <SelectItem value="allUpcoming">All upcoming</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label>
-              Team
-            </Label>
+            <Label>Team</Label>
+            <Select value={queryTeam} onValueChange={setQueryTeam}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All teams</SelectItem>
+                {teams.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>
+                    {team.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
+          <div className="space-y-2">
+            <Label>Metric</Label>
             <Select
-              value={
-                queryTeam
-              }
-              onValueChange={
-                setQueryTeam
-              }
+              value={queryMetric}
+              onValueChange={(value) => setQueryMetric(value as QueryMetric)}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unanswered">Unanswered</SelectItem>
+                <SelectItem value="attending">Attending</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
+          <div className="space-y-2">
+            <Label>Condition</Label>
+            <Select
+              value={queryRule}
+              onValueChange={(value) => setQueryRule(value as QueryRule)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">
-                  All teams
+                  {queryMetric === "unanswered" ? "All meetings" : "Attend all"}
                 </SelectItem>
-
-                {teams.map(
-                  (team) => (
-                    <SelectItem
-                      key={
-                        team.id
-                      }
-                      value={
-                        team.id
-                      }
-                    >
-                      {
-                        team.name
-                      }
-                    </SelectItem>
-                  ),
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>
-              Metric
-            </Label>
-
-            <Select
-              value={
-                queryMetric
-              }
-              onValueChange={(
-                value,
-              ) =>
-                setQueryMetric(
-                  value as QueryMetric,
-                )
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-
-              <SelectContent>
-                <SelectItem value="unanswered">
-                  Unanswered
-                </SelectItem>
-
-                <SelectItem value="attending">
-                  Attending
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>
-              Condition
-            </Label>
-
-            <Select
-              value={
-                queryRule
-              }
-              onValueChange={(
-                value,
-              ) =>
-                setQueryRule(
-                  value as QueryRule,
-                )
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-
-              <SelectContent>
-                <SelectItem value="all">
-                  {queryMetric ===
-                  "unanswered"
-                    ? "All meetings"
-                    : "Attend all"}
-                </SelectItem>
-
                 <SelectItem value="none">
-                  {queryMetric ===
-                  "unanswered"
-                    ? "None"
-                    : "Attend none"}
+                  {queryMetric === "unanswered" ? "None" : "Attend none"}
                 </SelectItem>
-
-                <SelectItem value="at-least">
-                  At least
-                </SelectItem>
-
-                <SelectItem value="at-most">
-                  At most
-                </SelectItem>
-
-                <SelectItem value="less-than-half">
-                  Less than 50%
-                </SelectItem>
+                <SelectItem value="at-least">At least</SelectItem>
+                <SelectItem value="at-most">At most</SelectItem>
+                <SelectItem value="less-than-half">Less than 50%</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label>
-              Number
-            </Label>
-
+            <Label>Number</Label>
             <Input
               type="number"
               min={0}
-              disabled={
-                !usesAmount
-              }
-              value={
-                usesAmount
-                  ? queryAmount
-                  : ""
-              }
+              disabled={!usesAmount}
+              value={usesAmount ? queryAmount : ""}
               placeholder="—"
-              onChange={(
-                event,
-              ) =>
-                setQueryAmount(
-                  Math.max(
-                    0,
-                    Number(
-                      event.target
-                        .value,
-                    ) || 0,
-                  ),
-                )
+              onChange={(event) =>
+                setQueryAmount(Math.max(0, Number(event.target.value) || 0))
               }
             />
           </div>
         </div>
 
-        {/* Results */}
         <div className="border-t border-border pt-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">
-                {
-                  queryResults.length
-                }{" "}
-                {queryResults.length ===
-                1
-                  ? "person"
-                  : "people"}{" "}
-                found
+                {queryResults.length}{" "}
+                {queryResults.length === 1 ? "person" : "people"} found
               </p>
-
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {
-                  meetingsInScope
-                }{" "}
-                meeting
-                {meetingsInScope ===
-                1
-                  ? ""
-                  : "s"}{" "}
-                in scope
+                {meetingsInScope} meeting{meetingsInScope === 1 ? "" : "s"} in
+                scope
               </p>
             </div>
 
-            {queryResults.length >
-              0 && (
+            {queryResults.length > 0 && (
               <Button
                 type="button"
                 size="sm"
@@ -2270,117 +1256,66 @@ function PeopleQueryPanel({
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(
-                      queryResults
-                        .map(
-                          (
-                            person,
-                          ) =>
-                            person.name,
-                        )
-                        .join(
-                          "\n",
-                        ),
+                      queryResults.map((person) => person.name).join("\n"),
                     );
-
-                    toast.success(
-                      "Names copied",
-                    );
+                    toast.success("Names copied");
                   } catch {
-                    toast.error(
-                      "Could not copy names",
-                    );
+                    toast.error("Could not copy names");
                   }
                 }}
               >
                 <Copy className="size-4" />
-
                 Copy names
               </Button>
             )}
           </div>
 
-          {queryResults.length ===
-          0 ? (
+          {queryResults.length === 0 ? (
             <div className="rounded-2xl bg-muted/50 p-6 text-center">
               <p className="text-sm text-muted-foreground">
-                Nobody matches
-                this query.
+                Nobody matches this query.
               </p>
             </div>
           ) : (
             <div className="space-y-2">
-              {queryResults.map(
-                (person) => (
-                  <div
-                    key={
-                      person.id
-                    }
-                    className="flex flex-col gap-3 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="break-words font-medium">
-                        {
-                          person.name
-                        }
-                      </p>
-
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {person.teamIds
-                          .map(
-                            (
-                              id,
-                            ) =>
-                              teamName(
-                                id,
-                              ),
-                          )
-                          .join(
-                            ", ",
-                          ) ||
-                          "Unassigned"}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                      <Badge
-                        variant={
-                          queryMetric ===
-                          "unanswered"
-                            ? "outline"
-                            : "secondary"
-                        }
-                        className="rounded-full"
-                      >
-                        {queryMetric ===
-                        "unanswered"
-                          ? `${person.unanswered} / ${person.total} unanswered`
-                          : `${person.attending} / ${person.total} attending`}
-                      </Badge>
-
-                      <span className="text-xs text-muted-foreground">
-                        {
-                          person.answered
-                        }{" "}
-                        answered ·{" "}
-                        {
-                          person.declined
-                        }{" "}
-                        declined
-                      </span>
-                    </div>
+              {queryResults.map((person) => (
+                <div
+                  key={person.id}
+                  className="flex flex-col gap-3 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="break-words font-medium">{person.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {person.teamIds.map((id) => teamName(id)).join(", ") ||
+                        "Unassigned"}
+                    </p>
                   </div>
-                ),
-              )}
+
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    <Badge
+                      variant={
+                        queryMetric === "unanswered" ? "outline" : "secondary"
+                      }
+                      className="rounded-full"
+                    >
+                      {queryMetric === "unanswered"
+                        ? `${person.unanswered} / ${person.total} unanswered`
+                        : `${person.attending} / ${person.total} attending`}
+                    </Badge>
+
+                    <span className="text-xs text-muted-foreground">
+                      {person.attending} attending · {person.notAttending} not
+                      attending · {person.cancelled} cancelled
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
           <p className="mt-4 text-xs text-muted-foreground">
-            Current meeting
-            RSVPs are stored per
-            meeting series, so a
-            recurring meeting is
-            counted once using its
-            next occurrence.
+            Current meeting RSVPs are stored per meeting series, so a recurring
+            meeting is counted once using its next occurrence.
           </p>
         </div>
       </CardContent>
@@ -2410,12 +1345,10 @@ function Stat({
       >
         <Icon className="size-4 sm:size-5" />
       </div>
-
       <div className="min-w-0">
         <p className="text-[10px] uppercase leading-tight tracking-wide text-muted-foreground sm:text-xs">
           {label}
         </p>
-
         <p className="tabular mt-1 truncate text-lg font-semibold sm:text-xl">
           {value}
         </p>
@@ -2431,23 +1364,22 @@ function MiniMetric({
 }: {
   label: string;
   value: string;
-  tone?:
-    | "success"
-    | "danger";
+  tone?: "success" | "warning" | "danger";
 }) {
   return (
     <div className="rounded-xl bg-muted/60 p-2.5">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-
       <p
         className={`tabular mt-1 font-semibold ${
           tone === "success"
             ? "text-success"
-            : tone === "danger"
-              ? "text-destructive"
-              : ""
+            : tone === "warning"
+              ? "text-warning"
+              : tone === "danger"
+                ? "text-destructive"
+                : ""
         }`}
       >
         {value}
@@ -2457,92 +1389,33 @@ function MiniMetric({
 }
 
 function AdminPushPanel() {
-  const {
-    profiles,
-  } = useStore();
+  const { profiles } = useStore();
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [enabledUserIds, setEnabledUserIds] = useState<string[]>([]);
+  const [recipientMode, setRecipientMode] = useState<"all" | "selected">("all");
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
-  const [
-    title,
-    setTitle,
-  ] = useState("");
-
-  const [
-    body,
-    setBody,
-  ] = useState("");
-
-  const [
-    sending,
-    setSending,
-  ] = useState(false);
-
-  const [
-    loadingStatus,
-    setLoadingStatus,
-  ] = useState(true);
-
-  const [
-    enabledUserIds,
-    setEnabledUserIds,
-  ] =
-    useState<string[]>([]);
-
-  const [
-    recipientMode,
-    setRecipientMode,
-  ] =
-    useState<
-      "all" | "selected"
-    >("all");
-
-  const [
-    selectedUserIds,
-    setSelectedUserIds,
-  ] =
-    useState<string[]>([]);
-
-  const send =
-    useServerFn(
-      broadcastPush,
-    );
-
-  const getStatus =
-    useServerFn(
-      getPushAdminStatus,
-    );
+  const send = useServerFn(broadcastPush);
+  const getStatus = useServerFn(getPushAdminStatus);
 
   useEffect(() => {
     let active = true;
-
     setLoadingStatus(true);
 
     getStatus()
-      .then(
-        (result) => {
-          if (!active) {
-            return;
-          }
-
-          setEnabledUserIds(
-            result.enabledUserIds,
-          );
-        },
-      )
+      .then((result) => {
+        if (!active) return;
+        setEnabledUserIds(result.enabledUserIds);
+      })
       .catch(() => {
-        if (!active) {
-          return;
-        }
-
-        toast.error(
-          "Could not load notification status",
-        );
+        if (!active) return;
+        toast.error("Could not load notification status");
       })
       .finally(() => {
-        if (active) {
-          setLoadingStatus(
-            false,
-          );
-        }
+        if (active) setLoadingStatus(false);
       });
 
     return () => {
@@ -2550,100 +1423,42 @@ function AdminPushPanel() {
     };
   }, [getStatus]);
 
-  const enabledSet =
-    useMemo(
-      () =>
-        new Set(
-          enabledUserIds,
-        ),
-      [enabledUserIds],
-    );
-
-  const enabledProfiles =
-    useMemo(
-      () =>
-        profiles
-          .filter(
-            (profile) =>
-              enabledSet.has(
-                profile.id,
-              ),
-          )
-          .sort((a, b) =>
-            a.name.localeCompare(
-              b.name,
-            ),
-          ),
-      [
-        profiles,
-        enabledSet,
-      ],
-    );
-
-  const disabledProfiles =
-    useMemo(
-      () =>
-        profiles
-          .filter(
-            (profile) =>
-              !enabledSet.has(
-                profile.id,
-              ),
-          )
-          .sort((a, b) =>
-            a.name.localeCompare(
-              b.name,
-            ),
-          ),
-      [
-        profiles,
-        enabledSet,
-      ],
-    );
+  const enabledSet = useMemo(() => new Set(enabledUserIds), [enabledUserIds]);
+  const enabledProfiles = useMemo(
+    () =>
+      profiles
+        .filter((profile) => enabledSet.has(profile.id))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [profiles, enabledSet],
+  );
+  const disabledProfiles = useMemo(
+    () =>
+      profiles
+        .filter((profile) => !enabledSet.has(profile.id))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [profiles, enabledSet],
+  );
 
   const canSend =
-    title.trim().length >
-      0 &&
-    body.trim().length >
-      0 &&
+    title.trim().length > 0 &&
+    body.trim().length > 0 &&
     !sending &&
-    (
-      recipientMode ===
-        "all" ||
-      selectedUserIds.length >
-        0
-    );
+    (recipientMode === "all" || selectedUserIds.length > 0);
 
-  function toggleUser(
-    userId: string,
-  ) {
-    setSelectedUserIds(
-      (current) =>
-        current.includes(
-          userId,
-        )
-          ? current.filter(
-              (id) =>
-                id !==
-                userId,
-            )
-          : [
-              ...current,
-              userId,
-            ],
+  function toggleUser(userId: string) {
+    setSelectedUserIds((current) =>
+      current.includes(userId)
+        ? current.filter((id) => id !== userId)
+        : [...current, userId],
     );
   }
 
   async function refreshStatus() {
     try {
-      const result =
-        await getStatus();
-
-      setEnabledUserIds(
-        result.enabledUserIds,
-      );
+      const result = await getStatus();
+      setEnabledUserIds(result.enabledUserIds);
     } catch {
-      // Keep the current UI state.
+      // Keep current UI state.
     }
   }
 
@@ -2652,61 +1467,36 @@ function AdminPushPanel() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Send className="size-4 text-primary" />
-
           Send push notification
         </CardTitle>
       </CardHeader>
 
       <CardContent className="space-y-5">
-        {/* Recipients */}
         <div className="space-y-2">
-          <Label>
-            Recipients
-          </Label>
-
+          <Label>Recipients</Label>
           <Select
-            value={
-              recipientMode
-            }
-            onValueChange={(
-              value,
-            ) =>
-              setRecipientMode(
-                value as
-                  | "all"
-                  | "selected",
-              )
+            value={recipientMode}
+            onValueChange={(value) =>
+              setRecipientMode(value as "all" | "selected")
             }
           >
             <SelectTrigger className="w-full sm:max-w-sm">
               <SelectValue />
             </SelectTrigger>
-
             <SelectContent>
-              <SelectItem value="all">
-                Everyone with notifications
-              </SelectItem>
-
-              <SelectItem value="selected">
-                Choose people
-              </SelectItem>
+              <SelectItem value="all">Everyone with notifications</SelectItem>
+              <SelectItem value="selected">Choose people</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        {recipientMode ===
-          "selected" && (
+        {recipientMode === "selected" && (
           <div className="rounded-2xl border border-border p-4">
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-medium">
-                  Choose people
-                </p>
-
+                <p className="text-sm font-medium">Choose people</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Only people with
-                  notifications enabled
-                  can be selected.
+                  Only people with notifications enabled can be selected.
                 </p>
               </div>
 
@@ -2717,27 +1507,17 @@ function AdminPushPanel() {
                   variant="outline"
                   onClick={() =>
                     setSelectedUserIds(
-                      enabledProfiles.map(
-                        (
-                          profile,
-                        ) =>
-                          profile.id,
-                      ),
+                      enabledProfiles.map((profile) => profile.id),
                     )
                   }
                 >
                   Select all
                 </Button>
-
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
-                  onClick={() =>
-                    setSelectedUserIds(
-                      [],
-                    )
-                  }
+                  onClick={() => setSelectedUserIds([])}
                 >
                   Clear
                 </Button>
@@ -2746,103 +1526,60 @@ function AdminPushPanel() {
 
             {loadingStatus ? (
               <p className="py-4 text-sm text-muted-foreground">
-                Loading notification
-                status…
+                Loading notification status…
               </p>
-            ) : enabledProfiles.length ===
-              0 ? (
+            ) : enabledProfiles.length === 0 ? (
               <p className="py-4 text-sm text-muted-foreground">
-                Nobody currently has a
-                registered notification
-                device.
+                Nobody currently has a registered notification device.
               </p>
             ) : (
               <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-                {enabledProfiles.map(
-                  (
-                    profile,
-                  ) => {
-                    const checked =
-                      selectedUserIds.includes(
-                        profile.id,
-                      );
+                {enabledProfiles.map((profile) => {
+                  const checked = selectedUserIds.includes(profile.id);
 
-                    return (
-                      <label
-                        key={
-                          profile.id
-                        }
-                        className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted"
-                      >
-                        <Checkbox
-                          checked={
-                            checked
-                          }
-                          onCheckedChange={() =>
-                            toggleUser(
-                              profile.id,
-                            )
-                          }
-                        />
-
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {
-                              profile.name
-                            }
-                          </p>
-
-                          <p className="truncate text-xs text-muted-foreground">
-                            {
-                              profile.email
-                            }
-                          </p>
-                        </div>
-
-                        <BellRing className="size-4 shrink-0 text-success" />
-                      </label>
-                    );
-                  },
-                )}
+                  return (
+                    <label
+                      key={profile.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleUser(profile.id)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {profile.name}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {profile.email}
+                        </p>
+                      </div>
+                      <BellRing className="size-4 shrink-0 text-success" />
+                    </label>
+                  );
+                })}
               </div>
             )}
 
             <p className="mt-3 text-xs text-muted-foreground">
-              {
-                selectedUserIds.length
-              }{" "}
-              selected
+              {selectedUserIds.length} selected
             </p>
           </div>
         )}
 
-        {/* Message */}
         <div className="space-y-2">
-          <Label htmlFor="push-title">
-            Title
-          </Label>
-
+          <Label htmlFor="push-title">Title</Label>
           <Input
             id="push-title"
             maxLength={80}
             placeholder="e.g. Office closed tomorrow"
             value={title}
-            onChange={(
-              event,
-            ) =>
-              setTitle(
-                event.target
-                  .value,
-              )
-            }
+            onChange={(event) => setTitle(event.target.value)}
           />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="push-body">
-            Description
-          </Label>
-
+          <Label htmlFor="push-body">Description</Label>
           <Textarea
             id="push-body"
             rows={4}
@@ -2850,14 +1587,7 @@ function AdminPushPanel() {
             className="resize-none rounded-2xl"
             placeholder="What do you want them to know?"
             value={body}
-            onChange={(
-              event,
-            ) =>
-              setBody(
-                event.target
-                  .value,
-              )
-            }
+            onChange={(event) => setBody(event.target.value)}
           />
         </div>
 
@@ -2868,42 +1598,26 @@ function AdminPushPanel() {
             setSending(true);
 
             try {
-              const result =
-                await send({
-                  data: {
-                    title:
-                      title.trim(),
-
-                    body:
-                      body.trim(),
-
-                    ...(recipientMode ===
-                    "selected"
-                      ? {
-                          userIds:
-                            selectedUserIds,
-                        }
-                      : {}),
-                  },
-                });
+              const result = await send({
+                data: {
+                  title: title.trim(),
+                  body: body.trim(),
+                  ...(recipientMode === "selected"
+                    ? { userIds: selectedUserIds }
+                    : {}),
+                },
+              });
 
               toast.success(
                 `Push accepted by ${result.sent} registered device${
-                  result.sent ===
-                  1
-                    ? ""
-                    : "s"
+                  result.sent === 1 ? "" : "s"
                 }`,
               );
-
               setTitle("");
               setBody("");
-
               await refreshStatus();
             } catch {
-              toast.error(
-                "Could not send the push",
-              );
+              toast.error("Could not send the push");
             } finally {
               setSending(false);
             }
@@ -2911,109 +1625,66 @@ function AdminPushPanel() {
         >
           {sending
             ? "Sending…"
-            : recipientMode ===
-                "selected"
+            : recipientMode === "selected"
               ? `Send to ${selectedUserIds.length} ${
-                  selectedUserIds.length ===
-                  1
-                    ? "person"
-                    : "people"
+                  selectedUserIds.length === 1 ? "person" : "people"
                 }`
               : "Send to everyone"}
         </Button>
 
         <p className="text-xs text-muted-foreground">
-          One person can have more than
-          one registered device, so the
-          number of delivered devices can
-          be higher than the number of
-          selected people.
+          One person can have more than one registered device, so the number of
+          delivered devices can be higher than the number of selected people.
         </p>
 
-        {/* Notification status */}
         <div className="border-t border-border pt-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="flex items-center gap-2">
                 <BellOff className="size-4 text-warning" />
-
-                <p className="font-semibold">
-                  No registered notification
-                  device
-                </p>
+                <p className="font-semibold">No registered notification device</p>
               </div>
-
               <p className="mt-1 text-sm text-muted-foreground">
-                These users currently
-                cannot receive POM push
-                notifications.
+                These users currently cannot receive POM push notifications.
               </p>
             </div>
 
             {!loadingStatus && (
-              <Badge
-                variant="outline"
-                className="w-fit rounded-full"
-              >
-                {
-                  disabledProfiles.length
-                }{" "}
-                /{" "}
-                {
-                  profiles.length
-                }
+              <Badge variant="outline" className="w-fit rounded-full">
+                {disabledProfiles.length} / {profiles.length}
               </Badge>
             )}
           </div>
 
           {loadingStatus ? (
             <p className="mt-4 text-sm text-muted-foreground">
-              Checking notification
-              registrations…
+              Checking notification registrations…
             </p>
-          ) : disabledProfiles.length ===
-            0 ? (
+          ) : disabledProfiles.length === 0 ? (
             <div className="mt-4 rounded-2xl bg-success/10 p-4">
               <div className="flex items-center gap-2 text-sm font-medium text-success">
                 <BellRing className="size-4" />
-
-                Everyone has at least one
-                registered notification
-                device.
+                Everyone has at least one registered notification device.
               </div>
             </div>
           ) : (
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {disabledProfiles.map(
-                (
-                  profile,
-                ) => (
-                  <div
-                    key={
-                      profile.id
-                    }
-                    className="flex min-w-0 items-center gap-3 rounded-2xl border border-warning/30 bg-warning/5 p-3"
-                  >
-                    <div className="grid size-9 shrink-0 place-items-center rounded-full bg-warning/15">
-                      <BellOff className="size-4 text-warning" />
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {
-                          profile.name
-                        }
-                      </p>
-
-                      <p className="truncate text-xs text-muted-foreground">
-                        {
-                          profile.email
-                        }
-                      </p>
-                    </div>
+              {disabledProfiles.map((profile) => (
+                <div
+                  key={profile.id}
+                  className="flex min-w-0 items-center gap-3 rounded-2xl border border-warning/30 bg-warning/5 p-3"
+                >
+                  <div className="grid size-9 shrink-0 place-items-center rounded-full bg-warning/15">
+                    <BellOff className="size-4 text-warning" />
                   </div>
-                ),
-              )}
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{profile.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {profile.email}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
