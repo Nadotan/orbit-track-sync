@@ -665,29 +665,105 @@ export const sweepReminders =
         return runReminderSweepThrottled();
       },
     );
-const broadcastSchema =
-  z.object({
-    title:
-      z.string()
-        .trim()
-        .min(1)
-        .max(80),
+const broadcastSchema = z.object({
+  title: z.string().trim().min(1).max(80),
 
-    body:
-      z.string()
-        .trim()
-        .min(1)
-        .max(300),
-  });
+  body: z.string().trim().min(1).max(300),
+
+  userIds: z
+    .array(z.string().uuid())
+    .max(500)
+    .optional(),
+});
 
 /**
- * Admin broadcast: sends a Web Push
- * to every registered device.
+ * Admin-only:
+ * returns which users currently have at least
+ * one registered Web Push device.
+ *
+ * We only expose user IDs — never endpoints or push keys.
+ */
+export const getPushAdminStatus =
+  createServerFn({
+    method: "GET",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .handler(
+      async ({ context }) => {
+        const {
+          data: adminRole,
+        } =
+          await context.supabase
+            .from("user_roles")
+            .select("role")
+            .eq(
+              "user_id",
+              context.userId,
+            )
+            .eq(
+              "role",
+              "admin",
+            )
+            .maybeSingle();
+
+        if (!adminRole) {
+          throw new Error(
+            "Forbidden",
+          );
+        }
+
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const {
+          data,
+          error,
+        } =
+          await supabaseAdmin
+            .from(
+              "push_subscriptions",
+            )
+            .select("user_id");
+
+        if (error) {
+          throw new Error(
+            error.message,
+          );
+        }
+
+        const enabledUserIds = [
+          ...new Set(
+            (data ?? []).map(
+              (row) =>
+                row.user_id,
+            ),
+          ),
+        ];
+
+        return {
+          enabledUserIds,
+        };
+      },
+    );
+
+/**
+ * Admin push.
+ *
+ * userIds omitted:
+ *   -> send to everyone
+ *
+ * userIds supplied:
+ *   -> send only to those selected users
  */
 export const broadcastPush =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -703,16 +779,23 @@ export const broadcastPush =
         const {
           data: adminRole,
         } =
-          await context
-            .supabase
+          await context.supabase
             .from("user_roles")
             .select("role")
-            .eq("user_id", context.userId)
-            .eq("role", "admin")
+            .eq(
+              "user_id",
+              context.userId,
+            )
+            .eq(
+              "role",
+              "admin",
+            )
             .maybeSingle();
 
         if (!adminRole) {
-          throw new Error("Forbidden");
+          throw new Error(
+            "Forbidden",
+          );
         }
 
         const {
@@ -725,33 +808,355 @@ export const broadcastPush =
         const {
           sendPushToUsers,
         } =
-          await import("./push.server");
+          await import(
+            "./push.server"
+          );
 
-        const {
-          data: profiles,
-          error,
-        } =
-          await supabaseAdmin
-            .from("profiles")
-            .select("id");
+        let targetUserIds: string[];
 
-        if (error) {
-          throw new Error(error.message);
+        if (data.userIds) {
+          const requested = [
+            ...new Set(
+              data.userIds,
+            ),
+          ];
+
+          if (
+            requested.length ===
+            0
+          ) {
+            return {
+              sent: 0,
+              recipients: 0,
+            };
+          }
+
+          /*
+           * Validate that every target is
+           * an actual POM profile.
+           */
+          const {
+            data: profiles,
+            error,
+          } =
+            await supabaseAdmin
+              .from(
+                "profiles",
+              )
+              .select("id")
+              .in(
+                "id",
+                requested,
+              );
+
+          if (error) {
+            throw new Error(
+              error.message,
+            );
+          }
+
+          targetUserIds =
+            (
+              profiles ?? []
+            ).map(
+              (profile) =>
+                profile.id,
+            );
+        } else {
+          const {
+            data: profiles,
+            error,
+          } =
+            await supabaseAdmin
+              .from(
+                "profiles",
+              )
+              .select("id");
+
+          if (error) {
+            throw new Error(
+              error.message,
+            );
+          }
+
+          targetUserIds =
+            (
+              profiles ?? []
+            ).map(
+              (profile) =>
+                profile.id,
+            );
         }
 
         const sent =
           await sendPushToUsers(
-            (profiles ?? []).map(
-              (profile) => profile.id,
-            ),
+            targetUserIds,
             {
-              title: data.title,
-              body: data.body,
+              title:
+                data.title,
+
+              body:
+                data.body,
+
               url: "/",
-              tag: `admin-broadcast-${Date.now()}`,
+
+              tag:
+                `admin-broadcast-${Date.now()}`,
             },
           );
 
-        return { sent };
+        return {
+          sent,
+          recipients:
+            targetUserIds.length,
+        };
+      },
+    );
+
+    const broadcastSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+
+  body: z.string().trim().min(1).max(300),
+
+  userIds: z
+    .array(z.string().uuid())
+    .max(500)
+    .optional(),
+});
+
+/**
+ * Admin-only:
+ * returns which users currently have at least
+ * one registered Web Push device.
+ *
+ * We only expose user IDs — never endpoints or push keys.
+ */
+export const getPushAdminStatus =
+  createServerFn({
+    method: "GET",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .handler(
+      async ({ context }) => {
+        const {
+          data: adminRole,
+        } =
+          await context.supabase
+            .from("user_roles")
+            .select("role")
+            .eq(
+              "user_id",
+              context.userId,
+            )
+            .eq(
+              "role",
+              "admin",
+            )
+            .maybeSingle();
+
+        if (!adminRole) {
+          throw new Error(
+            "Forbidden",
+          );
+        }
+
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const {
+          data,
+          error,
+        } =
+          await supabaseAdmin
+            .from(
+              "push_subscriptions",
+            )
+            .select("user_id");
+
+        if (error) {
+          throw new Error(
+            error.message,
+          );
+        }
+
+        const enabledUserIds = [
+          ...new Set(
+            (data ?? []).map(
+              (row) =>
+                row.user_id,
+            ),
+          ),
+        ];
+
+        return {
+          enabledUserIds,
+        };
+      },
+    );
+
+/**
+ * Admin push.
+ *
+ * userIds omitted:
+ *   -> send to everyone
+ *
+ * userIds supplied:
+ *   -> send only to those selected users
+ */
+export const broadcastPush =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      broadcastSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          data: adminRole,
+        } =
+          await context.supabase
+            .from("user_roles")
+            .select("role")
+            .eq(
+              "user_id",
+              context.userId,
+            )
+            .eq(
+              "role",
+              "admin",
+            )
+            .maybeSingle();
+
+        if (!adminRole) {
+          throw new Error(
+            "Forbidden",
+          );
+        }
+
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const {
+          sendPushToUsers,
+        } =
+          await import(
+            "./push.server"
+          );
+
+        let targetUserIds: string[];
+
+        if (data.userIds) {
+          const requested = [
+            ...new Set(
+              data.userIds,
+            ),
+          ];
+
+          if (
+            requested.length ===
+            0
+          ) {
+            return {
+              sent: 0,
+              recipients: 0,
+            };
+          }
+
+          /*
+           * Validate that every target is
+           * an actual POM profile.
+           */
+          const {
+            data: profiles,
+            error,
+          } =
+            await supabaseAdmin
+              .from(
+                "profiles",
+              )
+              .select("id")
+              .in(
+                "id",
+                requested,
+              );
+
+          if (error) {
+            throw new Error(
+              error.message,
+            );
+          }
+
+          targetUserIds =
+            (
+              profiles ?? []
+            ).map(
+              (profile) =>
+                profile.id,
+            );
+        } else {
+          const {
+            data: profiles,
+            error,
+          } =
+            await supabaseAdmin
+              .from(
+                "profiles",
+              )
+              .select("id");
+
+          if (error) {
+            throw new Error(
+              error.message,
+            );
+          }
+
+          targetUserIds =
+            (
+              profiles ?? []
+            ).map(
+              (profile) =>
+                profile.id,
+            );
+        }
+
+        const sent =
+          await sendPushToUsers(
+            targetUserIds,
+            {
+              title:
+                data.title,
+
+              body:
+                data.body,
+
+              url: "/",
+
+              tag:
+                `admin-broadcast-${Date.now()}`,
+            },
+          );
+
+        return {
+          sent,
+          recipients:
+            targetUserIds.length,
+        };
       },
     );

@@ -122,7 +122,7 @@ export function AppSidebar() {
             </p>
 
             <p className="truncate text-xs text-sidebar-foreground/60">
-              Org &amp; Time Ops
+              1.2 version
             </p>
           </div>
         </div>

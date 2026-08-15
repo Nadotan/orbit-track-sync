@@ -1,8 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment as FragmentRow } from "react";
-import { useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   AlertTriangle,
+  BellOff,
+  BellRing,
   CalendarPlus,
   ChevronDown,
   ChevronRight,
@@ -55,7 +61,10 @@ import { useStore } from "@/lib/store";
 import { formatDateTime, formatHours } from "@/lib/format";
 import { Textarea } from "@/components/ui/textarea";
 import { useServerFn } from "@tanstack/react-start";
-import { broadcastPush } from "@/lib/push.functions";
+import {
+  broadcastPush,
+  getPushAdminStatus,
+} from "@/lib/push.functions";
 import { toast } from "sonner";
 import type {
   Meeting,
@@ -2448,6 +2457,10 @@ function MiniMetric({
 }
 
 function AdminPushPanel() {
+  const {
+    profiles,
+  } = useStore();
+
   const [
     title,
     setTitle,
@@ -2463,9 +2476,129 @@ function AdminPushPanel() {
     setSending,
   ] = useState(false);
 
+  const [
+    loadingStatus,
+    setLoadingStatus,
+  ] = useState(true);
+
+  const [
+    enabledUserIds,
+    setEnabledUserIds,
+  ] =
+    useState<string[]>([]);
+
+  const [
+    recipientMode,
+    setRecipientMode,
+  ] =
+    useState<
+      "all" | "selected"
+    >("all");
+
+  const [
+    selectedUserIds,
+    setSelectedUserIds,
+  ] =
+    useState<string[]>([]);
+
   const send =
     useServerFn(
       broadcastPush,
+    );
+
+  const getStatus =
+    useServerFn(
+      getPushAdminStatus,
+    );
+
+  useEffect(() => {
+    let active = true;
+
+    setLoadingStatus(true);
+
+    getStatus()
+      .then(
+        (result) => {
+          if (!active) {
+            return;
+          }
+
+          setEnabledUserIds(
+            result.enabledUserIds,
+          );
+        },
+      )
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+
+        toast.error(
+          "Could not load notification status",
+        );
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingStatus(
+            false,
+          );
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [getStatus]);
+
+  const enabledSet =
+    useMemo(
+      () =>
+        new Set(
+          enabledUserIds,
+        ),
+      [enabledUserIds],
+    );
+
+  const enabledProfiles =
+    useMemo(
+      () =>
+        profiles
+          .filter(
+            (profile) =>
+              enabledSet.has(
+                profile.id,
+              ),
+          )
+          .sort((a, b) =>
+            a.name.localeCompare(
+              b.name,
+            ),
+          ),
+      [
+        profiles,
+        enabledSet,
+      ],
+    );
+
+  const disabledProfiles =
+    useMemo(
+      () =>
+        profiles
+          .filter(
+            (profile) =>
+              !enabledSet.has(
+                profile.id,
+              ),
+          )
+          .sort((a, b) =>
+            a.name.localeCompare(
+              b.name,
+            ),
+          ),
+      [
+        profiles,
+        enabledSet,
+      ],
     );
 
   const canSend =
@@ -2473,7 +2606,46 @@ function AdminPushPanel() {
       0 &&
     body.trim().length >
       0 &&
-    !sending;
+    !sending &&
+    (
+      recipientMode ===
+        "all" ||
+      selectedUserIds.length >
+        0
+    );
+
+  function toggleUser(
+    userId: string,
+  ) {
+    setSelectedUserIds(
+      (current) =>
+        current.includes(
+          userId,
+        )
+          ? current.filter(
+              (id) =>
+                id !==
+                userId,
+            )
+          : [
+              ...current,
+              userId,
+            ],
+    );
+  }
+
+  async function refreshStatus() {
+    try {
+      const result =
+        await getStatus();
+
+      setEnabledUserIds(
+        result.enabledUserIds,
+      );
+    } catch {
+      // Keep the current UI state.
+    }
+  }
 
   return (
     <Card className="surface-card">
@@ -2481,12 +2653,170 @@ function AdminPushPanel() {
         <CardTitle className="flex items-center gap-2 text-base">
           <Send className="size-4 text-primary" />
 
-          Send a push to
-          everyone
+          Send push notification
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-5">
+        {/* Recipients */}
+        <div className="space-y-2">
+          <Label>
+            Recipients
+          </Label>
+
+          <Select
+            value={
+              recipientMode
+            }
+            onValueChange={(
+              value,
+            ) =>
+              setRecipientMode(
+                value as
+                  | "all"
+                  | "selected",
+              )
+            }
+          >
+            <SelectTrigger className="w-full sm:max-w-sm">
+              <SelectValue />
+            </SelectTrigger>
+
+            <SelectContent>
+              <SelectItem value="all">
+                Everyone with notifications
+              </SelectItem>
+
+              <SelectItem value="selected">
+                Choose people
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {recipientMode ===
+          "selected" && (
+          <div className="rounded-2xl border border-border p-4">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium">
+                  Choose people
+                </p>
+
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Only people with
+                  notifications enabled
+                  can be selected.
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setSelectedUserIds(
+                      enabledProfiles.map(
+                        (
+                          profile,
+                        ) =>
+                          profile.id,
+                      ),
+                    )
+                  }
+                >
+                  Select all
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    setSelectedUserIds(
+                      [],
+                    )
+                  }
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            {loadingStatus ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                Loading notification
+                status…
+              </p>
+            ) : enabledProfiles.length ===
+              0 ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                Nobody currently has a
+                registered notification
+                device.
+              </p>
+            ) : (
+              <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                {enabledProfiles.map(
+                  (
+                    profile,
+                  ) => {
+                    const checked =
+                      selectedUserIds.includes(
+                        profile.id,
+                      );
+
+                    return (
+                      <label
+                        key={
+                          profile.id
+                        }
+                        className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted"
+                      >
+                        <Checkbox
+                          checked={
+                            checked
+                          }
+                          onCheckedChange={() =>
+                            toggleUser(
+                              profile.id,
+                            )
+                          }
+                        />
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {
+                              profile.name
+                            }
+                          </p>
+
+                          <p className="truncate text-xs text-muted-foreground">
+                            {
+                              profile.email
+                            }
+                          </p>
+                        </div>
+
+                        <BellRing className="size-4 shrink-0 text-success" />
+                      </label>
+                    );
+                  },
+                )}
+              </div>
+            )}
+
+            <p className="mt-3 text-xs text-muted-foreground">
+              {
+                selectedUserIds.length
+              }{" "}
+              selected
+            </p>
+          </div>
+        )}
+
+        {/* Message */}
         <div className="space-y-2">
           <Label htmlFor="push-title">
             Title
@@ -2518,7 +2848,7 @@ function AdminPushPanel() {
             rows={4}
             maxLength={300}
             className="resize-none rounded-2xl"
-            placeholder="What do you want everyone to know?"
+            placeholder="What do you want them to know?"
             value={body}
             onChange={(
               event,
@@ -2535,9 +2865,7 @@ function AdminPushPanel() {
           className="w-full rounded-full sm:w-auto"
           disabled={!canSend}
           onClick={async () => {
-            setSending(
-              true,
-            );
+            setSending(true);
 
             try {
               const result =
@@ -2545,13 +2873,22 @@ function AdminPushPanel() {
                   data: {
                     title:
                       title.trim(),
+
                     body:
                       body.trim(),
+
+                    ...(recipientMode ===
+                    "selected"
+                      ? {
+                          userIds:
+                            selectedUserIds,
+                        }
+                      : {}),
                   },
                 });
 
               toast.success(
-                `Push sent to ${result.sent} device${
+                `Push accepted by ${result.sent} registered device${
                   result.sent ===
                   1
                     ? ""
@@ -2561,27 +2898,125 @@ function AdminPushPanel() {
 
               setTitle("");
               setBody("");
+
+              await refreshStatus();
             } catch {
               toast.error(
                 "Could not send the push",
               );
             } finally {
-              setSending(
-                false,
-              );
+              setSending(false);
             }
           }}
         >
           {sending
             ? "Sending…"
-            : "Send push"}
+            : recipientMode ===
+                "selected"
+              ? `Send to ${selectedUserIds.length} ${
+                  selectedUserIds.length ===
+                  1
+                    ? "person"
+                    : "people"
+                }`
+              : "Send to everyone"}
         </Button>
 
         <p className="text-xs text-muted-foreground">
-          Only members who
-          enabled alerts on their
-          device will receive it.
+          One person can have more than
+          one registered device, so the
+          number of delivered devices can
+          be higher than the number of
+          selected people.
         </p>
+
+        {/* Notification status */}
+        <div className="border-t border-border pt-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <BellOff className="size-4 text-warning" />
+
+                <p className="font-semibold">
+                  No registered notification
+                  device
+                </p>
+              </div>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                These users currently
+                cannot receive POM push
+                notifications.
+              </p>
+            </div>
+
+            {!loadingStatus && (
+              <Badge
+                variant="outline"
+                className="w-fit rounded-full"
+              >
+                {
+                  disabledProfiles.length
+                }{" "}
+                /{" "}
+                {
+                  profiles.length
+                }
+              </Badge>
+            )}
+          </div>
+
+          {loadingStatus ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Checking notification
+              registrations…
+            </p>
+          ) : disabledProfiles.length ===
+            0 ? (
+            <div className="mt-4 rounded-2xl bg-success/10 p-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-success">
+                <BellRing className="size-4" />
+
+                Everyone has at least one
+                registered notification
+                device.
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {disabledProfiles.map(
+                (
+                  profile,
+                ) => (
+                  <div
+                    key={
+                      profile.id
+                    }
+                    className="flex min-w-0 items-center gap-3 rounded-2xl border border-warning/30 bg-warning/5 p-3"
+                  >
+                    <div className="grid size-9 shrink-0 place-items-center rounded-full bg-warning/15">
+                      <BellOff className="size-4 text-warning" />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {
+                          profile.name
+                        }
+                      </p>
+
+                      <p className="truncate text-xs text-muted-foreground">
+                        {
+                          profile.email
+                        }
+                      </p>
+                    </div>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
