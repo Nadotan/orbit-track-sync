@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { createServerFn, useServerFn } from "@tanstack/react-start";
+import { useMemo, useState } from "react";
 import {
   CalendarDays,
   Check,
@@ -39,52 +38,6 @@ import { useStore } from "@/lib/store";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Meeting, Profile, Recurrence } from "@/lib/types";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-
-type GeneralAttendeeRef = {
-  meetingId: string;
-  userId: string;
-};
-
-/**
- * General meetings are organisation-wide.
- *
- * Return ONLY users who selected Attending for General meetings.
- * Declined and unanswered information is never exposed here.
- */
-const getGeneralMeetingAttendees = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: generalMeetings, error: meetingsError } = await supabaseAdmin
-      .from("meetings")
-      .select("id")
-      .is("team_id", null);
-
-    if (meetingsError) throw new Error(meetingsError.message);
-
-    const meetingIds = (generalMeetings ?? []).map((meeting) => meeting.id);
-
-    if (meetingIds.length === 0) {
-      return { attendees: [] as GeneralAttendeeRef[] };
-    }
-
-    const { data: attendingRsvps, error: rsvpsError } = await supabaseAdmin
-      .from("rsvps")
-      .select("meeting_id, user_id")
-      .eq("status", "Attending")
-      .in("meeting_id", meetingIds);
-
-    if (rsvpsError) throw new Error(rsvpsError.message);
-
-    return {
-      attendees: (attendingRsvps ?? []).map((rsvp) => ({
-        meetingId: rsvp.meeting_id,
-        userId: rsvp.user_id,
-      })),
-    };
-  });
 
 export const Route = createFileRoute("/_authenticated/meetings")({
   head: () => ({
@@ -166,26 +119,8 @@ function MeetingsPage() {
   const [editing, setEditing] = useState<Meeting | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyForm());
-  const [generalAttendees, setGeneralAttendees] = useState<GeneralAttendeeRef[]>([]);
 
-  const loadGeneralAttendees = useServerFn(getGeneralMeetingAttendees);
   const isAdmin = currentUser.role === "Admin";
-
-  useEffect(() => {
-    let active = true;
-
-    loadGeneralAttendees()
-      .then((result) => {
-        if (active) setGeneralAttendees(result.attendees);
-      })
-      .catch((error) => {
-        console.error("Could not load General meeting attendance", error);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [loadGeneralAttendees]);
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -196,12 +131,15 @@ function MeetingsPage() {
     );
     const up: { m: Meeting; when: Date }[] = [];
     const old: { m: Meeting; when: Date }[] = [];
+
     for (const m of mine) {
       const when = occurrenceOf(m, startOfToday);
       (when >= startOfToday ? up : old).push({ m, when });
     }
+
     up.sort((a, b) => a.when.getTime() - b.when.getTime());
     old.sort((a, b) => b.when.getTime() - a.when.getTime());
+
     return { upcoming: up, past: old };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetings, currentUser.teamIds]);
@@ -215,18 +153,6 @@ function MeetingsPage() {
     if (m?.locked && !isAdmin) {
       toast.error("This meeting is locked — responses are final.");
       return;
-    }
-
-    if (m?.teamId === "general") {
-      setGeneralAttendees((current) => {
-        const withoutMe = current.filter(
-          (entry) => !(entry.meetingId === meetingId && entry.userId === currentUser.id),
-        );
-
-        return status === "Attending"
-          ? [...withoutMe, { meetingId, userId: currentUser.id }]
-          : withoutMe;
-      });
     }
 
     setRsvp(meetingId, status);
@@ -243,26 +169,6 @@ function MeetingsPage() {
 
     const status = (p: Profile) =>
       rsvps.find((r) => r.meetingId === meeting.id && r.userId === p.id)?.status;
-
-    if (meeting.teamId === "general" && !isAdmin) {
-      const attendingIds = new Set(
-        generalAttendees
-          .filter((entry) => entry.meetingId === meeting.id)
-          .map((entry) => entry.userId),
-      );
-
-      // Keep any locally visible Attending RSVP as a fallback while
-      // the organisation-wide server result is loading.
-      rsvps
-        .filter((rsvp) => rsvp.meetingId === meeting.id && rsvp.status === "Attending")
-        .forEach((rsvp) => attendingIds.add(rsvp.userId));
-
-      return {
-        attending: audience.filter((p) => attendingIds.has(p.id)),
-        declined: [],
-        pending: [],
-      };
-    }
 
     return {
       attending: audience.filter((p) => status(p) === "Attending"),
@@ -292,10 +198,12 @@ function MeetingsPage() {
 
   function submitForm(e: React.FormEvent) {
     e.preventDefault();
+
     if (!form.title || !form.date || !form.time) {
       toast.error("Title, date and time are required.");
       return;
     }
+
     if (editing) {
       updateMeeting(editing.id, form);
       toast.success("Meeting updated");
@@ -303,6 +211,7 @@ function MeetingsPage() {
       createMeeting(form);
       toast.success("Meeting created");
     }
+
     setFormOpen(false);
   }
 
@@ -310,6 +219,7 @@ function MeetingsPage() {
     <div className="mx-auto w-full max-w-4xl space-y-6 pb-24">
       <div>
         <h1 className="text-2xl font-semibold sm:text-3xl">Meetings</h1>
+
         <p className="mt-1 text-sm text-muted-foreground">
           General meetings plus everything for{" "}
           {currentUser.teamIds.length > 0
@@ -343,6 +253,7 @@ function MeetingsPage() {
           ) : (
             <History className="mx-auto size-8 text-muted-foreground" />
           )}
+
           <p className="mt-3 text-sm text-muted-foreground">
             {tab === "upcoming"
               ? "No meetings for your team right now."
@@ -444,6 +355,7 @@ function MeetingsPage() {
                             {initials(p.name)}
                           </AvatarFallback>
                         </Avatar>
+
                         {p.name}
                       </li>
                     ))}
@@ -555,6 +467,7 @@ function MeetingsPage() {
           <form className="space-y-4" onSubmit={submitForm}>
             <div className="space-y-2">
               <Label htmlFor="m-title">Title</Label>
+
               <Input
                 id="m-title"
                 className="rounded-xl"
@@ -567,6 +480,7 @@ function MeetingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="m-date">Date</Label>
+
                 <Input
                   id="m-date"
                   type="date"
@@ -578,6 +492,7 @@ function MeetingsPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="m-time">Time</Label>
+
                 <Input
                   id="m-time"
                   type="time"
@@ -590,6 +505,7 @@ function MeetingsPage() {
 
             <div className="space-y-2">
               <Label>Audience</Label>
+
               <Select
                 value={form.teamId}
                 onValueChange={(v) => setForm({ ...form, teamId: v })}
@@ -600,6 +516,7 @@ function MeetingsPage() {
 
                 <SelectContent>
                   <SelectItem value="general">General (everyone)</SelectItem>
+
                   {teams.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name}
@@ -611,6 +528,7 @@ function MeetingsPage() {
 
             <div className="space-y-2">
               <Label>Repeats</Label>
+
               <Select
                 value={form.recurrence}
                 onValueChange={(v) =>
@@ -634,6 +552,7 @@ function MeetingsPage() {
             <div className="flex items-center justify-between rounded-2xl border border-border p-3">
               <div>
                 <p className="text-sm font-medium">Lock meeting</p>
+
                 <p className="text-xs text-muted-foreground">
                   Members can no longer change their RSVP.
                 </p>
@@ -690,6 +609,7 @@ function PersonList({
                   {initials(p.name)}
                 </AvatarFallback>
               </Avatar>
+
               <span className="truncate">{p.name}</span>
             </li>
           ))}
@@ -745,6 +665,7 @@ function MeetingDetail({
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <CalendarDays className="size-4" />
+
           {when.toLocaleDateString(undefined, {
             weekday: "long",
             month: "long",
@@ -768,6 +689,7 @@ function MeetingDetail({
               people={groups.declined}
               tone="destructive"
             />
+
             <PersonList title="Unmarked" people={groups.pending} tone="muted" />
           </>
         )}
@@ -789,6 +711,7 @@ function MeetingDetail({
             ) : (
               <Lock className="size-4" />
             )}
+
             {meeting.locked ? "Unlock" : "Lock meeting"}
           </Button>
         </div>
