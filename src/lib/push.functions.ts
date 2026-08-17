@@ -186,9 +186,6 @@ export const removePushSubscription =
       },
     );
 
-/**
- * Records the currently running clock.
- */
 export const markTimerRunning =
   createServerFn({
     method:
@@ -305,10 +302,6 @@ export const markTimerStopped =
       },
     );
 
-/**
- * Called by the browser when the next
- * 3-hour reminder is due.
- */
 export const sendClockReminder =
   createServerFn({
     method:
@@ -334,11 +327,6 @@ export const sendClockReminder =
       },
     );
 
-/**
- * New meeting -> immediate Web Push.
- *
- * Recipients do not need POM open.
- */
 export const notifyMeetingCreated =
   createServerFn({
     method:
@@ -381,7 +369,6 @@ export const notifyMeetingCreated =
           Boolean(
             adminRole,
           );
-
 
         if (
           !isAdmin
@@ -511,13 +498,6 @@ export const notifyRsvpChange =
             "@/integrations/supabase/client.server"
           );
 
-        /*
-         * Never trust the client-supplied status.
-         *
-         * Only notify when the caller really holds an RSVP on
-         * this meeting and it really matches the claimed new
-         * status (i.e. the change actually happened).
-         */
         const {
           data:
             storedRsvp,
@@ -640,11 +620,6 @@ export const notifyRsvpChange =
       },
     );
 
-/**
- * Existing app-opening RSVP check.
- *
- * This is NOT a periodic scheduler.
- */
 export const sweepReminders =
   createServerFn({
     method:
@@ -666,39 +641,54 @@ export const sweepReminders =
       },
     );
 
-    const broadcastSchema = z.object({
-  title: z.string().trim().min(1).max(80),
+const broadcastSchema =
+  z.object({
+    title:
+      z.string()
+        .trim()
+        .min(1)
+        .max(80),
 
-  body: z.string().trim().min(1).max(300),
+    body:
+      z.string()
+        .trim()
+        .min(1)
+        .max(300),
 
-  userIds: z
-    .array(z.string().uuid())
-    .max(500)
-    .optional(),
-});
+    userIds:
+      z
+        .array(
+          z.string()
+            .uuid(),
+        )
+        .max(500)
+        .optional(),
+  });
 
-/**
- * Admin-only:
- * returns which users currently have at least
- * one registered Web Push device.
- *
- * We only expose user IDs — never endpoints or push keys.
- */
 export const getPushAdminStatus =
   createServerFn({
-    method: "GET",
+    method:
+      "GET",
   })
     .middleware([
       requireSupabaseAuth,
     ])
     .handler(
-      async ({ context }) => {
+      async ({
+        context,
+      }) => {
         const {
-          data: adminRole,
+          data:
+            adminRole,
         } =
-          await context.supabase
-            .from("user_roles")
-            .select("role")
+          await context
+            .supabase
+            .from(
+              "user_roles",
+            )
+            .select(
+              "role",
+            )
             .eq(
               "user_id",
               context.userId,
@@ -709,7 +699,9 @@ export const getPushAdminStatus =
             )
             .maybeSingle();
 
-        if (!adminRole) {
+        if (
+          !adminRole
+        ) {
           throw new Error(
             "Forbidden",
           );
@@ -730,22 +722,30 @@ export const getPushAdminStatus =
             .from(
               "push_subscriptions",
             )
-            .select("user_id");
+            .select(
+              "user_id",
+            );
 
-        if (error) {
+        if (
+          error
+        ) {
           throw new Error(
             error.message,
           );
         }
 
-        const enabledUserIds = [
-          ...new Set(
-            (data ?? []).map(
-              (row) =>
-                row.user_id,
+        const enabledUserIds =
+          [
+            ...new Set(
+              (
+                data ??
+                []
+              ).map(
+                (row) =>
+                  row.user_id,
+              ),
             ),
-          ),
-        ];
+          ];
 
         return {
           enabledUserIds,
@@ -753,18 +753,10 @@ export const getPushAdminStatus =
       },
     );
 
-/**
- * Admin push.
- *
- * userIds omitted:
- *   -> send to everyone
- *
- * userIds supplied:
- *   -> send only to those selected users
- */
 export const broadcastPush =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -778,11 +770,17 @@ export const broadcastPush =
         context,
       }) => {
         const {
-          data: adminRole,
+          data:
+            adminRole,
         } =
-          await context.supabase
-            .from("user_roles")
-            .select("role")
+          await context
+            .supabase
+            .from(
+              "user_roles",
+            )
+            .select(
+              "role",
+            )
             .eq(
               "user_id",
               context.userId,
@@ -793,7 +791,9 @@ export const broadcastPush =
             )
             .maybeSingle();
 
-        if (!adminRole) {
+        if (
+          !adminRole
+        ) {
           throw new Error(
             "Forbidden",
           );
@@ -813,44 +813,52 @@ export const broadcastPush =
             "./push.server"
           );
 
-        let targetUserIds: string[];
+        let targetUserIds:
+          string[];
 
-        if (data.userIds) {
-          const requested = [
-            ...new Set(
-              data.userIds,
-            ),
-          ];
+        if (
+          data.userIds
+        ) {
+          const requested =
+            [
+              ...new Set(
+                data.userIds,
+              ),
+            ];
 
           if (
             requested.length ===
             0
           ) {
             return {
-              sent: 0,
-              recipients: 0,
+              sent:
+                0,
+
+              recipients:
+                0,
             };
           }
 
-          /*
-           * Validate that every target is
-           * an actual POM profile.
-           */
           const {
-            data: profiles,
+            data:
+              profiles,
             error,
           } =
             await supabaseAdmin
               .from(
                 "profiles",
               )
-              .select("id")
+              .select(
+                "id",
+              )
               .in(
                 "id",
                 requested,
               );
 
-          if (error) {
+          if (
+            error
+          ) {
             throw new Error(
               error.message,
             );
@@ -858,35 +866,67 @@ export const broadcastPush =
 
           targetUserIds =
             (
-              profiles ?? []
+              profiles ??
+              []
             ).map(
               (profile) =>
                 profile.id,
             );
         } else {
+          /*
+           * "Everyone" means everyone who actually
+           * has at least one registered push device.
+           *
+           * Do not build the audience from profiles.
+           * The push subscription table is the
+           * source of truth for push recipients.
+           */
           const {
-            data: profiles,
+            data:
+              subscriptions,
             error,
           } =
             await supabaseAdmin
               .from(
-                "profiles",
+                "push_subscriptions",
               )
-              .select("id");
+              .select(
+                "user_id",
+              );
 
-          if (error) {
+          if (
+            error
+          ) {
             throw new Error(
               error.message,
             );
           }
 
           targetUserIds =
-            (
-              profiles ?? []
-            ).map(
-              (profile) =>
-                profile.id,
-            );
+            [
+              ...new Set(
+                (
+                  subscriptions ??
+                  []
+                ).map(
+                  (subscription) =>
+                    subscription.user_id,
+                ),
+              ),
+            ];
+        }
+
+        if (
+          targetUserIds.length ===
+          0
+        ) {
+          return {
+            sent:
+              0,
+
+            recipients:
+              0,
+          };
         }
 
         const sent =
@@ -899,7 +939,8 @@ export const broadcastPush =
               body:
                 data.body,
 
-              url: "/",
+              url:
+                "/",
 
               tag:
                 `admin-broadcast-${Date.now()}`,
@@ -908,6 +949,7 @@ export const broadcastPush =
 
         return {
           sent,
+
           recipients:
             targetUserIds.length,
         };
