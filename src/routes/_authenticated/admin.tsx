@@ -18,6 +18,7 @@ import {
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 
+import { AdminAvailability } from "@/components/admin-availability";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -85,7 +86,14 @@ export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
 });
 
-type AdminTab = "analytics" | "rsvp" | "people" | "meetings" | "push";
+type AdminTab =
+  | "analytics"
+  | "rsvp"
+  | "people"
+  | "meetings"
+  | "availability"
+  | "push";
+
 type QueryMetric = "unanswered" | "attending";
 type QueryRule = "all" | "none" | "at-least" | "at-most" | "less-than-half";
 type QueryPeriod = "next7" | "next14" | "thisMonth" | "allUpcoming";
@@ -464,16 +472,18 @@ function AdminPage() {
               <SelectItem value="rsvp">RSVP Insights</SelectItem>
               <SelectItem value="people">Teams &amp; Users</SelectItem>
               <SelectItem value="meetings">Meetings</SelectItem>
+              <SelectItem value="availability">Availability</SelectItem>
               <SelectItem value="push">Admin Push</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        <TabsList className="hidden w-full grid-cols-5 md:grid">
+        <TabsList className="hidden w-full grid-cols-6 md:grid">
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="rsvp">RSVP Insights</TabsTrigger>
           <TabsTrigger value="people">Teams &amp; Users</TabsTrigger>
           <TabsTrigger value="meetings">Meetings</TabsTrigger>
+          <TabsTrigger value="availability">Availability</TabsTrigger>
           <TabsTrigger value="push">Admin Push</TabsTrigger>
         </TabsList>
 
@@ -999,6 +1009,10 @@ function AdminPage() {
               ))}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="availability" className="mt-4">
+          <AdminAvailability />
         </TabsContent>
 
         <TabsContent value="push" className="mt-4">

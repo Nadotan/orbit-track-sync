@@ -5,6 +5,7 @@ import {
   CircleX,
   Info,
   LogOut,
+  UserRound,
 } from "lucide-react";
 
 import {
@@ -298,6 +299,21 @@ export function AppHeader() {
                   currentUser.email
                 }
               </DropdownMenuLabel>
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem
+                onSelect={() => {
+                  navigate({
+                    to:
+                      "/profile",
+                  });
+                }}
+              >
+                <UserRound className="size-4" />
+
+                Profile
+              </DropdownMenuItem>
 
               <DropdownMenuSeparator />
 
