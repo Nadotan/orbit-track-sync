@@ -124,6 +124,9 @@ export async function sendPushToUsers(
                     60 *
                     60 *
                     12,
+
+                  urgency:
+                    "high",
                 },
               },
 
