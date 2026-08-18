@@ -8,6 +8,7 @@ import {
   Clock3,
   Hourglass,
   LayoutDashboard,
+  ListTodo,
 } from "lucide-react";
 
 import {
@@ -42,6 +43,20 @@ const items = [
 
     icon:
       CalendarDays,
+
+    admin:
+      false,
+  },
+
+  {
+    title:
+      "Tasks",
+
+    url:
+      "/tasks",
+
+    icon:
+      ListTodo,
 
     admin:
       false,

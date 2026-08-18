@@ -8,6 +8,7 @@ import {
   Clock3,
   Hourglass,
   LayoutDashboard,
+  ListTodo,
   Timer,
 } from "lucide-react";
 
@@ -58,6 +59,20 @@ const items = [
 
     icon:
       CalendarDays,
+
+    admin:
+      false,
+  },
+
+  {
+    title:
+      "Tasks",
+
+    url:
+      "/tasks",
+
+    icon:
+      ListTodo,
 
     admin:
       false,
@@ -122,7 +137,7 @@ export function AppSidebar() {
             </p>
 
             <p className="truncate text-xs text-sidebar-foreground/60">
-              version 2.1.0
+              version 3.0.0 tasks
             </p>
           </div>
         </div>
