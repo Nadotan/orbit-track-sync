@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import {
   Play,
   Square,
@@ -9,14 +10,18 @@ import {
   Flame,
   Pencil,
   Trash2,
+  Loader2,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
+
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
 import {
   Dialog,
   DialogContent,
@@ -25,20 +30,45 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+
+import { supabase } from "@/integrations/supabase/client";
+
 import { useStore } from "@/lib/store";
+
+import {
+  getMyOpenTasks,
+} from "@/lib/tasks.functions";
+
+import type {
+  ClockTaskOption,
+} from "@/lib/tasks.functions";
+
 import {
   formatDuration,
   formatHours,
   formatDateTime,
 } from "@/lib/format";
+
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
-      { title: "Time Tracker — POM" },
+      {
+        title: "Time Tracker — POM",
+      },
       {
         name: "description",
         content:
@@ -55,6 +85,7 @@ export const Route = createFileRoute("/_authenticated/")({
       },
     ],
   }),
+
   component: TrackerPage,
 });
 
@@ -63,71 +94,433 @@ function TrackerPage() {
     currentUser,
     activeSession,
     startSession,
-    stopSession,
+    cancelSession,
     timeEntries,
     updateTimeEntry,
     deleteTimeEntry,
-  } = useStore();
+    refresh,
+  } =
+    useStore();
 
-  const [now, setNow] = useState(() => Date.now());
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [description, setDescription] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState("");
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const loadOpenTasks =
+    useServerFn(
+      getMyOpenTasks,
+    );
 
-  const running = activeSession?.userId === currentUser.id;
+  const [
+    now,
+    setNow,
+  ] =
+    useState(
+      () =>
+        Date.now(),
+    );
+
+  const [
+    dialogOpen,
+    setDialogOpen,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    description,
+    setDescription,
+  ] =
+    useState(
+      "",
+    );
+
+  const [
+    taskOptions,
+    setTaskOptions,
+  ] =
+    useState<
+      ClockTaskOption[]
+    >(
+      [],
+    );
+
+  const [
+    selectedTaskId,
+    setSelectedTaskId,
+  ] =
+    useState(
+      "none",
+    );
+
+  const [
+    tasksLoading,
+    setTasksLoading,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    tasksLoaded,
+    setTasksLoaded,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    savingEntry,
+    setSavingEntry,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    editingId,
+    setEditingId,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const [
+    editText,
+    setEditText,
+  ] =
+    useState(
+      "",
+    );
+
+  const [
+    deletingId,
+    setDeletingId,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  const running =
+    activeSession?.userId ===
+    currentUser.id;
 
   useEffect(() => {
-    if (!running) return;
+    if (
+      !running
+    ) {
+      return;
+    }
 
-    const t = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
+    const timer =
+      setInterval(
+        () => {
+          setNow(
+            Date.now(),
+          );
+        },
 
-    return () => clearInterval(t);
-  }, [running]);
+        1000,
+      );
 
-  const elapsed = running
-    ? now - new Date(activeSession!.startTime).getTime()
-    : 0;
+    return () =>
+      clearInterval(
+        timer,
+      );
+  }, [
+    running,
+  ]);
 
-  const myEntries = useMemo(
-    () => timeEntries.filter((e) => e.userId === currentUser.id),
-    [timeEntries, currentUser.id],
-  );
+  const elapsed =
+    running
+      ? now -
+        new Date(
+          activeSession!.startTime,
+        ).getTime()
+      : 0;
 
-  const todayMs = myEntries
-    .filter(
-      (e) =>
-        new Date(e.endTime).toDateString() === new Date().toDateString(),
-    )
-    .reduce((a, e) => a + e.durationMs, 0);
+  const myEntries =
+    useMemo(
+      () =>
+        timeEntries.filter(
+          (
+            entry,
+          ) =>
+            entry.userId ===
+            currentUser.id,
+        ),
+      [
+        timeEntries,
+        currentUser.id,
+      ],
+    );
 
-  const weekMs = myEntries
-    .filter(
-      (e) =>
-        Date.now() - new Date(e.endTime).getTime() <
-        7 * 86400_000,
-    )
-    .reduce((a, e) => a + e.durationMs, 0);
+  const todayMs =
+    myEntries
+      .filter(
+        (
+          entry,
+        ) =>
+          new Date(
+            entry.endTime,
+          ).toDateString() ===
+          new Date()
+            .toDateString(),
+      )
+      .reduce(
+        (
+          total,
+          entry,
+        ) =>
+          total +
+          entry.durationMs,
 
-  function handleStop() {
-    if (!description.trim()) return;
+        0,
+      );
 
-    stopSession(description.trim());
-    setDescription("");
-    setDialogOpen(false);
+  const weekMs =
+    myEntries
+      .filter(
+        (
+          entry,
+        ) =>
+          Date.now() -
+            new Date(
+              entry.endTime,
+            ).getTime() <
+          7 *
+            86400_000,
+      )
+      .reduce(
+        (
+          total,
+          entry,
+        ) =>
+          total +
+          entry.durationMs,
 
-    toast.success("Time entry saved");
+        0,
+      );
+
+  async function openStopDialog() {
+    setDialogOpen(
+      true,
+    );
+
+    if (
+      tasksLoaded ||
+      tasksLoading
+    ) {
+      return;
+    }
+
+    setTasksLoading(
+      true,
+    );
+
+    try {
+      const tasks =
+        await loadOpenTasks();
+
+      setTaskOptions(
+        tasks,
+      );
+
+      setTasksLoaded(
+        true,
+      );
+    } catch (
+      error
+    ) {
+      console.error(
+        "Failed to load assigned tasks:",
+        error,
+      );
+
+      /*
+       * Task loading must never prevent a user
+       * from saving their worked time.
+       */
+      setTaskOptions(
+        [],
+      );
+
+      setTasksLoaded(
+        true,
+      );
+
+      toast.error(
+        "Could not load your tasks. You can still save without a task.",
+      );
+    } finally {
+      setTasksLoading(
+        false,
+      );
+    }
+  }
+
+  async function handleStop() {
+    if (
+      !description.trim() ||
+      !activeSession ||
+      savingEntry
+    ) {
+      return;
+    }
+
+    setSavingEntry(
+      true,
+    );
+
+    const end =
+      new Date();
+
+    const start =
+      new Date(
+        activeSession.startTime,
+      );
+
+    try {
+      /*
+       * Generated Supabase types do not yet include task_id,
+       * although the column already exists in the database.
+       *
+       * Keep this cast local instead of manually editing
+       * the generated Supabase types file.
+       */
+      const {
+        error,
+      } =
+        await (
+          supabase as any
+        )
+          .from(
+            "time_entries",
+          )
+          .insert({
+            user_id:
+              currentUser.id,
+
+            start_time:
+              activeSession.startTime,
+
+            end_time:
+              end.toISOString(),
+
+            duration_ms:
+              end.getTime() -
+              start.getTime(),
+
+            description:
+              description.trim(),
+
+            task_id:
+              selectedTaskId ===
+              "none"
+                ? null
+                : selectedTaskId,
+          });
+
+      if (
+        error
+      ) {
+        throw new Error(
+          error.message,
+        );
+      }
+
+      /*
+       * Clear the running timer only after
+       * the time entry was saved successfully.
+       */
+      cancelSession();
+
+      refresh();
+
+      setDescription(
+        "",
+      );
+
+      setSelectedTaskId(
+        "none",
+      );
+
+      setTaskOptions(
+        [],
+      );
+
+      setTasksLoaded(
+        false,
+      );
+
+      setDialogOpen(
+        false,
+      );
+
+      toast.success(
+        "Time entry saved",
+      );
+    } catch (
+      error
+    ) {
+      console.error(
+        "Failed to save time entry:",
+        error,
+      );
+
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not save time entry.",
+      );
+    } finally {
+      setSavingEntry(
+        false,
+      );
+    }
+  }
+
+  function handleStart() {
+    startSession();
+
+    setNow(
+      Date.now(),
+    );
+
+    setDescription(
+      "",
+    );
+
+    setSelectedTaskId(
+      "none",
+    );
+
+    setTaskOptions(
+      [],
+    );
+
+    setTasksLoaded(
+      false,
+    );
   }
 
   // One full progress-circle sweep per hour.
-  const R = 132;
-  const CIRC = 2 * Math.PI * R;
-  const progress = running
-    ? ((elapsed / 1000) % 3600) / 3600
-    : 0;
+  const R =
+    132;
+
+  const CIRC =
+    2 *
+    Math.PI *
+    R;
+
+  const progress =
+    running
+      ? (
+          (
+            elapsed /
+            1000
+          ) %
+          3600
+        ) /
+        3600
+      : 0;
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-8">
@@ -154,7 +547,9 @@ function TrackerPage() {
             <circle
               cx="152"
               cy="152"
-              r={R}
+              r={
+                R
+              }
               fill="none"
               className="stroke-accent"
               strokeWidth="18"
@@ -163,15 +558,26 @@ function TrackerPage() {
             <circle
               cx="152"
               cy="152"
-              r={R}
+              r={
+                R
+              }
               fill="none"
               className="stroke-primary"
               strokeWidth="18"
               strokeLinecap="round"
-              strokeDasharray={CIRC}
-              strokeDashoffset={CIRC * (1 - progress)}
+              strokeDasharray={
+                CIRC
+              }
+              strokeDashoffset={
+                CIRC *
+                (
+                  1 -
+                  progress
+                )
+              }
               style={{
-                transition: "stroke-dashoffset 0.6s linear",
+                transition:
+                  "stroke-dashoffset 0.6s linear",
               }}
             />
           </svg>
@@ -192,21 +598,30 @@ function TrackerPage() {
                 }`}
               />
 
-              {running ? "Working" : "Idle"}
+              {running
+                ? "Working"
+                : "Idle"}
             </span>
 
             <p className="tabular mt-3 font-mono text-4xl font-bold sm:text-5xl">
-              {formatDuration(elapsed)}
+              {formatDuration(
+                elapsed,
+              )}
             </p>
 
             <p className="mt-1 max-w-[12rem] text-center text-xs text-muted-foreground">
               {running
                 ? `Started ${new Date(
                     activeSession!.startTime,
-                  ).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`
+                  ).toLocaleTimeString(
+                    [],
+                    {
+                      hour:
+                        "2-digit",
+                      minute:
+                        "2-digit",
+                    },
+                  )}`
                 : "Hours : minutes : seconds"}
             </p>
           </div>
@@ -217,7 +632,9 @@ function TrackerPage() {
             size="lg"
             variant="destructive"
             className="h-14 w-full max-w-xs rounded-full text-base"
-            onClick={() => setDialogOpen(true)}
+            onClick={() =>
+              void openStopDialog()
+            }
           >
             <Square className="size-5" />
             Stop work
@@ -226,10 +643,9 @@ function TrackerPage() {
           <Button
             size="lg"
             className="h-14 w-full max-w-xs rounded-full text-base"
-            onClick={() => {
-              startSession();
-              setNow(Date.now());
-            }}
+            onClick={
+              handleStart
+            }
           >
             <Play className="size-5" />
             Start work
@@ -239,21 +655,34 @@ function TrackerPage() {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <StatCard
-          icon={Clock}
+          icon={
+            Clock
+          }
           label="Today"
-          value={formatHours(todayMs + elapsed)}
+          value={formatHours(
+            todayMs +
+              elapsed,
+          )}
         />
 
         <StatCard
-          icon={CalendarClock}
+          icon={
+            CalendarClock
+          }
           label="Last 7 days"
-          value={formatHours(weekMs)}
+          value={formatHours(
+            weekMs,
+          )}
         />
 
         <StatCard
-          icon={Flame}
+          icon={
+            Flame
+          }
           label="Entries logged"
-          value={String(myEntries.length)}
+          value={String(
+            myEntries.length,
+          )}
         />
       </div>
 
@@ -266,71 +695,96 @@ function TrackerPage() {
         </CardHeader>
 
         <CardContent>
-          {myEntries.length === 0 ? (
+          {myEntries.length ===
+          0 ? (
             <p className="text-sm text-muted-foreground">
               No time entries yet — start your first session above.
             </p>
           ) : (
             <ol className="relative space-y-5 border-l border-border pl-6">
-              {myEntries.map((e) => (
-                <li
-                  key={e.id}
-                  className="relative"
-                >
-                  <span className="absolute -left-[31px] top-1.5 size-3 rounded-full border-2 border-background bg-primary" />
+              {myEntries.map(
+                (
+                  entry,
+                ) => (
+                  <li
+                    key={
+                      entry.id
+                    }
+                    className="relative"
+                  >
+                    <span className="absolute -left-[31px] top-1.5 size-3 rounded-full border-2 border-background bg-primary" />
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium">
-                      {formatDateTime(e.startTime)}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium">
+                        {formatDateTime(
+                          entry.startTime,
+                        )}
+                      </span>
 
-                    <Badge
-                      variant="secondary"
-                      className="tabular rounded-full"
-                    >
-                      {formatHours(e.durationMs)}
-                    </Badge>
-
-                    <div className="ml-auto flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 rounded-full"
-                        aria-label="Edit entry"
-                        onClick={() => {
-                          setEditingId(e.id);
-                          setEditText(e.description);
-                        }}
+                      <Badge
+                        variant="secondary"
+                        className="tabular rounded-full"
                       >
-                        <Pencil className="size-4" />
-                      </Button>
+                        {formatHours(
+                          entry.durationMs,
+                        )}
+                      </Badge>
 
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 rounded-full"
-                        aria-label="Delete entry"
-                        onClick={() => setDeletingId(e.id)}
-                      >
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
+                      <div className="ml-auto flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 rounded-full"
+                          aria-label="Edit entry"
+                          onClick={() => {
+                            setEditingId(
+                              entry.id,
+                            );
+
+                            setEditText(
+                              entry.description,
+                            );
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 rounded-full"
+                          aria-label="Delete entry"
+                          onClick={() =>
+                            setDeletingId(
+                              entry.id,
+                            )
+                          }
+                        >
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
 
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {e.description}
-                  </p>
-                </li>
-              ))}
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {
+                        entry.description
+                      }
+                    </p>
+                  </li>
+                ),
+              )}
             </ol>
           )}
-
         </CardContent>
       </Card>
 
       <Dialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        open={
+          dialogOpen
+        }
+        onOpenChange={
+          setDialogOpen
+        }
       >
         <DialogContent className="rounded-3xl">
           <DialogHeader>
@@ -339,49 +793,162 @@ function TrackerPage() {
             </DialogTitle>
 
             <DialogDescription>
-              Session length {formatDuration(elapsed)} — add a short
-              summary to save this entry.
+              Session length{" "}
+              {formatDuration(
+                elapsed,
+              )}{" "}
+              — add a short summary to save this entry.
             </DialogDescription>
           </DialogHeader>
 
           <Textarea
             autoFocus
-            rows={5}
+            rows={
+              5
+            }
             className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
             placeholder="e.g. Fixed the onboarding flow, reviewed PRs, planned next sprint…"
-            value={description}
-            onChange={(ev) => setDescription(ev.target.value)}
+            value={
+              description
+            }
+            onChange={(
+              event,
+            ) =>
+              setDescription(
+                event.target.value,
+              )
+            }
           />
+
+          <div className="space-y-2">
+            <Label>
+              Task
+            </Label>
+
+            {tasksLoading ? (
+              <div className="flex h-10 items-center gap-2 rounded-md border border-input px-3 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading your tasks…
+              </div>
+            ) : (
+              <Select
+                value={
+                  selectedTaskId
+                }
+                onValueChange={
+                  setSelectedTaskId
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+
+                <SelectContent>
+                  <SelectItem value="none">
+                    No task
+                  </SelectItem>
+
+                  {taskOptions.map(
+                    (
+                      task,
+                    ) => (
+                      <SelectItem
+                        key={
+                          task.id
+                        }
+                        value={
+                          task.id
+                        }
+                      >
+                        {task.projectName
+                          ? `${task.projectName} — ${task.title}`
+                          : task.title}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+
+            {!tasksLoading &&
+              tasksLoaded &&
+              taskOptions.length ===
+                0 && (
+                <p className="text-xs text-muted-foreground">
+                  You have no open tasks assigned to you.
+                </p>
+              )}
+
+            {!tasksLoading &&
+              taskOptions.length >
+                0 && (
+                <p className="text-xs text-muted-foreground">
+                  Optional — choose the task this work belongs to.
+                </p>
+              )}
+          </div>
 
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
               variant="outline"
               className="rounded-full"
-              onClick={() => setDialogOpen(false)}
+              disabled={
+                savingEntry
+              }
+              onClick={() =>
+                setDialogOpen(
+                  false,
+                )
+              }
             >
               Keep tracking
             </Button>
 
             <Button
               className="rounded-full"
-              onClick={handleStop}
-              disabled={!description.trim()}
+              onClick={() =>
+                void handleStop()
+              }
+              disabled={
+                !description.trim() ||
+                savingEntry
+              }
             >
-              Save entry
+              {savingEntry ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Save entry"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog
-        open={editingId !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditingId(null);
+        open={
+          editingId !==
+          null
+        }
+        onOpenChange={(
+          open,
+        ) => {
+          if (
+            !open
+          ) {
+            setEditingId(
+              null,
+            );
+          }
         }}
       >
         <DialogContent className="rounded-3xl">
           <DialogHeader>
-            <DialogTitle>Edit entry</DialogTitle>
+            <DialogTitle>
+              Edit entry
+            </DialogTitle>
 
             <DialogDescription>
               Update what you worked on during this session.
@@ -390,30 +957,59 @@ function TrackerPage() {
 
           <Textarea
             autoFocus
-            rows={5}
+            rows={
+              5
+            }
             className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
-            value={editText}
-            onChange={(ev) => setEditText(ev.target.value)}
+            value={
+              editText
+            }
+            onChange={(
+              event,
+            ) =>
+              setEditText(
+                event.target.value,
+              )
+            }
           />
 
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
               variant="outline"
               className="rounded-full"
-              onClick={() => setEditingId(null)}
+              onClick={() =>
+                setEditingId(
+                  null,
+                )
+              }
             >
               Cancel
             </Button>
 
             <Button
               className="rounded-full"
-              disabled={!editText.trim()}
+              disabled={
+                !editText.trim()
+              }
               onClick={() => {
-                if (!editingId) return;
+                if (
+                  !editingId
+                ) {
+                  return;
+                }
 
-                updateTimeEntry(editingId, editText.trim());
-                setEditingId(null);
-                toast.success("Entry updated");
+                updateTimeEntry(
+                  editingId,
+                  editText.trim(),
+                );
+
+                setEditingId(
+                  null,
+                );
+
+                toast.success(
+                  "Entry updated",
+                );
               }}
             >
               Save changes
@@ -423,14 +1019,27 @@ function TrackerPage() {
       </Dialog>
 
       <Dialog
-        open={deletingId !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeletingId(null);
+        open={
+          deletingId !==
+          null
+        }
+        onOpenChange={(
+          open,
+        ) => {
+          if (
+            !open
+          ) {
+            setDeletingId(
+              null,
+            );
+          }
         }}
       >
         <DialogContent className="rounded-3xl">
           <DialogHeader>
-            <DialogTitle>Delete this entry?</DialogTitle>
+            <DialogTitle>
+              Delete this entry?
+            </DialogTitle>
 
             <DialogDescription>
               This removes the logged time permanently.
@@ -441,7 +1050,11 @@ function TrackerPage() {
             <Button
               variant="outline"
               className="rounded-full"
-              onClick={() => setDeletingId(null)}
+              onClick={() =>
+                setDeletingId(
+                  null,
+                )
+              }
             >
               Keep it
             </Button>
@@ -450,11 +1063,23 @@ function TrackerPage() {
               variant="destructive"
               className="rounded-full"
               onClick={() => {
-                if (!deletingId) return;
+                if (
+                  !deletingId
+                ) {
+                  return;
+                }
 
-                deleteTimeEntry(deletingId);
-                setDeletingId(null);
-                toast.success("Entry deleted");
+                deleteTimeEntry(
+                  deletingId,
+                );
+
+                setDeletingId(
+                  null,
+                );
+
+                toast.success(
+                  "Entry deleted",
+                );
               }}
             >
               Delete
@@ -462,7 +1087,6 @@ function TrackerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
@@ -484,11 +1108,15 @@ function StatCard({
 
       <div className="min-w-0">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">
-          {label}
+          {
+            label
+          }
         </p>
 
         <p className="tabular truncate text-xl font-semibold">
-          {value}
+          {
+            value
+          }
         </p>
       </div>
     </div>

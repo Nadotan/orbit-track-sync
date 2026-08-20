@@ -14,14 +14,22 @@ import {
 } from "date-fns";
 import {
   AlertTriangle,
+  Archive,
   CalendarClock,
   CheckCircle2,
   ClipboardList,
+  Copy,
+  FolderKanban,
+  FolderPlus,
   Loader2,
   Plus,
+  RefreshCw,
+  Search,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -55,48 +63,80 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+
 import {
+  archiveTask,
+  createProject,
   createTask,
   deleteTask,
+  duplicateTask,
   getTasksWorkspace,
   setTeamLeadRole,
   updateTask,
   updateTaskStatus,
 } from "@/lib/tasks.functions";
+
+import {
+  syncGoogleSheetsNow,
+} from "@/lib/google-sheets.functions";
+
 import type {
   TaskItem,
   TaskPerson,
+  TaskPriority,
+  TaskProject,
   TaskRole,
   TaskStatus,
   TasksWorkspace,
 } from "@/lib/tasks.functions";
+
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
     meta: [
-      { title: "Tasks — POM" },
+      {
+        title: "Tasks — POM",
+      },
       {
         name: "description",
-        content: "POM team tasks and assignments.",
+        content: "POM projects, tasks and assignments.",
       },
     ],
   }),
+
   component: TasksPage,
 });
 
 type TaskTab =
   | "my"
+  | "team"
   | "all"
   | "done";
+
+type DeadlineFilter =
+  | "all"
+  | "overdue"
+  | "today"
+  | "soon"
+  | "later";
 
 interface TaskFormValue {
   title: string;
   description: string;
   deadline: string;
   status: TaskStatus;
+  priority: TaskPriority;
+  ownerId: string;
+  blockedReason: string;
+  projectId: string;
   teamId: string;
   assigneeIds: string[];
+}
+
+interface ProjectFormValue {
+  name: string;
+  teamId: string;
 }
 
 const STATUSES: TaskStatus[] = [
@@ -106,13 +146,23 @@ const STATUSES: TaskStatus[] = [
   "Done",
 ];
 
+const PRIORITIES: TaskPriority[] = [
+  "Low",
+  "Medium",
+  "High",
+  "Critical",
+];
+
 function defaultTaskForm(
   role: TaskRole,
   teamIds: string[],
+  currentUserId: string,
 ): TaskFormValue {
   return {
     title: "",
+
     description: "",
+
     deadline: format(
       addDays(
         new Date(),
@@ -120,12 +170,37 @@ function defaultTaskForm(
       ),
       "yyyy-MM-dd",
     ),
+
     status: "To Do",
+
+    priority: "Medium",
+
+    ownerId: currentUserId,
+
+    blockedReason: "",
+
+    projectId: "none",
+
     teamId:
       role === "admin"
         ? "general"
         : teamIds[0] ?? "",
+
     assigneeIds: [],
+  };
+}
+
+function defaultProjectForm(
+  role: TaskRole,
+  teamIds: string[],
+): ProjectFormValue {
+  return {
+    name: "",
+
+    teamId:
+      role === "admin"
+        ? "general"
+        : teamIds[0] ?? "",
   };
 }
 
@@ -134,12 +209,27 @@ function taskToForm(
 ): TaskFormValue {
   return {
     title: task.title,
+
     description: task.description,
+
     deadline: task.deadline,
+
     status: task.status,
+
+    priority: task.priority,
+
+    ownerId: task.ownerId,
+
+    blockedReason: task.blockedReason,
+
+    projectId:
+      task.projectId ??
+      "none",
+
     teamId:
       task.teamId ??
       "general",
+
     assigneeIds:
       task.assignees.map(
         (assignee) =>
@@ -175,6 +265,46 @@ function statusClass(
   return "border-border bg-muted text-muted-foreground";
 }
 
+function priorityClass(
+  priority: TaskPriority,
+) {
+  if (
+    priority ===
+    "Critical"
+  ) {
+    return "border-destructive/30 bg-destructive/10 text-destructive";
+  }
+
+  if (
+    priority ===
+    "High"
+  ) {
+    return "border-warning/30 bg-warning/10 text-warning";
+  }
+
+  if (
+    priority ===
+    "Low"
+  ) {
+    return "border-border bg-muted text-muted-foreground";
+  }
+
+  return "border-primary/20 bg-primary/5 text-primary";
+}
+
+function deadlineDays(
+  deadline: string,
+) {
+  return differenceInCalendarDays(
+    parseISO(
+      deadline,
+    ),
+    startOfDay(
+      new Date(),
+    ),
+  );
+}
+
 function deadlineInfo(
   deadline: string,
   status: TaskStatus,
@@ -185,11 +315,8 @@ function deadlineInfo(
     );
 
   const days =
-    differenceInCalendarDays(
-      date,
-      startOfDay(
-        new Date(),
-      ),
+    deadlineDays(
+      deadline,
     );
 
   if (
@@ -261,6 +388,98 @@ function deadlineInfo(
   };
 }
 
+function smartTaskRank(
+  task: TaskItem,
+) {
+  const days =
+    deadlineDays(
+      task.deadline,
+    );
+
+  if (
+    task.status !==
+      "Done" &&
+    days <
+      0
+  ) {
+    return 0;
+  }
+
+  if (
+    task.priority ===
+    "Critical"
+  ) {
+    return 1;
+  }
+
+  if (
+    task.status ===
+    "Blocked"
+  ) {
+    return 2;
+  }
+
+  if (
+    task.status !==
+      "Done" &&
+    days >=
+      0 &&
+    days <=
+      7
+  ) {
+    return 3;
+  }
+
+  return 4;
+}
+
+function smartSortTasks(
+  tasks: TaskItem[],
+) {
+  return [
+    ...tasks,
+  ].sort(
+    (
+      a,
+      b,
+    ) => {
+      const rankDifference =
+        smartTaskRank(
+          a,
+        ) -
+        smartTaskRank(
+          b,
+        );
+
+      if (
+        rankDifference !==
+        0
+      ) {
+        return rankDifference;
+      }
+
+      const deadlineDifference =
+        parseISO(
+          a.deadline,
+        ).getTime() -
+        parseISO(
+          b.deadline,
+        ).getTime();
+
+      if (
+        deadlineDifference !==
+        0
+      ) {
+        return deadlineDifference;
+      }
+
+      return a.title.localeCompare(
+        b.title,
+      );
+    },
+  );
+}
+
 function roleLabel(
   role: TaskRole,
 ) {
@@ -302,14 +521,34 @@ function TasksPage() {
       updateTaskStatus,
     );
 
+  const archive =
+    useServerFn(
+      archiveTask,
+    );
+
+  const duplicate =
+    useServerFn(
+      duplicateTask,
+    );
+
   const remove =
     useServerFn(
       deleteTask,
     );
 
+  const createNewProject =
+    useServerFn(
+      createProject,
+    );
+
   const changeTeamLead =
     useServerFn(
       setTeamLeadRole,
+    );
+
+  const syncSheets =
+    useServerFn(
+      syncGoogleSheetsNow,
     );
 
   const [
@@ -337,6 +576,14 @@ function TasksPage() {
     );
 
   const [
+    syncingSheets,
+    setSyncingSheets,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
     tab,
     setTab,
   ] =
@@ -347,6 +594,14 @@ function TasksPage() {
   const [
     createOpen,
     setCreateOpen,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    createProjectOpen,
+    setCreateProjectOpen,
   ] =
     useState(
       false,
@@ -376,6 +631,7 @@ function TasksPage() {
       defaultTaskForm(
         "user",
         [],
+        "",
       ),
     );
 
@@ -388,11 +644,94 @@ function TasksPage() {
     );
 
   const [
+    projectForm,
+    setProjectForm,
+  ] =
+    useState<ProjectFormValue>(
+      defaultProjectForm(
+        "user",
+        [],
+      ),
+    );
+
+  const [
     leadBusyId,
     setLeadBusyId,
   ] =
     useState<string | null>(
       null,
+    );
+
+  const [
+    search,
+    setSearch,
+  ] =
+    useState(
+      "",
+    );
+
+  const [
+    filtersOpen,
+    setFiltersOpen,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    teamFilter,
+    setTeamFilter,
+  ] =
+    useState(
+      "all",
+    );
+
+  const [
+    projectFilter,
+    setProjectFilter,
+  ] =
+    useState(
+      "all",
+    );
+
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] =
+    useState(
+      "all",
+    );
+
+  const [
+    priorityFilter,
+    setPriorityFilter,
+  ] =
+    useState(
+      "all",
+    );
+
+  const [
+    ownerFilter,
+    setOwnerFilter,
+  ] =
+    useState(
+      "all",
+    );
+
+  const [
+    assigneeFilter,
+    setAssigneeFilter,
+  ] =
+    useState(
+      "all",
+    );
+
+  const [
+    deadlineFilter,
+    setDeadlineFilter,
+  ] =
+    useState<DeadlineFilter>(
+      "all",
     );
 
   const load =
@@ -444,10 +783,19 @@ function TasksPage() {
       defaultTaskForm(
         workspace.role,
         workspace.teamIds,
+        workspace.currentUserId,
+      ),
+    );
+
+    setProjectForm(
+      defaultProjectForm(
+        workspace.role,
+        workspace.teamIds,
       ),
     );
   }, [
     workspace?.role,
+    workspace?.currentUserId,
     workspace?.teamIds.join(
       ",",
     ),
@@ -482,32 +830,7 @@ function TasksPage() {
     selectedTask?.updatedAt,
   ]);
 
-  const myTasks =
-    useMemo(
-      () =>
-        (
-          workspace?.tasks ??
-          []
-        ).filter(
-          (
-            task,
-          ) =>
-            task.status !==
-              "Done" &&
-            task.assignees.some(
-              (
-                assignee,
-              ) =>
-                assignee.id ===
-                workspace?.currentUserId,
-            ),
-        ),
-      [
-        workspace,
-      ],
-    );
-
-  const allTasks =
+  const openTasks =
     useMemo(
       () =>
         (
@@ -524,6 +847,52 @@ function TasksPage() {
         workspace,
       ],
     );
+
+  const myTasks =
+    useMemo(
+      () =>
+        openTasks.filter(
+          (
+            task,
+          ) =>
+            task.assignees.some(
+              (
+                assignee,
+              ) =>
+                assignee.id ===
+                workspace?.currentUserId,
+            ),
+        ),
+      [
+        openTasks,
+        workspace?.currentUserId,
+      ],
+    );
+
+  const teamTasks =
+    useMemo(
+      () =>
+        openTasks.filter(
+          (
+            task,
+          ) =>
+            task.teamId !==
+              null &&
+            (
+              workspace?.teamIds ??
+              []
+            ).includes(
+              task.teamId,
+            ),
+        ),
+      [
+        openTasks,
+        workspace?.teamIds,
+      ],
+    );
+
+  const allTasks =
+    openTasks;
 
   const doneTasks =
     useMemo(
@@ -542,6 +911,353 @@ function TasksPage() {
         workspace,
       ],
     );
+
+  const summary =
+    useMemo(
+      () => {
+        let dueSoon =
+          0;
+
+        let overdue =
+          0;
+
+        let blocked =
+          0;
+
+        for (
+          const task of
+          openTasks
+        ) {
+          const days =
+            deadlineDays(
+              task.deadline,
+            );
+
+          if (
+            days <
+            0
+          ) {
+            overdue +=
+              1;
+          } else if (
+            days <=
+            7
+          ) {
+            dueSoon +=
+              1;
+          }
+
+          if (
+            task.status ===
+            "Blocked"
+          ) {
+            blocked +=
+              1;
+          }
+        }
+
+        return {
+          open:
+            openTasks.length,
+
+          dueSoon,
+
+          overdue,
+
+          blocked,
+        };
+      },
+      [
+        openTasks,
+      ],
+    );
+
+  const currentTabTasks =
+    useMemo(
+      () => {
+        if (
+          tab ===
+          "my"
+        ) {
+          return myTasks;
+        }
+
+        if (
+          tab ===
+          "team"
+        ) {
+          return teamTasks;
+        }
+
+        if (
+          tab ===
+          "done"
+        ) {
+          return doneTasks;
+        }
+
+        return allTasks;
+      },
+      [
+        tab,
+        myTasks,
+        teamTasks,
+        allTasks,
+        doneTasks,
+      ],
+    );
+
+  const filteredTasks =
+    useMemo(
+      () => {
+        const query =
+          search
+            .trim()
+            .toLowerCase();
+
+        const result =
+          currentTabTasks.filter(
+            (
+              task,
+            ) => {
+              if (
+                query
+              ) {
+                const haystack =
+                  [
+                    task.title,
+                    task.description,
+                    task.teamName,
+                    task.projectName ??
+                      "",
+                    task.ownerName,
+                    ...task.assignees.map(
+                      (
+                        assignee,
+                      ) =>
+                        assignee.name,
+                    ),
+                  ]
+                    .join(
+                      " ",
+                    )
+                    .toLowerCase();
+
+                if (
+                  !haystack.includes(
+                    query,
+                  )
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                teamFilter !==
+                "all"
+              ) {
+                if (
+                  teamFilter ===
+                  "general"
+                ) {
+                  if (
+                    task.teamId !==
+                    null
+                  ) {
+                    return false;
+                  }
+                } else if (
+                  task.teamId !==
+                  teamFilter
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                projectFilter !==
+                "all"
+              ) {
+                if (
+                  projectFilter ===
+                  "none"
+                ) {
+                  if (
+                    task.projectId !==
+                    null
+                  ) {
+                    return false;
+                  }
+                } else if (
+                  task.projectId !==
+                  projectFilter
+                ) {
+                  return false;
+                }
+              }
+
+              if (
+                statusFilter !==
+                  "all" &&
+                task.status !==
+                  statusFilter
+              ) {
+                return false;
+              }
+
+              if (
+                priorityFilter !==
+                  "all" &&
+                task.priority !==
+                  priorityFilter
+              ) {
+                return false;
+              }
+
+              if (
+                ownerFilter !==
+                  "all" &&
+                task.ownerId !==
+                  ownerFilter
+              ) {
+                return false;
+              }
+
+              if (
+                assigneeFilter !==
+                  "all" &&
+                !task.assignees.some(
+                  (
+                    assignee,
+                  ) =>
+                    assignee.id ===
+                    assigneeFilter,
+                )
+              ) {
+                return false;
+              }
+
+              if (
+                deadlineFilter !==
+                "all"
+              ) {
+                const days =
+                  deadlineDays(
+                    task.deadline,
+                  );
+
+                if (
+                  deadlineFilter ===
+                    "overdue" &&
+                  days >=
+                    0
+                ) {
+                  return false;
+                }
+
+                if (
+                  deadlineFilter ===
+                    "today" &&
+                  days !==
+                    0
+                ) {
+                  return false;
+                }
+
+                if (
+                  deadlineFilter ===
+                    "soon" &&
+                  (
+                    days <
+                      0 ||
+                    days >
+                      7
+                  )
+                ) {
+                  return false;
+                }
+
+                if (
+                  deadlineFilter ===
+                    "later" &&
+                  days <=
+                    7
+                ) {
+                  return false;
+                }
+              }
+
+              return true;
+            },
+          );
+
+        return smartSortTasks(
+          result,
+        );
+      },
+      [
+        currentTabTasks,
+        search,
+        teamFilter,
+        projectFilter,
+        statusFilter,
+        priorityFilter,
+        ownerFilter,
+        assigneeFilter,
+        deadlineFilter,
+      ],
+    );
+
+  const activeFilterCount =
+    [
+      teamFilter,
+      projectFilter,
+      statusFilter,
+      priorityFilter,
+      ownerFilter,
+      assigneeFilter,
+      deadlineFilter,
+    ].filter(
+      (
+        value,
+      ) =>
+        value !==
+        "all",
+    ).length;
+
+  function clearFilters() {
+    setSearch(
+      "",
+    );
+
+    setTeamFilter(
+      "all",
+    );
+
+    setProjectFilter(
+      "all",
+    );
+
+    setStatusFilter(
+      "all",
+    );
+
+    setPriorityFilter(
+      "all",
+    );
+
+    setOwnerFilter(
+      "all",
+    );
+
+    setAssigneeFilter(
+      "all",
+    );
+
+    setDeadlineFilter(
+      "all",
+    );
+  }
 
   if (
     loading
@@ -612,11 +1328,33 @@ function TasksPage() {
     }
 
     if (
+      !createForm.ownerId
+    ) {
+      toast.error(
+        "Choose an owner.",
+      );
+
+      return;
+    }
+
+    if (
       createForm.assigneeIds.length ===
       0
     ) {
       toast.error(
         "Assign at least one person.",
+      );
+
+      return;
+    }
+
+    if (
+      createForm.status ===
+        "Blocked" &&
+      !createForm.blockedReason.trim()
+    ) {
+      toast.error(
+        "Add a reason for the blocked task.",
       );
 
       return;
@@ -640,6 +1378,21 @@ function TasksPage() {
 
           status:
             createForm.status,
+
+          priority:
+            createForm.priority,
+
+          ownerId:
+            createForm.ownerId,
+
+          blockedReason:
+            createForm.blockedReason,
+
+          projectId:
+            createForm.projectId ===
+            "none"
+              ? null
+              : createForm.projectId,
 
           teamId:
             createForm.teamId ===
@@ -676,6 +1429,69 @@ function TasksPage() {
     }
   }
 
+  async function handleCreateProject() {
+    if (
+      !projectForm.name.trim()
+    ) {
+      toast.error(
+        "Project name is required.",
+      );
+
+      return;
+    }
+
+    if (
+      !projectForm.teamId
+    ) {
+      toast.error(
+        "Choose a project scope.",
+      );
+
+      return;
+    }
+
+    setSaving(
+      true,
+    );
+
+    try {
+      await createNewProject({
+        data: {
+          name:
+            projectForm.name,
+
+          teamId:
+            projectForm.teamId ===
+            "general"
+              ? null
+              : projectForm.teamId,
+        },
+      });
+
+      toast.success(
+        "Project created",
+      );
+
+      setCreateProjectOpen(
+        false,
+      );
+
+      await load();
+    } catch (
+      error
+    ) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not create project.",
+      );
+    } finally {
+      setSaving(
+        false,
+      );
+    }
+  }
+
   async function handleFullUpdate() {
     if (
       !selectedTask ||
@@ -695,11 +1511,33 @@ function TasksPage() {
     }
 
     if (
+      !editForm.ownerId
+    ) {
+      toast.error(
+        "Choose an owner.",
+      );
+
+      return;
+    }
+
+    if (
       editForm.assigneeIds.length ===
       0
     ) {
       toast.error(
         "Assign at least one person.",
+      );
+
+      return;
+    }
+
+    if (
+      editForm.status ===
+        "Blocked" &&
+      !editForm.blockedReason.trim()
+    ) {
+      toast.error(
+        "Add a reason for the blocked task.",
       );
 
       return;
@@ -726,6 +1564,21 @@ function TasksPage() {
 
           status:
             editForm.status,
+
+          priority:
+            editForm.priority,
+
+          ownerId:
+            editForm.ownerId,
+
+          blockedReason:
+            editForm.blockedReason,
+
+          projectId:
+            editForm.projectId ===
+            "none"
+              ? null
+              : editForm.projectId,
 
           teamId:
             editForm.teamId ===
@@ -766,6 +1619,18 @@ function TasksPage() {
       return;
     }
 
+    if (
+      editForm.status ===
+        "Blocked" &&
+      !editForm.blockedReason.trim()
+    ) {
+      toast.error(
+        "Add a reason for the blocked task.",
+      );
+
+      return;
+    }
+
     setSaving(
       true,
     );
@@ -778,6 +1643,9 @@ function TasksPage() {
 
           status:
             editForm.status,
+
+          blockedReason:
+            editForm.blockedReason,
         },
       });
 
@@ -804,6 +1672,100 @@ function TasksPage() {
     }
   }
 
+  async function handleArchive() {
+    if (
+      !selectedTask
+    ) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Archive "${selectedTask.title}"?`,
+      )
+    ) {
+      return;
+    }
+
+    setSaving(
+      true,
+    );
+
+    try {
+      await archive({
+        data: {
+          taskId:
+            selectedTask.id,
+        },
+      });
+
+      toast.success(
+        "Task archived",
+      );
+
+      setSelectedTaskId(
+        null,
+      );
+
+      await load();
+    } catch (
+      error
+    ) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not archive task.",
+      );
+    } finally {
+      setSaving(
+        false,
+      );
+    }
+  }
+
+  async function handleDuplicate() {
+    if (
+      !selectedTask
+    ) {
+      return;
+    }
+
+    setSaving(
+      true,
+    );
+
+    try {
+      await duplicate({
+        data: {
+          taskId:
+            selectedTask.id,
+        },
+      });
+
+      toast.success(
+        "Task duplicated",
+      );
+
+      setSelectedTaskId(
+        null,
+      );
+
+      await load();
+    } catch (
+      error
+    ) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not duplicate task.",
+      );
+    } finally {
+      setSaving(
+        false,
+      );
+    }
+  }
+
   async function handleDelete() {
     if (
       !selectedTask
@@ -813,7 +1775,7 @@ function TasksPage() {
 
     if (
       !window.confirm(
-        `Delete "${selectedTask.title}"?`,
+        `Permanently delete "${selectedTask.title}"?`,
       )
     ) {
       return;
@@ -850,6 +1812,41 @@ function TasksPage() {
       );
     } finally {
       setSaving(
+        false,
+      );
+    }
+  }
+
+  async function handleGoogleSheetsSync() {
+    if (
+      workspace.role !==
+      "admin" ||
+      syncingSheets
+    ) {
+      return;
+    }
+
+    setSyncingSheets(
+      true,
+    );
+
+    try {
+      const result =
+        await syncSheets();
+
+      toast.success(
+        `Google Sheets synced — ${result.projects} projects, ${result.tasks} tasks`,
+      );
+    } catch (
+      error
+    ) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not sync Google Sheets.",
+      );
+    } finally {
+      setSyncingSheets(
         false,
       );
     }
@@ -910,6 +1907,34 @@ function TasksPage() {
     }
   }
 
+  function openProject(
+    project:
+      TaskProject,
+  ) {
+    setProjectFilter(
+      project.id,
+    );
+
+    setTab(
+      "all",
+    );
+  }
+
+  const selectedProject =
+    projectFilter !==
+      "all" &&
+    projectFilter !==
+      "none"
+      ? workspace.projects.find(
+          (
+            project,
+          ) =>
+            project.id ===
+            projectFilter,
+        ) ??
+        null
+      : null;
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 pb-24 md:pb-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -930,46 +1955,95 @@ function TasksPage() {
           </div>
 
           <p className="mt-1 text-sm text-muted-foreground">
-            Team tasks, deadlines and ownership.
+            Projects, tasks, deadlines and ownership.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           {workspace.role ===
             "admin" && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                setTeamLeadsOpen(
-                  true,
-                )
-              }
-            >
-              <ShieldCheck className="size-4" />
-              Team Leads
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  syncingSheets
+                }
+                onClick={() =>
+                  void handleGoogleSheetsSync()
+                }
+              >
+                <RefreshCw
+                  className={cn(
+                    "size-4",
+
+                    syncingSheets &&
+                      "animate-spin",
+                  )}
+                />
+
+                {syncingSheets
+                  ? "Syncing…"
+                  : "Sync Sheets"}
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setTeamLeadsOpen(
+                    true,
+                  )
+                }
+              >
+                <ShieldCheck className="size-4" />
+                Team Leads
+              </Button>
+            </>
           )}
 
           {canCreate && (
-            <Button
-              type="button"
-              onClick={() => {
-                setCreateForm(
-                  defaultTaskForm(
-                    workspace.role,
-                    workspace.teamIds,
-                  ),
-                );
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setProjectForm(
+                    defaultProjectForm(
+                      workspace.role,
+                      workspace.teamIds,
+                    ),
+                  );
 
-                setCreateOpen(
-                  true,
-                );
-              }}
-            >
-              <Plus className="size-4" />
-              New Task
-            </Button>
+                  setCreateProjectOpen(
+                    true,
+                  );
+                }}
+              >
+                <FolderPlus className="size-4" />
+                New Project
+              </Button>
+
+              <Button
+                type="button"
+                onClick={() => {
+                  setCreateForm(
+                    defaultTaskForm(
+                      workspace.role,
+                      workspace.teamIds,
+                      workspace.currentUserId,
+                    ),
+                  );
+
+                  setCreateOpen(
+                    true,
+                  );
+                }}
+              >
+                <Plus className="size-4" />
+                New Task
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -989,8 +2063,457 @@ function TasksPage() {
           </div>
         )}
 
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryCard
+          label="Open"
+          value={
+            summary.open
+          }
+        />
+
+        <SummaryCard
+          label="Due Soon"
+          value={
+            summary.dueSoon
+          }
+        />
+
+        <SummaryCard
+          label="Overdue"
+          value={
+            summary.overdue
+          }
+          danger={
+            summary.overdue >
+            0
+          }
+        />
+
+        <SummaryCard
+          label="Blocked"
+          value={
+            summary.blocked
+          }
+          danger={
+            summary.blocked >
+            0
+          }
+        />
+      </div>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 font-semibold">
+              <FolderKanban className="size-4 text-primary" />
+              Projects
+            </h2>
+
+            <p className="mt-1 text-xs text-muted-foreground">
+              Select a project to view its tasks.
+            </p>
+          </div>
+
+          {selectedProject && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setProjectFilter(
+                  "all",
+                )
+              }
+            >
+              <X className="size-4" />
+              Clear
+            </Button>
+          )}
+        </div>
+
+        {workspace.projects.length ===
+        0 ? (
+          <div className="rounded-2xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+            No projects yet. Tasks can still exist without a project.
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {workspace.projects.map(
+              (
+                project,
+              ) => {
+                const taskCount =
+                  workspace.tasks.filter(
+                    (
+                      task,
+                    ) =>
+                      task.projectId ===
+                        project.id &&
+                      task.status !==
+                        "Done",
+                  ).length;
+
+                const selected =
+                  projectFilter ===
+                  project.id;
+
+                return (
+                  <button
+                    key={
+                      project.id
+                    }
+                    type="button"
+                    className={cn(
+                      "surface-card rounded-2xl border border-border p-4 text-left transition-colors hover:bg-muted/30",
+
+                      selected &&
+                        "border-primary/40 bg-primary/5",
+                    )}
+                    onClick={() =>
+                      openProject(
+                        project,
+                      )
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">
+                          {
+                            project.name
+                          }
+                        </p>
+
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {
+                            project.teamName
+                          }
+                        </p>
+                      </div>
+
+                      <Badge
+                        variant="secondary"
+                        className="shrink-0 rounded-full"
+                      >
+                        {
+                          taskCount
+                        }
+                      </Badge>
+                    </div>
+                  </button>
+                );
+              },
+            )}
+          </div>
+        )}
+      </section>
+
+      <div className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+
+            <Input
+              className="pl-9"
+              placeholder="Search tasks…"
+              value={
+                search
+              }
+              onChange={(
+                event,
+              ) =>
+                setSearch(
+                  event.target.value,
+                )
+              }
+            />
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              setFiltersOpen(
+                (
+                  current,
+                ) =>
+                  !current,
+              )
+            }
+          >
+            <SlidersHorizontal className="size-4" />
+            Filters
+
+            {activeFilterCount >
+              0 && (
+              <Badge
+                variant="secondary"
+                className="ml-1 rounded-full px-1.5"
+              >
+                {
+                  activeFilterCount
+                }
+              </Badge>
+            )}
+          </Button>
+
+          {(
+            activeFilterCount >
+              0 ||
+            search
+          ) && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={
+                clearFilters
+              }
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+
+        {filtersOpen && (
+          <div className="surface-card grid gap-3 rounded-2xl p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <FilterSelect
+              label="Team"
+              value={
+                teamFilter
+              }
+              onChange={
+                setTeamFilter
+              }
+              items={[
+                {
+                  value:
+                    "all",
+                  label:
+                    "All teams",
+                },
+                {
+                  value:
+                    "general",
+                  label:
+                    "General",
+                },
+                ...workspace.teams.map(
+                  (
+                    team,
+                  ) => ({
+                    value:
+                      team.id,
+
+                    label:
+                      team.name,
+                  }),
+                ),
+              ]}
+            />
+
+            <FilterSelect
+              label="Project"
+              value={
+                projectFilter
+              }
+              onChange={
+                setProjectFilter
+              }
+              items={[
+                {
+                  value:
+                    "all",
+                  label:
+                    "All projects",
+                },
+                {
+                  value:
+                    "none",
+                  label:
+                    "No project",
+                },
+                ...workspace.projects.map(
+                  (
+                    project,
+                  ) => ({
+                    value:
+                      project.id,
+
+                    label:
+                      project.name,
+                  }),
+                ),
+              ]}
+            />
+
+            <FilterSelect
+              label="Status"
+              value={
+                statusFilter
+              }
+              onChange={
+                setStatusFilter
+              }
+              items={[
+                {
+                  value:
+                    "all",
+                  label:
+                    "All statuses",
+                },
+                ...STATUSES.map(
+                  (
+                    status,
+                  ) => ({
+                    value:
+                      status,
+
+                    label:
+                      status,
+                  }),
+                ),
+              ]}
+            />
+
+            <FilterSelect
+              label="Priority"
+              value={
+                priorityFilter
+              }
+              onChange={
+                setPriorityFilter
+              }
+              items={[
+                {
+                  value:
+                    "all",
+                  label:
+                    "All priorities",
+                },
+                ...PRIORITIES.map(
+                  (
+                    priority,
+                  ) => ({
+                    value:
+                      priority,
+
+                    label:
+                      priority,
+                  }),
+                ),
+              ]}
+            />
+
+            <FilterSelect
+              label="Owner"
+              value={
+                ownerFilter
+              }
+              onChange={
+                setOwnerFilter
+              }
+              items={[
+                {
+                  value:
+                    "all",
+                  label:
+                    "All owners",
+                },
+                ...workspace.people.map(
+                  (
+                    person,
+                  ) => ({
+                    value:
+                      person.id,
+
+                    label:
+                      person.name,
+                  }),
+                ),
+              ]}
+            />
+
+            <FilterSelect
+              label="Assignee"
+              value={
+                assigneeFilter
+              }
+              onChange={
+                setAssigneeFilter
+              }
+              items={[
+                {
+                  value:
+                    "all",
+                  label:
+                    "All assignees",
+                },
+                ...workspace.people.map(
+                  (
+                    person,
+                  ) => ({
+                    value:
+                      person.id,
+
+                    label:
+                      person.name,
+                  }),
+                ),
+              ]}
+            />
+
+            <FilterSelect
+              label="Deadline"
+              value={
+                deadlineFilter
+              }
+              onChange={(
+                value,
+              ) =>
+                setDeadlineFilter(
+                  value as DeadlineFilter,
+                )
+              }
+              items={[
+                {
+                  value:
+                    "all",
+                  label:
+                    "Any deadline",
+                },
+                {
+                  value:
+                    "overdue",
+                  label:
+                    "Overdue",
+                },
+                {
+                  value:
+                    "today",
+                  label:
+                    "Due today",
+                },
+                {
+                  value:
+                    "soon",
+                  label:
+                    "Next 7 days",
+                },
+                {
+                  value:
+                    "later",
+                  label:
+                    "Later",
+                },
+              ]}
+            />
+          </div>
+        )}
+      </div>
+
       <Tabs
-        value={tab}
+        value={
+          tab
+        }
         onValueChange={(
           value,
         ) =>
@@ -999,28 +2522,77 @@ function TasksPage() {
           )
         }
       >
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="my">
             My Tasks
-            <span className="ml-1 text-xs opacity-60">
-              {myTasks.length}
+
+            <span className="ml-1 hidden text-xs opacity-60 sm:inline">
+              {
+                myTasks.length
+              }
+            </span>
+          </TabsTrigger>
+
+          <TabsTrigger value="team">
+            Team Tasks
+
+            <span className="ml-1 hidden text-xs opacity-60 sm:inline">
+              {
+                teamTasks.length
+              }
             </span>
           </TabsTrigger>
 
           <TabsTrigger value="all">
             All Tasks
-            <span className="ml-1 text-xs opacity-60">
-              {allTasks.length}
+
+            <span className="ml-1 hidden text-xs opacity-60 sm:inline">
+              {
+                allTasks.length
+              }
             </span>
           </TabsTrigger>
 
           <TabsTrigger value="done">
             Done
-            <span className="ml-1 text-xs opacity-60">
-              {doneTasks.length}
+
+            <span className="ml-1 hidden text-xs opacity-60 sm:inline">
+              {
+                doneTasks.length
+              }
             </span>
           </TabsTrigger>
         </TabsList>
+
+        {selectedProject && (
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">
+                Project
+              </p>
+
+              <p className="truncate text-sm font-medium">
+                {
+                  selectedProject.name
+                }
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setProjectFilter(
+                  "all",
+                )
+              }
+            >
+              <X className="size-4" />
+              Show all
+            </Button>
+          </div>
+        )}
 
         <TabsContent
           value="my"
@@ -1028,10 +2600,26 @@ function TasksPage() {
         >
           <TaskList
             tasks={
-              myTasks
+              filteredTasks
             }
             emptyTitle="No tasks assigned to you"
             emptyText="You're all caught up."
+            onOpen={
+              setSelectedTaskId
+            }
+          />
+        </TabsContent>
+
+        <TabsContent
+          value="team"
+          className="mt-4"
+        >
+          <TaskList
+            tasks={
+              filteredTasks
+            }
+            emptyTitle="No team tasks"
+            emptyText="There are no open tasks for your teams."
             onOpen={
               setSelectedTaskId
             }
@@ -1044,10 +2632,10 @@ function TasksPage() {
         >
           <TaskList
             tasks={
-              allTasks
+              filteredTasks
             }
             emptyTitle="No open tasks"
-            emptyText="There are no active tasks in your workspace."
+            emptyText="There are no active tasks matching these filters."
             onOpen={
               setSelectedTaskId
             }
@@ -1060,7 +2648,7 @@ function TasksPage() {
         >
           <TaskList
             tasks={
-              doneTasks
+              filteredTasks
             }
             emptyTitle="Nothing completed yet"
             emptyText="Completed tasks will appear here."
@@ -1070,6 +2658,127 @@ function TasksPage() {
           />
         </TabsContent>
       </Tabs>
+
+      <Sheet
+        open={
+          createProjectOpen
+        }
+        onOpenChange={
+          setCreateProjectOpen
+        }
+      >
+        <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>
+              New Project
+            </SheetTitle>
+          </SheetHeader>
+
+          <div className="mt-6 space-y-5">
+            <div className="space-y-2">
+              <Label>
+                Project name
+              </Label>
+
+              <Input
+                maxLength={
+                  120
+                }
+                placeholder="Kickoff 2027"
+                value={
+                  projectForm.name
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setProjectForm({
+                    ...projectForm,
+
+                    name:
+                      event.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>
+                Scope
+              </Label>
+
+              <Select
+                value={
+                  projectForm.teamId
+                }
+                onValueChange={(
+                  teamId,
+                ) =>
+                  setProjectForm({
+                    ...projectForm,
+
+                    teamId,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+
+                <SelectContent>
+                  {workspace.role ===
+                    "admin" && (
+                    <SelectItem value="general">
+                      General — everyone
+                    </SelectItem>
+                  )}
+
+                  {managerTeams.map(
+                    (
+                      team,
+                    ) => (
+                      <SelectItem
+                        key={
+                          team.id
+                        }
+                        value={
+                          team.id
+                        }
+                      >
+                        {
+                          team.name
+                        }
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button
+              type="button"
+              className="w-full"
+              disabled={
+                saving
+              }
+              onClick={() =>
+                void handleCreateProject()
+              }
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Creating…
+                </>
+              ) : (
+                <>
+                  <FolderPlus className="size-4" />
+                  Create Project
+                </>
+              )}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet
         open={
@@ -1097,8 +2806,14 @@ function TasksPage() {
               role={
                 workspace.role
               }
+              currentUserId={
+                workspace.currentUserId
+              }
               teams={
                 managerTeams
+              }
+              projects={
+                workspace.projects
               }
               people={
                 workspace.people
@@ -1155,40 +2870,106 @@ function TasksPage() {
               <>
                 <SheetHeader>
                   <SheetTitle>
-                    {selectedTask.title}
+                    {
+                      selectedTask.title
+                    }
                   </SheetTitle>
                 </SheetHeader>
 
                 <div className="mt-5 space-y-6">
                   <div className="rounded-2xl bg-muted/50 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-xs uppercase tracking-wide text-muted-foreground">
                           Scope
                         </p>
 
                         <p className="mt-1 text-sm font-medium">
-                          {selectedTask.teamName}
+                          {
+                            selectedTask.teamName
+                          }
                         </p>
                       </div>
 
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "rounded-full",
-                          statusClass(
-                            selectedTask.status,
-                          ),
-                        )}
-                      >
-                        {selectedTask.status}
-                      </Badge>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "rounded-full",
+
+                            priorityClass(
+                              selectedTask.priority,
+                            ),
+                          )}
+                        >
+                          {
+                            selectedTask.priority
+                          }
+                        </Badge>
+
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "rounded-full",
+
+                            statusClass(
+                              selectedTask.status,
+                            ),
+                          )}
+                        >
+                          {
+                            selectedTask.status
+                          }
+                        </Badge>
+                      </div>
                     </div>
 
-                    <p className="mt-4 text-xs text-muted-foreground">
-                      Created by{" "}
-                      {selectedTask.createdByName}
-                    </p>
+                    <div className="mt-4 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
+                      <p>
+                        Owner:{" "}
+                        <span className="font-medium text-foreground">
+                          {
+                            selectedTask.ownerName
+                          }
+                        </span>
+                      </p>
+
+                      {selectedTask.projectName && (
+                        <p>
+                          Project:{" "}
+                          <span className="font-medium text-foreground">
+                            {
+                              selectedTask.projectName
+                            }
+                          </span>
+                        </p>
+                      )}
+
+                      <p>
+                        Created by{" "}
+                        <span className="font-medium text-foreground">
+                          {
+                            selectedTask.createdByName
+                          }
+                        </span>
+                      </p>
+                    </div>
+
+                    {selectedTask.status ===
+                      "Blocked" &&
+                      selectedTask.blockedReason && (
+                        <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+                          <p className="text-xs font-medium text-destructive">
+                            Blocked
+                          </p>
+
+                          <p className="mt-1 text-sm">
+                            {
+                              selectedTask.blockedReason
+                            }
+                          </p>
+                        </div>
+                      )}
                   </div>
 
                   {selectedTask.canEditDetails ? (
@@ -1203,18 +2984,24 @@ function TasksPage() {
                         role={
                           workspace.role
                         }
+                        currentUserId={
+                          workspace.currentUserId
+                        }
                         teams={
                           managerTeams
+                        }
+                        projects={
+                          workspace.projects
                         }
                         people={
                           workspace.people
                         }
                       />
 
-                      <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="flex flex-col gap-2">
                         <Button
                           type="button"
-                          className="flex-1"
+                          className="w-full"
                           disabled={
                             saving
                           }
@@ -1232,19 +3019,52 @@ function TasksPage() {
                           )}
                         </Button>
 
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          disabled={
-                            saving
-                          }
-                          onClick={() =>
-                            void handleDelete()
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                          Delete
-                        </Button>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={
+                              saving
+                            }
+                            onClick={() =>
+                              void handleDuplicate()
+                            }
+                          >
+                            <Copy className="size-4" />
+                            Duplicate
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={
+                              saving
+                            }
+                            onClick={() =>
+                              void handleArchive()
+                            }
+                          >
+                            <Archive className="size-4" />
+                            Archive
+                          </Button>
+                        </div>
+
+                        {workspace.role ===
+                          "admin" && (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            disabled={
+                              saving
+                            }
+                            onClick={() =>
+                              void handleDelete()
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                            Permanently Delete
+                          </Button>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -1256,7 +3076,9 @@ function TasksPage() {
                           </Label>
 
                           <p className="mt-2 whitespace-pre-wrap rounded-2xl bg-muted/50 p-4 text-sm">
-                            {selectedTask.description}
+                            {
+                              selectedTask.description
+                            }
                           </p>
                         </div>
                       ) : null}
@@ -1278,6 +3100,57 @@ function TasksPage() {
                         </div>
                       </div>
 
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <Label>
+                            Priority
+                          </Label>
+
+                          <div className="mt-2">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "rounded-full",
+
+                                priorityClass(
+                                  selectedTask.priority,
+                                ),
+                              )}
+                            >
+                              {
+                                selectedTask.priority
+                              }
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label>
+                            Owner
+                          </Label>
+
+                          <p className="mt-2 rounded-2xl bg-muted/50 p-3 text-sm">
+                            {
+                              selectedTask.ownerName
+                            }
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedTask.projectName && (
+                        <div>
+                          <Label>
+                            Project
+                          </Label>
+
+                          <p className="mt-2 rounded-2xl bg-muted/50 p-3 text-sm">
+                            {
+                              selectedTask.projectName
+                            }
+                          </p>
+                        </div>
+                      )}
+
                       <div>
                         <Label>
                           Assigned to
@@ -1294,7 +3167,9 @@ function TasksPage() {
                                 }
                                 variant="secondary"
                               >
-                                {assignee.name}
+                                {
+                                  assignee.name
+                                }
                               </Badge>
                             ),
                           )}
@@ -1313,13 +3188,22 @@ function TasksPage() {
                             }
                             onValueChange={(
                               value,
-                            ) =>
+                            ) => {
+                              const status =
+                                value as TaskStatus;
+
                               setEditForm({
                                 ...editForm,
-                                status:
-                                  value as TaskStatus,
-                              })
-                            }
+
+                                status,
+
+                                blockedReason:
+                                  status ===
+                                  "Blocked"
+                                    ? editForm.blockedReason
+                                    : "",
+                              });
+                            }}
                           >
                             <SelectTrigger>
                               <SelectValue />
@@ -1338,20 +3222,59 @@ function TasksPage() {
                                       status
                                     }
                                   >
-                                    {status}
+                                    {
+                                      status
+                                    }
                                   </SelectItem>
                                 ),
                               )}
                             </SelectContent>
                           </Select>
 
+                          {editForm.status ===
+                            "Blocked" && (
+                            <div className="space-y-2">
+                              <Label>
+                                Why is this blocked?
+                              </Label>
+
+                              <Textarea
+                                rows={
+                                  3
+                                }
+                                maxLength={
+                                  500
+                                }
+                                className="resize-none rounded-2xl"
+                                placeholder="Waiting for supplier approval…"
+                                value={
+                                  editForm.blockedReason
+                                }
+                                onChange={(
+                                  event,
+                                ) =>
+                                  setEditForm({
+                                    ...editForm,
+
+                                    blockedReason:
+                                      event.target.value,
+                                  })
+                                }
+                              />
+                            </div>
+                          )}
+
                           <Button
                             type="button"
                             className="w-full"
                             disabled={
                               saving ||
-                              editForm.status ===
-                                selectedTask.status
+                              (
+                                editForm.status ===
+                                  selectedTask.status &&
+                                editForm.blockedReason ===
+                                  selectedTask.blockedReason
+                              )
                             }
                             onClick={() =>
                               void handleStatusUpdate()
@@ -1387,7 +3310,7 @@ function TasksPage() {
           </SheetHeader>
 
           <p className="mt-3 text-sm text-muted-foreground">
-            Team Leads can create and fully manage tasks for their own teams.
+            Team Leads can create and fully manage tasks and projects for their own teams.
           </p>
 
           <div className="mt-6 space-y-2">
@@ -1423,8 +3346,10 @@ function TasksPage() {
                       }
                       className={cn(
                         "flex items-center gap-3 rounded-2xl border border-border p-4",
+
                         !disabled &&
                           "cursor-pointer hover:bg-muted/40",
+
                         disabled &&
                           "opacity-60",
                       )}
@@ -1441,6 +3366,7 @@ function TasksPage() {
                         ) =>
                           void handleLeadChange(
                             person,
+
                             value ===
                               true,
                           )
@@ -1449,7 +3375,9 @@ function TasksPage() {
 
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
-                          {person.name}
+                          {
+                            person.name
+                          }
                         </p>
 
                         <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1493,6 +3421,99 @@ function TasksPage() {
   );
 }
 
+function SummaryCard({
+  label,
+  value,
+  danger = false,
+}: {
+  label: string;
+  value: number;
+  danger?: boolean;
+}) {
+  return (
+    <div className="surface-card rounded-2xl p-4">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {
+          label
+        }
+      </p>
+
+      <p
+        className={cn(
+          "mt-1 text-2xl font-semibold",
+
+          danger &&
+            "text-destructive",
+        )}
+      >
+        {
+          value
+        }
+      </p>
+    </div>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  items,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+
+  items: {
+    value: string;
+    label: string;
+  }[];
+}) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs">
+        {
+          label
+        }
+      </Label>
+
+      <Select
+        value={
+          value
+        }
+        onValueChange={
+          onChange
+        }
+      >
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+
+        <SelectContent>
+          {items.map(
+            (
+              item,
+            ) => (
+              <SelectItem
+                key={
+                  item.value
+                }
+                value={
+                  item.value
+                }
+              >
+                {
+                  item.label
+                }
+              </SelectItem>
+            ),
+          )}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function TaskList({
   tasks,
   emptyTitle,
@@ -1513,11 +3534,15 @@ function TaskList({
         <ClipboardList className="mx-auto size-8 text-muted-foreground" />
 
         <p className="mt-3 font-medium">
-          {emptyTitle}
+          {
+            emptyTitle
+          }
         </p>
 
         <p className="mt-1 text-sm text-muted-foreground">
-          {emptyText}
+          {
+            emptyText
+          }
         </p>
       </div>
     );
@@ -1564,7 +3589,9 @@ function TaskCard({
   return (
     <Card
       role="button"
-      tabIndex={0}
+      tabIndex={
+        0
+      }
       className="surface-card cursor-pointer transition-colors hover:bg-muted/30"
       onClick={
         onClick
@@ -1579,6 +3606,7 @@ function TaskCard({
             " "
         ) {
           event.preventDefault();
+
           onClick();
         }
       }}
@@ -1587,11 +3615,15 @@ function TaskCard({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="break-words font-semibold">
-              {task.title}
+              {
+                task.title
+              }
             </h2>
 
             <p className="mt-1 text-xs text-muted-foreground">
-              {task.teamName}
+              {
+                task.teamName
+              }
             </p>
           </div>
 
@@ -1600,28 +3632,36 @@ function TaskCard({
               variant="outline"
               className={cn(
                 "rounded-full",
+
                 statusClass(
                   task.status,
                 ),
               )}
             >
-              {task.status}
+              {
+                task.status
+              }
             </Badge>
 
             <p
               className={cn(
                 "mt-2 whitespace-nowrap text-xs",
+
                 deadline.className,
               )}
             >
-              {deadline.text}
+              {
+                deadline.text
+              }
             </p>
           </div>
         </div>
 
         {task.description && (
           <p className="mt-4 line-clamp-2 text-sm text-muted-foreground">
-            {task.description}
+            {
+              task.description
+            }
           </p>
         )}
 
@@ -1639,7 +3679,9 @@ function TaskCard({
                 variant="secondary"
                 className="rounded-full"
               >
-                {assignee.name}
+                {
+                  assignee.name
+                }
               </Badge>
             ),
           )}
@@ -1658,17 +3700,31 @@ function TaskForm({
   value,
   onChange,
   role,
+  currentUserId,
   teams,
+  projects,
   people,
 }: {
   value: TaskFormValue;
-  onChange: (value: TaskFormValue) => void;
+
+  onChange: (
+    value: TaskFormValue,
+  ) => void;
+
   role: TaskRole;
+
+  currentUserId: string;
+
   teams: {
     id: string;
     name: string;
   }[];
-  people: TaskPerson[];
+
+  projects:
+    TaskProject[];
+
+  people:
+    TaskPerson[];
 }) {
   const eligiblePeople =
     value.teamId ===
@@ -1683,25 +3739,48 @@ function TaskForm({
             ),
         );
 
+  const eligibleProjects =
+    projects.filter(
+      (
+        project,
+      ) => {
+        if (
+          value.teamId ===
+          "general"
+        ) {
+          return (
+            project.teamId ===
+            null
+          );
+        }
+
+        return (
+          project.teamId ===
+          value.teamId
+        );
+      },
+    );
+
   function changeScope(
     teamId:
       string,
   ) {
+    const nextPeople =
+      teamId ===
+      "general"
+        ? people
+        : people.filter(
+            (
+              person,
+            ) =>
+              person.teamIds.includes(
+                teamId,
+              ),
+          );
+
     const allowed =
       new Set(
-        (
-          teamId ===
-          "general"
-            ? people
-            : people.filter(
-                (
-                  person,
-                ) =>
-                  person.teamIds.includes(
-                    teamId,
-                  ),
-              )
-        ).map(
+        nextPeople.map(
           (
             person,
           ) =>
@@ -1709,10 +3788,53 @@ function TaskForm({
         ),
       );
 
+    const nextOwner =
+      allowed.has(
+        value.ownerId,
+      )
+        ? value.ownerId
+        : allowed.has(
+              currentUserId,
+            )
+          ? currentUserId
+          : nextPeople[0]
+              ?.id ??
+            "";
+
+    const selectedProject =
+      projects.find(
+        (
+          project,
+        ) =>
+          project.id ===
+          value.projectId,
+      );
+
+    const projectStillValid =
+      selectedProject
+        ? (
+            teamId ===
+            "general"
+              ? selectedProject.teamId ===
+                null
+              : selectedProject.teamId ===
+                teamId
+          )
+        : value.projectId ===
+          "none";
+
     onChange({
       ...value,
 
       teamId,
+
+      ownerId:
+        nextOwner,
+
+      projectId:
+        projectStillValid
+          ? value.projectId
+          : "none",
 
       assigneeIds:
         value.assigneeIds.filter(
@@ -1774,6 +3896,7 @@ function TaskForm({
           ) =>
             onChange({
               ...value,
+
               title:
                 event.target.value,
             })
@@ -1787,12 +3910,14 @@ function TaskForm({
         </Label>
 
         <Textarea
-          rows={5}
+          rows={
+            5
+          }
           maxLength={
             2000
           }
           className="resize-none rounded-2xl"
-          placeholder="Add details, requirements or useful links…"
+          placeholder="Add details or requirements…"
           value={
             value.description
           }
@@ -1801,6 +3926,7 @@ function TaskForm({
           ) =>
             onChange({
               ...value,
+
               description:
                 event.target.value,
             })
@@ -1824,6 +3950,7 @@ function TaskForm({
             ) =>
               onChange({
                 ...value,
+
                 deadline:
                   event.target.value,
               })
@@ -1831,6 +3958,55 @@ function TaskForm({
           />
         </div>
 
+        <div className="space-y-2">
+          <Label>
+            Priority
+          </Label>
+
+          <Select
+            value={
+              value.priority
+            }
+            onValueChange={(
+              priority,
+            ) =>
+              onChange({
+                ...value,
+
+                priority:
+                  priority as TaskPriority,
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+
+            <SelectContent>
+              {PRIORITIES.map(
+                (
+                  priority,
+                ) => (
+                  <SelectItem
+                    key={
+                      priority
+                    }
+                    value={
+                      priority
+                    }
+                  >
+                    {
+                      priority
+                    }
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>
             Status
@@ -1841,14 +4017,23 @@ function TaskForm({
               value.status
             }
             onValueChange={(
-              status,
-            ) =>
+              statusValue,
+            ) => {
+              const status =
+                statusValue as TaskStatus;
+
               onChange({
                 ...value,
-                status:
-                  status as TaskStatus,
-              })
-            }
+
+                status,
+
+                blockedReason:
+                  status ===
+                  "Blocked"
+                    ? value.blockedReason
+                    : "",
+              });
+            }}
           >
             <SelectTrigger>
               <SelectValue />
@@ -1867,7 +4052,56 @@ function TaskForm({
                       status
                     }
                   >
-                    {status}
+                    {
+                      status
+                    }
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label>
+            Scope
+          </Label>
+
+          <Select
+            value={
+              value.teamId
+            }
+            onValueChange={
+              changeScope
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+
+            <SelectContent>
+              {role ===
+                "admin" && (
+                <SelectItem value="general">
+                  General — everyone
+                </SelectItem>
+              )}
+
+              {teams.map(
+                (
+                  team,
+                ) => (
+                  <SelectItem
+                    key={
+                      team.id
+                    }
+                    value={
+                      team.id
+                    }
+                  >
+                    {
+                      team.name
+                    }
                   </SelectItem>
                 ),
               )}
@@ -1876,17 +4110,56 @@ function TaskForm({
         </div>
       </div>
 
+      {value.status ===
+        "Blocked" && (
+        <div className="space-y-2">
+          <Label>
+            Why is this blocked?
+          </Label>
+
+          <Textarea
+            rows={
+              3
+            }
+            maxLength={
+              500
+            }
+            className="resize-none rounded-2xl"
+            placeholder="Waiting for supplier approval…"
+            value={
+              value.blockedReason
+            }
+            onChange={(
+              event,
+            ) =>
+              onChange({
+                ...value,
+
+                blockedReason:
+                  event.target.value,
+              })
+            }
+          />
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label>
-          Scope
+          Project
         </Label>
 
         <Select
           value={
-            value.teamId
+            value.projectId
           }
-          onValueChange={
-            changeScope
+          onValueChange={(
+            projectId,
+          ) =>
+            onChange({
+              ...value,
+
+              projectId,
+            })
           }
         >
           <SelectTrigger>
@@ -1894,26 +4167,78 @@ function TaskForm({
           </SelectTrigger>
 
           <SelectContent>
-            {role ===
-              "admin" && (
-              <SelectItem value="general">
-                General — everyone
-              </SelectItem>
-            )}
+            <SelectItem value="none">
+              No project
+            </SelectItem>
 
-            {teams.map(
+            {eligibleProjects.map(
               (
-                team,
+                project,
               ) => (
                 <SelectItem
                   key={
-                    team.id
+                    project.id
                   }
                   value={
-                    team.id
+                    project.id
                   }
                 >
-                  {team.name}
+                  {
+                    project.name
+                  }
+                </SelectItem>
+              ),
+            )}
+          </SelectContent>
+        </Select>
+
+        {eligibleProjects.length ===
+          0 && (
+          <p className="text-xs text-muted-foreground">
+            No projects exist for this scope yet.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label>
+          Owner
+        </Label>
+
+        <Select
+          value={
+            value.ownerId
+          }
+          onValueChange={(
+            ownerId,
+          ) =>
+            onChange({
+              ...value,
+
+              ownerId,
+            })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Choose an owner" />
+          </SelectTrigger>
+
+          <SelectContent>
+            {eligiblePeople.map(
+              (
+                person,
+              ) => (
+                <SelectItem
+                  key={
+                    person.id
+                  }
+                  value={
+                    person.id
+                  }
+                >
+                  {
+                    person.name
+                  }
                 </SelectItem>
               ),
             )}
@@ -1928,7 +4253,10 @@ function TaskForm({
           </Label>
 
           <span className="text-xs text-muted-foreground">
-            {value.assigneeIds.length} selected
+            {
+              value.assigneeIds.length
+            }{" "}
+            selected
           </span>
         </div>
 
@@ -1964,6 +4292,7 @@ function TaskForm({
                       ) =>
                         togglePerson(
                           person.id,
+
                           enabled ===
                             true,
                         )
@@ -1972,7 +4301,9 @@ function TaskForm({
 
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
-                        {person.name}
+                        {
+                          person.name
+                        }
                       </p>
 
                       {person.role ===

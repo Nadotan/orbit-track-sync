@@ -14,6 +14,12 @@ export type TaskStatus =
   | "Blocked"
   | "Done";
 
+export type TaskPriority =
+  | "Low"
+  | "Medium"
+  | "High"
+  | "Critical";
+
 export interface TaskPerson {
   id: string;
   name: string;
@@ -26,12 +32,30 @@ export interface TaskAssignee {
   name: string;
 }
 
+export interface TaskProject {
+  id: string;
+  name: string;
+  teamId: string | null;
+  teamName: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+  canManage: boolean;
+}
+
 export interface TaskItem {
   id: string;
   title: string;
   description: string;
   deadline: string;
   status: TaskStatus;
+  priority: TaskPriority;
+  ownerId: string;
+  ownerName: string;
+  blockedReason: string;
+  projectId: string | null;
+  projectName: string | null;
   teamId: string | null;
   teamName: string;
   createdBy: string;
@@ -54,7 +78,15 @@ export interface TasksWorkspace {
   }[];
 
   people: TaskPerson[];
+  projects: TaskProject[];
   tasks: TaskItem[];
+}
+
+export interface ClockTaskOption {
+  id: string;
+  title: string;
+  deadline: string;
+  projectName: string | null;
 }
 
 const taskStatusSchema =
@@ -63,6 +95,14 @@ const taskStatusSchema =
     "In Progress",
     "Blocked",
     "Done",
+  ]);
+
+const taskPrioritySchema =
+  z.enum([
+    "Low",
+    "Medium",
+    "High",
+    "Critical",
   ]);
 
 const dateSchema =
@@ -78,7 +118,14 @@ const taskIdSchema =
         .uuid(),
   });
 
-const createTaskSchema =
+const projectIdSchema =
+  z.object({
+    projectId:
+      z.string()
+        .uuid(),
+  });
+
+const taskFieldsSchema =
   z.object({
     title:
       z.string()
@@ -97,6 +144,23 @@ const createTaskSchema =
     status:
       taskStatusSchema,
 
+    priority:
+      taskPrioritySchema,
+
+    ownerId:
+      z.string()
+        .uuid(),
+
+    blockedReason:
+      z.string()
+        .trim()
+        .max(500),
+
+    projectId:
+      z.string()
+        .uuid()
+        .nullable(),
+
     teamId:
       z.string()
         .uuid()
@@ -111,8 +175,11 @@ const createTaskSchema =
         .max(100),
   });
 
+const createTaskSchema =
+  taskFieldsSchema;
+
 const updateTaskSchema =
-  createTaskSchema.extend({
+  taskFieldsSchema.extend({
     taskId:
       z.string()
         .uuid(),
@@ -126,6 +193,26 @@ const updateStatusSchema =
 
     status:
       taskStatusSchema,
+
+    blockedReason:
+      z.string()
+        .trim()
+        .max(500)
+        .optional(),
+  });
+
+const createProjectSchema =
+  z.object({
+    name:
+      z.string()
+        .trim()
+        .min(1)
+        .max(120),
+
+    teamId:
+      z.string()
+        .uuid()
+        .nullable(),
   });
 
 const teamLeadSchema =
@@ -293,7 +380,7 @@ async function getAccess(
   };
 }
 
-function canManageTask(
+function canManageScope(
   access:
     Access,
 
@@ -319,7 +406,40 @@ function canManageTask(
   );
 }
 
-async function validateTaskAudience(
+function assertCanManageScope(
+  access:
+    Access,
+
+  teamId:
+    string |
+    null,
+) {
+  if (
+    canManageScope(
+      access,
+      teamId,
+    )
+  ) {
+    return;
+  }
+
+  if (
+    access.role ===
+    "team_lead" &&
+    teamId ===
+    null
+  ) {
+    throw new Error(
+      "Only admins can manage General tasks and projects.",
+    );
+  }
+
+  throw new Error(
+    "Forbidden",
+  );
+}
+
+async function validateTaskPeople(
   admin:
     any,
 
@@ -332,14 +452,17 @@ async function validateTaskAudience(
 
   assigneeIds:
     string[],
+
+  ownerId:
+    string,
 ) {
-  const unique =
+  const assignees =
     uniqueStrings(
       assigneeIds,
     );
 
   if (
-    unique.length ===
+    assignees.length ===
     0
   ) {
     throw new Error(
@@ -347,32 +470,16 @@ async function validateTaskAudience(
     );
   }
 
-  if (
-    access.role !==
-      "admin" &&
-    access.role !==
-      "team_lead"
-  ) {
-    throw new Error(
-      "Forbidden",
-    );
-  }
+  assertCanManageScope(
+    access,
+    teamId,
+  );
 
-  if (
-    access.role ===
-      "team_lead"
-  ) {
-    if (
-      !teamId ||
-      !access.teamIds.includes(
-        teamId,
-      )
-    ) {
-      throw new Error(
-        "Team Leads can only manage tasks for their own teams.",
-      );
-    }
-  }
+  const peopleIds =
+    uniqueStrings([
+      ...assignees,
+      ownerId,
+    ]);
 
   const {
     data:
@@ -389,7 +496,7 @@ async function validateTaskAudience(
       )
       .in(
         "id",
-        unique,
+        peopleIds,
       );
 
   if (
@@ -405,10 +512,10 @@ async function validateTaskAudience(
       profiles ??
       []
     ).length !==
-    unique.length
+    peopleIds.length
   ) {
     throw new Error(
-      "One or more selected users do not exist.",
+      "One or more selected people do not exist.",
     );
   }
 
@@ -416,44 +523,7 @@ async function validateTaskAudience(
     teamId ===
     null
   ) {
-    if (
-      access.role !==
-      "admin"
-    ) {
-      throw new Error(
-        "Only admins can create General tasks.",
-      );
-    }
-
-    return unique;
-  }
-
-  const {
-    data:
-      team,
-    error:
-      teamError,
-  } =
-    await admin
-      .from(
-        "teams",
-      )
-      .select(
-        "id",
-      )
-      .eq(
-        "id",
-        teamId,
-      )
-      .maybeSingle();
-
-  if (
-    teamError ||
-    !team
-  ) {
-    throw new Error(
-      "Team not found.",
-    );
+    return assignees;
   }
 
   const {
@@ -475,7 +545,7 @@ async function validateTaskAudience(
       )
       .in(
         "user_id",
-        unique,
+        peopleIds,
       );
 
   if (
@@ -517,7 +587,7 @@ async function validateTaskAudience(
 
   for (
     const userId of
-    unique
+    peopleIds
   ) {
     if (
       !members.has(
@@ -525,31 +595,129 @@ async function validateTaskAudience(
       )
     ) {
       throw new Error(
-        "A team task can only be assigned to members of that team.",
+        "Owners and assignees of a team task must belong to that team.",
       );
     }
   }
 
-  return unique;
+  return assignees;
 }
 
-async function sendAssignmentPush(
+async function validateProjectSelection(
+  admin:
+    any,
+
+  projectId:
+    string |
+    null,
+
+  teamId:
+    string |
+    null,
+) {
+  if (
+    projectId ===
+    null
+  ) {
+    return;
+  }
+
+  const {
+    data:
+      project,
+    error:
+      projectError,
+  } =
+    await admin
+      .from(
+        "projects",
+      )
+      .select(
+        "id, team_id, archived_at",
+      )
+      .eq(
+        "id",
+        projectId,
+      )
+      .maybeSingle();
+
+  if (
+    projectError ||
+    !project
+  ) {
+    throw new Error(
+      "Project not found.",
+    );
+  }
+
+  if (
+    project.archived_at
+  ) {
+    throw new Error(
+      "Archived projects cannot receive new tasks.",
+    );
+  }
+
+  if (
+    project.team_id !==
+    teamId
+  ) {
+    throw new Error(
+      "The task and project must use the same scope.",
+    );
+  }
+}
+
+function normalizeBlockedReason(
+  status:
+    TaskStatus,
+
+  blockedReason:
+    string |
+    undefined,
+) {
+  if (
+    status !==
+    "Blocked"
+  ) {
+    return "";
+  }
+
+  const reason =
+    blockedReason?.trim() ??
+    "";
+
+  if (
+    !reason
+  ) {
+    throw new Error(
+      "Add a reason before marking the task as Blocked.",
+    );
+  }
+
+  return reason;
+}
+
+async function safeTaskPush(
   userIds:
     string[],
 
-  task: {
-    id:
-      string;
+  actorUserId:
+    string,
 
+  payload: {
     title:
       string;
 
-    deadline:
+    body:
+      string;
+
+    url:
+      string;
+
+    tag:
       string;
   },
-
-  actorUserId:
-    string,
 ) {
   const targets =
     uniqueStrings(
@@ -579,29 +747,150 @@ async function sendAssignmentPush(
 
     await sendPushToUsers(
       targets,
-      {
-        title:
-          "New task assigned",
-
-        body:
-          `${task.title} — due ${task.deadline}.`,
-
-        url:
-          "/tasks",
-
-        tag:
-          `task-${task.id}`,
-      },
+      payload,
     );
   } catch (
     error
   ) {
+    console.error(
+      "[tasks] Failed to send task push",
+      error,
+    );
+  }
+}
+
+async function sendAssignmentPush(
+  userIds:
+    string[],
+
+  task: {
+    id:
+      string;
+
+    title:
+      string;
+
+    deadline:
+      string;
+  },
+
+  actorUserId:
+    string,
+) {
+  await safeTaskPush(
+    userIds,
+    actorUserId,
+    {
+      title:
+        "New task assigned",
+
+      body:
+        `${task.title} — due ${task.deadline}.`,
+
+      url:
+        "/tasks",
+
+      tag:
+        `task-assigned-${task.id}`,
+    },
+  );
+}
+
+async function sendDeadlinePush(
+  userIds:
+    string[],
+
+  task: {
+    id:
+      string;
+
+    title:
+      string;
+
+    deadline:
+      string;
+  },
+
+  actorUserId:
+    string,
+) {
+  await safeTaskPush(
+    userIds,
+    actorUserId,
+    {
+      title:
+        "Task deadline changed",
+
+      body:
+        `${task.title} — new deadline ${task.deadline}.`,
+
+      url:
+        "/tasks",
+
+      tag:
+        `task-deadline-${task.id}`,
+    },
+  );
+}
+
+async function sendBlockedOwnerPush(
+  ownerId:
+    string,
+
+  task: {
+    id:
+      string;
+
+    title:
+      string;
+
+    reason:
+      string;
+  },
+
+  actorUserId:
+    string,
+) {
+  await safeTaskPush(
+    [
+      ownerId,
+    ],
+    actorUserId,
+    {
+      title:
+        "Task blocked",
+
+      body:
+        `${task.title} — ${task.reason}`,
+
+      url:
+        "/tasks",
+
+      tag:
+        `task-blocked-${task.id}`,
+    },
+  );
+}
+
+async function syncSheetsAfterMutation() {
+  try {
+    const {
+      safeSyncGoogleSheetsSnapshot,
+    } =
+      await import(
+        "./google-sheets.server"
+      );
+
+    await safeSyncGoogleSheetsSnapshot();
+  } catch (
+    error
+  ) {
     /*
-     * Task creation must not fail just because
-     * a push provider is temporarily unavailable.
+     * Google Sheets is secondary.
+     * A POM mutation must never fail because sync failed.
      */
     console.error(
-      "[tasks] Failed to send assignment push",
+      "[tasks] Google Sheets sync failed",
       error,
     );
   }
@@ -660,6 +949,13 @@ export const getTasksWorkspace =
 
           {
             data:
+              projects,
+            error:
+              projectsError,
+          },
+
+          {
+            data:
               tasks,
             error:
               tasksError,
@@ -713,10 +1009,25 @@ export const getTasksWorkspace =
 
             admin
               .from(
+                "projects",
+              )
+              .select(
+                "id, name, team_id, created_by, archived_at, created_at, updated_at",
+              )
+              .order(
+                "name",
+              ),
+
+            admin
+              .from(
                 "tasks",
               )
               .select(
-                "id, title, description, deadline, status, team_id, created_by, created_at, updated_at",
+                "id, title, description, deadline, status, priority, owner_id, blocked_reason, project_id, team_id, created_by, archived_at, created_at, updated_at",
+              )
+              .is(
+                "archived_at",
+                null,
               )
               .order(
                 "deadline",
@@ -740,6 +1051,7 @@ export const getTasksWorkspace =
           rolesError ||
           membershipsError ||
           teamsError ||
+          projectsError ||
           tasksError ||
           assignmentsError
         ) {
@@ -899,6 +1211,25 @@ export const getTasksWorkspace =
             ),
           );
 
+        const projectMap =
+          new Map<
+            string,
+            any
+          >(
+            (
+              projects ??
+              []
+            ).map(
+              (
+                project:
+                  any,
+              ) => [
+                project.id,
+                project,
+              ],
+            ),
+          );
+
         const assigneeMap =
           new Map<
             string,
@@ -925,6 +1256,87 @@ export const getTasksWorkspace =
             current,
           );
         }
+
+        const visibleProjects:
+          TaskProject[] =
+          (
+            projects ??
+            []
+          )
+            .filter(
+              (
+                project:
+                  any,
+              ) => {
+                if (
+                  project.archived_at
+                ) {
+                  return false;
+                }
+
+                if (
+                  access.role ===
+                  "admin"
+                ) {
+                  return true;
+                }
+
+                if (
+                  project.team_id ===
+                  null
+                ) {
+                  return true;
+                }
+
+                return access.teamIds.includes(
+                  project.team_id,
+                );
+              },
+            )
+            .map(
+              (
+                project:
+                  any,
+              ) => ({
+                id:
+                  project.id,
+
+                name:
+                  project.name,
+
+                teamId:
+                  project.team_id,
+
+                teamName:
+                  project.team_id
+                    ? teamMap.get(
+                        project.team_id,
+                      ) ??
+                      "Unknown team"
+                    : "General",
+
+                createdBy:
+                  project.created_by,
+
+                createdByName:
+                  profileMap.get(
+                    project.created_by,
+                  )?.name ??
+                  "Unknown member",
+
+                createdAt:
+                  project.created_at,
+
+                updatedAt:
+                  project.updated_at,
+
+                canManage:
+                  canManageScope(
+                    access,
+                    project.team_id,
+                  ),
+              }),
+            );
 
         const visibleTasks =
           (
@@ -1028,8 +1440,15 @@ export const getTasksWorkspace =
                       ),
                   );
 
+              const project =
+                task.project_id
+                  ? projectMap.get(
+                      task.project_id,
+                    )
+                  : null;
+
               const editDetails =
-                canManageTask(
+                canManageScope(
                   access,
                   task.team_id,
                 );
@@ -1049,6 +1468,29 @@ export const getTasksWorkspace =
 
                 status:
                   task.status as TaskStatus,
+
+                priority:
+                  task.priority as TaskPriority,
+
+                ownerId:
+                  task.owner_id,
+
+                ownerName:
+                  profileMap.get(
+                    task.owner_id,
+                  )?.name ??
+                  "Unknown member",
+
+                blockedReason:
+                  task.blocked_reason ??
+                  "",
+
+                projectId:
+                  task.project_id,
+
+                projectName:
+                  project?.name ??
+                  null,
 
                 teamId:
                   task.team_id,
@@ -1119,9 +1561,460 @@ export const getTasksWorkspace =
 
           people,
 
+          projects:
+            visibleProjects,
+
           tasks:
             resultTasks,
         } satisfies TasksWorkspace;
+      },
+    );
+
+export const getMyOpenTasks =
+  createServerFn({
+    method:
+      "GET",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .handler(
+      async ({
+        context,
+      }) => {
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const admin =
+          supabaseAdmin as any;
+
+        const {
+          data:
+            assignments,
+          error:
+            assignmentsError,
+        } =
+          await admin
+            .from(
+              "task_assignees",
+            )
+            .select(
+              "task_id",
+            )
+            .eq(
+              "user_id",
+              context.userId,
+            );
+
+        if (
+          assignmentsError
+        ) {
+          throw new Error(
+            "Unable to load your tasks.",
+          );
+        }
+
+        const taskIds =
+          uniqueStrings(
+            (
+              assignments ??
+              []
+            ).map(
+              (
+                assignment:
+                  any,
+              ) =>
+                assignment.task_id,
+            ),
+          );
+
+        if (
+          taskIds.length ===
+          0
+        ) {
+          return [] as ClockTaskOption[];
+        }
+
+        const {
+          data:
+            tasks,
+          error:
+            tasksError,
+        } =
+          await admin
+            .from(
+              "tasks",
+            )
+            .select(
+              "id, title, deadline, project_id",
+            )
+            .in(
+              "id",
+              taskIds,
+            )
+            .neq(
+              "status",
+              "Done",
+            )
+            .is(
+              "archived_at",
+              null,
+            )
+            .order(
+              "deadline",
+              {
+                ascending:
+                  true,
+              },
+            );
+
+        if (
+          tasksError
+        ) {
+          throw new Error(
+            "Unable to load your tasks.",
+          );
+        }
+
+        const projectIds =
+          uniqueStrings(
+            (
+              tasks ??
+              []
+            )
+              .map(
+                (
+                  task:
+                    any,
+                ) =>
+                  task.project_id,
+              )
+              .filter(
+                (
+                  projectId:
+                    string |
+                    null,
+                ): projectId is string =>
+                  Boolean(
+                    projectId,
+                  ),
+              ),
+          );
+
+        const projectMap =
+          new Map<
+            string,
+            string
+          >();
+
+        if (
+          projectIds.length >
+          0
+        ) {
+          const {
+            data:
+              projects,
+            error:
+              projectsError,
+          } =
+            await admin
+              .from(
+                "projects",
+              )
+              .select(
+                "id, name",
+              )
+              .in(
+                "id",
+                projectIds,
+              );
+
+          if (
+            projectsError
+          ) {
+            throw new Error(
+              "Unable to load your tasks.",
+            );
+          }
+
+          for (
+            const project of
+            projects ??
+            []
+          ) {
+            projectMap.set(
+              project.id,
+              project.name,
+            );
+          }
+        }
+
+        return (
+          tasks ??
+          []
+        ).map(
+          (
+            task:
+              any,
+          ) => ({
+            id:
+              task.id,
+
+            title:
+              task.title,
+
+            deadline:
+              task.deadline,
+
+            projectName:
+              task.project_id
+                ? projectMap.get(
+                    task.project_id,
+                  ) ??
+                  null
+                : null,
+          }),
+        ) satisfies ClockTaskOption[];
+      },
+    );
+
+export const createProject =
+  createServerFn({
+    method:
+      "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      createProjectSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const admin =
+          supabaseAdmin as any;
+
+        const access =
+          await getAccess(
+            admin,
+            context.userId,
+          );
+
+        assertCanManageScope(
+          access,
+          data.teamId,
+        );
+
+        const {
+          data:
+            project,
+          error,
+        } =
+          await admin
+            .from(
+              "projects",
+            )
+            .insert({
+              name:
+                data.name.trim(),
+
+              team_id:
+                data.teamId,
+
+              created_by:
+                context.userId,
+            })
+            .select(
+              "id",
+            )
+            .single();
+
+        if (
+          error ||
+          !project
+        ) {
+          throw new Error(
+            error?.message ??
+            "Unable to create project.",
+          );
+        }
+
+        await syncSheetsAfterMutation();
+
+        return {
+          id:
+            project.id,
+        };
+      },
+    );
+
+export const archiveProject =
+  createServerFn({
+    method:
+      "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      projectIdSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const admin =
+          supabaseAdmin as any;
+
+        const access =
+          await getAccess(
+            admin,
+            context.userId,
+          );
+
+        const {
+          data:
+            project,
+          error:
+            projectError,
+        } =
+          await admin
+            .from(
+              "projects",
+            )
+            .select(
+              "id, team_id",
+            )
+            .eq(
+              "id",
+              data.projectId,
+            )
+            .maybeSingle();
+
+        if (
+          projectError ||
+          !project
+        ) {
+          throw new Error(
+            "Project not found.",
+          );
+        }
+
+        assertCanManageScope(
+          access,
+          project.team_id,
+        );
+
+        const {
+          count,
+          error:
+            countError,
+        } =
+          await admin
+            .from(
+              "tasks",
+            )
+            .select(
+              "id",
+              {
+                count:
+                  "exact",
+                head:
+                  true,
+              },
+            )
+            .eq(
+              "project_id",
+              data.projectId,
+            )
+            .is(
+              "archived_at",
+              null,
+            )
+            .neq(
+              "status",
+              "Done",
+            );
+
+        if (
+          countError
+        ) {
+          throw new Error(
+            countError.message,
+          );
+        }
+
+        if (
+          (
+            count ??
+            0
+          ) >
+          0
+        ) {
+          throw new Error(
+            "Complete or archive the open tasks in this project first.",
+          );
+        }
+
+        const now =
+          new Date()
+            .toISOString();
+
+        const {
+          error,
+        } =
+          await admin
+            .from(
+              "projects",
+            )
+            .update({
+              archived_at:
+                now,
+
+              updated_at:
+                now,
+            })
+            .eq(
+              "id",
+              data.projectId,
+            );
+
+        if (
+          error
+        ) {
+          throw new Error(
+            error.message,
+          );
+        }
+
+        await syncSheetsAfterMutation();
+
+        return {
+          ok:
+            true,
+        };
       },
     );
 
@@ -1157,23 +2050,25 @@ export const createTask =
             context.userId,
           );
 
-        if (
-          access.role !==
-            "admin" &&
-          access.role !==
-            "team_lead"
-        ) {
-          throw new Error(
-            "Forbidden",
-          );
-        }
-
         const assigneeIds =
-          await validateTaskAudience(
+          await validateTaskPeople(
             admin,
             access,
             data.teamId,
             data.assigneeIds,
+            data.ownerId,
+          );
+
+        await validateProjectSelection(
+          admin,
+          data.projectId,
+          data.teamId,
+        );
+
+        const blockedReason =
+          normalizeBlockedReason(
+            data.status,
+            data.blockedReason,
           );
 
         const {
@@ -1198,6 +2093,18 @@ export const createTask =
 
               status:
                 data.status,
+
+              priority:
+                data.priority,
+
+              owner_id:
+                data.ownerId,
+
+              blocked_reason:
+                blockedReason,
+
+              project_id:
+                data.projectId,
 
               team_id:
                 data.teamId,
@@ -1266,6 +2173,28 @@ export const createTask =
           context.userId,
         );
 
+        if (
+          data.status ===
+          "Blocked"
+        ) {
+          await sendBlockedOwnerPush(
+            data.ownerId,
+            {
+              id:
+                task.id,
+
+              title:
+                data.title.trim(),
+
+              reason:
+                blockedReason,
+            },
+            context.userId,
+          );
+        }
+
+        await syncSheetsAfterMutation();
+
         return {
           id:
             task.id,
@@ -1316,7 +2245,7 @@ export const updateTaskStatus =
               "tasks",
             )
             .select(
-              "id, team_id",
+              "id, title, team_id, status, owner_id, archived_at",
             )
             .eq(
               "id",
@@ -1326,7 +2255,8 @@ export const updateTaskStatus =
 
         if (
           taskError ||
-          !task
+          !task ||
+          task.archived_at
         ) {
           throw new Error(
             "Task not found.",
@@ -1334,7 +2264,7 @@ export const updateTaskStatus =
         }
 
         let allowed =
-          canManageTask(
+          canManageScope(
             access,
             task.team_id,
           );
@@ -1387,6 +2317,16 @@ export const updateTaskStatus =
           );
         }
 
+        const blockedReason =
+          normalizeBlockedReason(
+            data.status,
+            data.blockedReason,
+          );
+
+        const now =
+          new Date()
+            .toISOString();
+
         const {
           error,
         } =
@@ -1398,9 +2338,11 @@ export const updateTaskStatus =
               status:
                 data.status,
 
+              blocked_reason:
+                blockedReason,
+
               updated_at:
-                new Date()
-                  .toISOString(),
+                now,
             })
             .eq(
               "id",
@@ -1414,6 +2356,30 @@ export const updateTaskStatus =
             error.message,
           );
         }
+
+        if (
+          task.status !==
+            "Blocked" &&
+          data.status ===
+            "Blocked"
+        ) {
+          await sendBlockedOwnerPush(
+            task.owner_id,
+            {
+              id:
+                task.id,
+
+              title:
+                task.title,
+
+              reason:
+                blockedReason,
+            },
+            context.userId,
+          );
+        }
+
+        await syncSheetsAfterMutation();
 
         return {
           ok:
@@ -1465,7 +2431,7 @@ export const updateTask =
               "tasks",
             )
             .select(
-              "id, team_id",
+              "id, title, team_id, deadline, status, owner_id, archived_at",
             )
             .eq(
               "id",
@@ -1475,7 +2441,8 @@ export const updateTask =
 
         if (
           existingError ||
-          !existing
+          !existing ||
+          existing.archived_at
         ) {
           throw new Error(
             "Task not found.",
@@ -1483,7 +2450,7 @@ export const updateTask =
         }
 
         if (
-          !canManageTask(
+          !canManageScope(
             access,
             existing.team_id,
           )
@@ -1494,11 +2461,24 @@ export const updateTask =
         }
 
         const assigneeIds =
-          await validateTaskAudience(
+          await validateTaskPeople(
             admin,
             access,
             data.teamId,
             data.assigneeIds,
+            data.ownerId,
+          );
+
+        await validateProjectSelection(
+          admin,
+          data.projectId,
+          data.teamId,
+        );
+
+        const blockedReason =
+          normalizeBlockedReason(
+            data.status,
+            data.blockedReason,
           );
 
         const {
@@ -1571,6 +2551,10 @@ export const updateTask =
               ),
           );
 
+        const now =
+          new Date()
+            .toISOString();
+
         const {
           error:
             updateError,
@@ -1592,12 +2576,23 @@ export const updateTask =
               status:
                 data.status,
 
+              priority:
+                data.priority,
+
+              owner_id:
+                data.ownerId,
+
+              blocked_reason:
+                blockedReason,
+
+              project_id:
+                data.projectId,
+
               team_id:
                 data.teamId,
 
               updated_at:
-                new Date()
-                  .toISOString(),
+                now,
             })
             .eq(
               "id",
@@ -1689,7 +2684,7 @@ export const updateTask =
                 data.taskId,
 
               title:
-                data.title,
+                data.title.trim(),
 
               deadline:
                 data.deadline,
@@ -1698,6 +2693,62 @@ export const updateTask =
           );
         }
 
+        if (
+          existing.deadline !==
+          data.deadline
+        ) {
+          const addedSet =
+            new Set(
+              added,
+            );
+
+          await sendDeadlinePush(
+            assigneeIds.filter(
+              (
+                userId,
+              ) =>
+                !addedSet.has(
+                  userId,
+                ),
+            ),
+            {
+              id:
+                data.taskId,
+
+              title:
+                data.title.trim(),
+
+              deadline:
+                data.deadline,
+            },
+            context.userId,
+          );
+        }
+
+        if (
+          existing.status !==
+            "Blocked" &&
+          data.status ===
+            "Blocked"
+        ) {
+          await sendBlockedOwnerPush(
+            data.ownerId,
+            {
+              id:
+                data.taskId,
+
+              title:
+                data.title.trim(),
+
+              reason:
+                blockedReason,
+            },
+            context.userId,
+          );
+        }
+
+        await syncSheetsAfterMutation();
+
         return {
           ok:
             true,
@@ -1705,7 +2756,7 @@ export const updateTask =
       },
     );
 
-export const deleteTask =
+export const archiveTask =
   createServerFn({
     method:
       "POST",
@@ -1765,14 +2816,335 @@ export const deleteTask =
           );
         }
 
+        assertCanManageScope(
+          access,
+          task.team_id,
+        );
+
+        const now =
+          new Date()
+            .toISOString();
+
+        const {
+          error,
+        } =
+          await admin
+            .from(
+              "tasks",
+            )
+            .update({
+              archived_at:
+                now,
+
+              updated_at:
+                now,
+            })
+            .eq(
+              "id",
+              data.taskId,
+            );
+
         if (
-          !canManageTask(
-            access,
-            task.team_id,
-          )
+          error
         ) {
           throw new Error(
-            "Forbidden",
+            error.message,
+          );
+        }
+
+        await syncSheetsAfterMutation();
+
+        return {
+          ok:
+            true,
+        };
+      },
+    );
+
+export const duplicateTask =
+  createServerFn({
+    method:
+      "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      taskIdSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const admin =
+          supabaseAdmin as any;
+
+        const access =
+          await getAccess(
+            admin,
+            context.userId,
+          );
+
+        const [
+          {
+            data:
+              source,
+            error:
+              sourceError,
+          },
+
+          {
+            data:
+              assignments,
+            error:
+              assignmentsError,
+          },
+        ] =
+          await Promise.all([
+            admin
+              .from(
+                "tasks",
+              )
+              .select(
+                "id, title, description, deadline, priority, owner_id, project_id, team_id, archived_at",
+              )
+              .eq(
+                "id",
+                data.taskId,
+              )
+              .maybeSingle(),
+
+            admin
+              .from(
+                "task_assignees",
+              )
+              .select(
+                "user_id",
+              )
+              .eq(
+                "task_id",
+                data.taskId,
+              ),
+          ]);
+
+        if (
+          sourceError ||
+          !source ||
+          source.archived_at
+        ) {
+          throw new Error(
+            "Task not found.",
+          );
+        }
+
+        if (
+          assignmentsError
+        ) {
+          throw new Error(
+            assignmentsError.message,
+          );
+        }
+
+        assertCanManageScope(
+          access,
+          source.team_id,
+        );
+
+        const assigneeIds =
+          uniqueStrings(
+            (
+              assignments ??
+              []
+            ).map(
+              (
+                assignment:
+                  any,
+              ) =>
+                assignment.user_id,
+            ),
+          );
+
+        await validateTaskPeople(
+          admin,
+          access,
+          source.team_id,
+          assigneeIds,
+          source.owner_id,
+        );
+
+        await validateProjectSelection(
+          admin,
+          source.project_id,
+          source.team_id,
+        );
+
+        const suffix =
+          " (copy)";
+
+        const copyTitle =
+          `${source.title.slice(
+            0,
+            120 -
+              suffix.length,
+          )}${suffix}`;
+
+        const {
+          data:
+            task,
+          error:
+            taskError,
+        } =
+          await admin
+            .from(
+              "tasks",
+            )
+            .insert({
+              title:
+                copyTitle,
+
+              description:
+                source.description,
+
+              deadline:
+                source.deadline,
+
+              status:
+                "To Do",
+
+              priority:
+                source.priority,
+
+              owner_id:
+                source.owner_id,
+
+              blocked_reason:
+                "",
+
+              project_id:
+                source.project_id,
+
+              team_id:
+                source.team_id,
+
+              created_by:
+                context.userId,
+            })
+            .select(
+              "id, title, deadline",
+            )
+            .single();
+
+        if (
+          taskError ||
+          !task
+        ) {
+          throw new Error(
+            taskError?.message ??
+            "Unable to duplicate task.",
+          );
+        }
+
+        const {
+          error:
+            assignmentError,
+        } =
+          await admin
+            .from(
+              "task_assignees",
+            )
+            .insert(
+              assigneeIds.map(
+                (
+                  userId,
+                ) => ({
+                  task_id:
+                    task.id,
+
+                  user_id:
+                    userId,
+                }),
+              ),
+            );
+
+        if (
+          assignmentError
+        ) {
+          await admin
+            .from(
+              "tasks",
+            )
+            .delete()
+            .eq(
+              "id",
+              task.id,
+            );
+
+          throw new Error(
+            assignmentError.message,
+          );
+        }
+
+        await sendAssignmentPush(
+          assigneeIds,
+          task,
+          context.userId,
+        );
+
+        await syncSheetsAfterMutation();
+
+        return {
+          id:
+            task.id,
+        };
+      },
+    );
+
+export const deleteTask =
+  createServerFn({
+    method:
+      "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      taskIdSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const admin =
+          supabaseAdmin as any;
+
+        const access =
+          await getAccess(
+            admin,
+            context.userId,
+          );
+
+        if (
+          access.role !==
+          "admin"
+        ) {
+          throw new Error(
+            "Only admins can permanently delete tasks.",
           );
         }
 
@@ -1796,6 +3168,8 @@ export const deleteTask =
             error.message,
           );
         }
+
+        await syncSheetsAfterMutation();
 
         return {
           ok:
