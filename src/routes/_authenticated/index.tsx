@@ -1,19 +1,34 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import {
+  createFileRoute,
+} from "@tanstack/react-router";
+
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  useServerFn,
+} from "@tanstack/react-start";
+
+import {
+  CalendarClock,
+  CircleCheck,
+  CircleX,
+  Clock,
+  Flame,
+  Loader2,
+  NotebookPen,
+  Pencil,
   Play,
   Square,
-  NotebookPen,
-  Clock,
-  CalendarClock,
-  Flame,
-  Pencil,
   Trash2,
-  Loader2,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import {
+  Button,
+} from "@/components/ui/button";
 
 import {
   Card,
@@ -39,13 +54,29 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import {
+  Switch,
+} from "@/components/ui/switch";
 
-import { supabase } from "@/integrations/supabase/client";
+import {
+  Label,
+} from "@/components/ui/label";
 
-import { useStore } from "@/lib/store";
+import {
+  Textarea,
+} from "@/components/ui/textarea";
+
+import {
+  Badge,
+} from "@/components/ui/badge";
+
+import {
+  supabase,
+} from "@/integrations/supabase/client";
+
+import {
+  useStore,
+} from "@/lib/store";
 
 import {
   getMyOpenTasks,
@@ -56,38 +87,58 @@ import type {
 } from "@/lib/tasks.functions";
 
 import {
+  getWorkshopStatus,
+  setWorkshopStatus,
+} from "@/lib/workshop.functions";
+
+import {
   formatDuration,
   formatHours,
   formatDateTime,
 } from "@/lib/format";
 
-import { toast } from "sonner";
+import {
+  cn,
+} from "@/lib/utils";
 
-export const Route = createFileRoute("/_authenticated/")({
-  head: () => ({
-    meta: [
-      {
-        title: "Time Tracker — POM",
-      },
-      {
-        name: "description",
-        content:
-          "Clock in, clock out and log what you worked on with a live circular timer.",
-      },
-      {
-        property: "og:title",
-        content: "Time Tracker — POM",
-      },
-      {
-        property: "og:description",
-        content:
-          "A live work timer with daily task notes and a timeline of recent entries.",
-      },
-    ],
-  }),
+import {
+  toast,
+} from "sonner";
 
-  component: TrackerPage,
-});
+export const Route =
+  createFileRoute(
+    "/_authenticated/",
+  )({
+    head: () => ({
+      meta: [
+        {
+          title:
+            "Time Tracker — POM",
+        },
+        {
+          name:
+            "description",
+          content:
+            "Clock in, clock out and log what you worked on with a live circular timer.",
+        },
+        {
+          property:
+            "og:title",
+          content:
+            "Time Tracker — POM",
+        },
+        {
+          property:
+            "og:description",
+          content:
+            "A live work timer with daily task notes and a timeline of recent entries.",
+        },
+      ],
+    }),
+
+    component:
+      TrackerPage,
+  });
 
 function TrackerPage() {
   const {
@@ -105,6 +156,16 @@ function TrackerPage() {
   const loadOpenTasks =
     useServerFn(
       getMyOpenTasks,
+    );
+
+  const loadWorkshopStatus =
+    useServerFn(
+      getWorkshopStatus,
+    );
+
+  const changeWorkshopStatus =
+    useServerFn(
+      setWorkshopStatus,
     );
 
   const [
@@ -178,7 +239,10 @@ function TrackerPage() {
     editingId,
     setEditingId,
   ] =
-    useState<string | null>(
+    useState<
+      string |
+      null
+    >(
       null,
     );
 
@@ -194,8 +258,38 @@ function TrackerPage() {
     deletingId,
     setDeletingId,
   ] =
-    useState<string | null>(
+    useState<
+      string |
+      null
+    >(
       null,
+    );
+
+  const [
+    workshopOpen,
+    setWorkshopOpen,
+  ] =
+    useState<
+      boolean |
+      null
+    >(
+      null,
+    );
+
+  const [
+    workshopLoading,
+    setWorkshopLoading,
+  ] =
+    useState(
+      true,
+    );
+
+  const [
+    workshopSaving,
+    setWorkshopSaving,
+  ] =
+    useState(
+      false,
     );
 
   const running =
@@ -216,7 +310,6 @@ function TrackerPage() {
             Date.now(),
           );
         },
-
         1000,
       );
 
@@ -226,6 +319,64 @@ function TrackerPage() {
       );
   }, [
     running,
+  ]);
+
+  useEffect(() => {
+    let active =
+      true;
+
+    void loadWorkshopStatus()
+      .then(
+        (
+          result,
+        ) => {
+          if (
+            !active
+          ) {
+            return;
+          }
+
+          setWorkshopOpen(
+            result.isOpen,
+          );
+        },
+      )
+      .catch(
+        (
+          error,
+        ) => {
+          console.error(
+            "Failed to load workshop status:",
+            error,
+          );
+
+          if (
+            active
+          ) {
+            toast.error(
+              "Could not load workshop status.",
+            );
+          }
+        },
+      )
+      .finally(
+        () => {
+          if (
+            active
+          ) {
+            setWorkshopLoading(
+              false,
+            );
+          }
+        },
+      );
+
+    return () => {
+      active =
+        false;
+    };
+  }, [
+    loadWorkshopStatus,
   ]);
 
   const elapsed =
@@ -271,7 +422,6 @@ function TrackerPage() {
         ) =>
           total +
           entry.durationMs,
-
         0,
       );
 
@@ -295,9 +445,84 @@ function TrackerPage() {
         ) =>
           total +
           entry.durationMs,
-
         0,
       );
+
+  async function handleWorkshopChange(
+    isOpen:
+      boolean,
+  ) {
+    if (
+      workshopSaving ||
+      workshopOpen ===
+        null
+    ) {
+      return;
+    }
+
+    const previous =
+      workshopOpen;
+
+    /*
+     * Optimistic update so it behaves like
+     * a physical light switch.
+     */
+    setWorkshopOpen(
+      isOpen,
+    );
+
+    setWorkshopSaving(
+      true,
+    );
+
+    try {
+      const result =
+        await changeWorkshopStatus({
+          data: {
+            isOpen,
+          },
+        });
+
+      setWorkshopOpen(
+        result.isOpen,
+      );
+
+      if (
+        result.isOpen
+      ) {
+        toast.success(
+          "Workshop opened",
+        );
+      } else if (
+        result.pushesSent >
+        0
+      ) {
+        toast.success(
+          "Workshop closed — Push notification sent",
+        );
+      } else {
+        toast.success(
+          "Workshop closed",
+        );
+      }
+    } catch (
+      error
+    ) {
+      setWorkshopOpen(
+        previous,
+      );
+
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not change workshop status.",
+      );
+    } finally {
+      setWorkshopSaving(
+        false,
+      );
+    }
+  }
 
   async function openStopDialog() {
     setDialogOpen(
@@ -334,10 +559,6 @@ function TrackerPage() {
         error,
       );
 
-      /*
-       * Task loading must never prevent a user
-       * from saving their worked time.
-       */
       setTaskOptions(
         [],
       );
@@ -379,11 +600,8 @@ function TrackerPage() {
 
     try {
       /*
-       * Generated Supabase types do not yet include task_id,
-       * although the column already exists in the database.
-       *
-       * Keep this cast local instead of manually editing
-       * the generated Supabase types file.
+       * Generated Supabase types do not yet include task_id.
+       * Keep the cast local instead of modifying generated code.
        */
       const {
         error,
@@ -426,10 +644,6 @@ function TrackerPage() {
         );
       }
 
-      /*
-       * Clear the running timer only after
-       * the time entry was saved successfully.
-       */
       cancelSession();
 
       refresh();
@@ -501,7 +715,6 @@ function TrackerPage() {
     );
   }
 
-  // One full progress-circle sweep per hour.
   const R =
     132;
 
@@ -535,6 +748,133 @@ function TrackerPage() {
             : "Tap start when you begin working."}
         </p>
       </div>
+
+      <section
+        className={cn(
+          "surface-card rounded-3xl border p-5 transition-colors sm:p-6",
+
+          workshopOpen ===
+            true &&
+            "border-success/30 bg-success/5",
+
+          workshopOpen ===
+            false &&
+            "border-destructive/30 bg-destructive/5",
+        )}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <div
+              className={cn(
+                "grid size-12 shrink-0 place-items-center rounded-full",
+
+                workshopOpen ===
+                  true
+                  ? "bg-success/15 text-success"
+                  : workshopOpen ===
+                      false
+                    ? "bg-destructive/15 text-destructive"
+                    : "bg-muted text-muted-foreground",
+              )}
+            >
+              {workshopOpen ===
+              true ? (
+                <CircleCheck className="size-6" />
+              ) : (
+                <CircleX className="size-6" />
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Workshop status
+              </p>
+
+              <h2
+                className={cn(
+                  "mt-1 text-xl font-bold sm:text-2xl",
+
+                  workshopOpen ===
+                    true &&
+                    "text-success",
+
+                  workshopOpen ===
+                    false &&
+                    "text-destructive",
+                )}
+              >
+                {workshopLoading
+                  ? "Loading…"
+                  : workshopOpen ===
+                      true
+                    ? "Workshop is OPEN"
+                    : workshopOpen ===
+                        false
+                      ? "Workshop is CLOSED"
+                      : "Status unavailable"}
+              </h2>
+
+              <p className="mt-1 text-xs text-muted-foreground">
+                Anyone can update the workshop status.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-center gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <span
+              className={cn(
+                "text-sm font-semibold transition-colors",
+
+                workshopOpen ===
+                  false
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+              )}
+            >
+              Closed
+            </span>
+
+            <Switch
+              checked={
+                workshopOpen ??
+                false
+              }
+              disabled={
+                workshopLoading ||
+                workshopSaving ||
+                workshopOpen ===
+                  null
+              }
+              onCheckedChange={(
+                checked,
+              ) =>
+                void handleWorkshopChange(
+                  checked,
+                )
+              }
+              aria-label="Workshop open or closed"
+              className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
+            />
+
+            <span
+              className={cn(
+                "text-sm font-semibold transition-colors",
+
+                workshopOpen ===
+                  true
+                  ? "text-success"
+                  : "text-muted-foreground",
+              )}
+            >
+              Open
+            </span>
+
+            {workshopSaving && (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="surface-card flex flex-col items-center gap-6 rounded-[2rem] p-6 sm:p-10">
         <div className="relative grid place-items-center">
@@ -618,6 +958,7 @@ function TrackerPage() {
                     {
                       hour:
                         "2-digit",
+
                       minute:
                         "2-digit",
                     },
@@ -1092,13 +1433,19 @@ function TrackerPage() {
 }
 
 function StatCard({
-  icon: Icon,
+  icon:
+    Icon,
   label,
   value,
 }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
+  icon:
+    React.ElementType;
+
+  label:
+    string;
+
+  value:
+    string;
 }) {
   return (
     <div className="surface-card flex items-center gap-3 rounded-2xl p-4">

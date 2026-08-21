@@ -1,9 +1,4 @@
 import {
-  useEffect,
-  useState,
-} from "react";
-
-import {
   Bell,
   ChevronDown,
   CircleCheck,
@@ -18,14 +13,6 @@ import {
 } from "@tanstack/react-router";
 
 import {
-  useServerFn,
-} from "@tanstack/react-start";
-
-import {
-  toast,
-} from "sonner";
-
-import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
@@ -36,10 +23,6 @@ import {
 import {
   Badge,
 } from "@/components/ui/badge";
-
-import {
-  Switch,
-} from "@/components/ui/switch";
 
 import {
   Avatar,
@@ -81,11 +64,6 @@ import {
 } from "@/lib/store";
 
 import {
-  getWorkshopStatus,
-  setWorkshopStatus,
-} from "@/lib/workshop.functions";
-
-import {
   relativeTime,
 } from "@/lib/format";
 
@@ -101,9 +79,9 @@ function initials(
       .split(" ")
       .map(
         (
-          part,
+          n,
         ) =>
-          part[0],
+          n[0],
       )
       .join("")
       .slice(
@@ -125,93 +103,6 @@ export function AppHeader() {
   } =
     useStore();
 
-  const getWorkshop =
-    useServerFn(
-      getWorkshopStatus,
-    );
-
-  const setWorkshop =
-    useServerFn(
-      setWorkshopStatus,
-    );
-
-  const [
-    workshopOpen,
-    setWorkshopOpen,
-  ] =
-    useState<
-      boolean |
-      null
-    >(
-      null,
-    );
-
-  const [
-    workshopLoading,
-    setWorkshopLoading,
-  ] =
-    useState(
-      true,
-    );
-
-  const [
-    workshopSaving,
-    setWorkshopSaving,
-  ] =
-    useState(
-      false,
-    );
-
-  useEffect(() => {
-    let active =
-      true;
-
-    void getWorkshop()
-      .then(
-        (
-          result,
-        ) => {
-          if (
-            !active
-          ) {
-            return;
-          }
-
-          setWorkshopOpen(
-            result.isOpen,
-          );
-        },
-      )
-      .catch(
-        (
-          error,
-        ) => {
-          console.error(
-            "Failed to load workshop status:",
-            error,
-          );
-        },
-      )
-      .finally(
-        () => {
-          if (
-            active
-          ) {
-            setWorkshopLoading(
-              false,
-            );
-          }
-        },
-      );
-
-    return () => {
-      active =
-        false;
-    };
-  }, [
-    getWorkshop,
-  ]);
-
   const unread =
     notifications.filter(
       (
@@ -222,67 +113,6 @@ export function AppHeader() {
 
   const navigate =
     useNavigate();
-
-  async function handleWorkshopChange(
-    isOpen:
-      boolean,
-  ) {
-    if (
-      workshopSaving
-    ) {
-      return;
-    }
-
-    const previous =
-      workshopOpen;
-
-    /*
-     * Update immediately so the switch feels responsive.
-     * Revert it if the server rejects the change.
-     */
-    setWorkshopOpen(
-      isOpen,
-    );
-
-    setWorkshopSaving(
-      true,
-    );
-
-    try {
-      const result =
-        await setWorkshop({
-          data: {
-            isOpen,
-          },
-        });
-
-      setWorkshopOpen(
-        result.isOpen,
-      );
-
-      toast.success(
-        result.isOpen
-          ? "Workshop opened"
-          : "Workshop closed",
-      );
-    } catch (
-      error
-    ) {
-      setWorkshopOpen(
-        previous,
-      );
-
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not change workshop status.",
-      );
-    } finally {
-      setWorkshopSaving(
-        false,
-      );
-    }
-  }
 
   return (
     <>
@@ -306,60 +136,6 @@ export function AppHeader() {
               )}{" "}
               team workspace
             </p>
-
-            <div className="mt-1.5 flex items-center gap-2">
-              <span
-                className={cn(
-                  "text-[11px] font-medium transition-colors",
-
-                  workshopOpen ===
-                    false
-                    ? "text-destructive"
-                    : "text-muted-foreground",
-                )}
-              >
-                Closed
-              </span>
-
-              <Switch
-                checked={
-                  workshopOpen ??
-                  false
-                }
-                disabled={
-                  workshopLoading ||
-                  workshopSaving
-                }
-                onCheckedChange={(
-                  checked,
-                ) =>
-                  void handleWorkshopChange(
-                    checked,
-                  )
-                }
-                aria-label="Workshop status"
-                className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
-              />
-
-              <span
-                className={cn(
-                  "text-[11px] font-medium transition-colors",
-
-                  workshopOpen ===
-                    true
-                    ? "text-success"
-                    : "text-muted-foreground",
-                )}
-              >
-                Open
-              </span>
-
-              {workshopSaving && (
-                <span className="text-[10px] text-muted-foreground">
-                  Saving…
-                </span>
-              )}
-            </div>
           </div>
         </div>
 
