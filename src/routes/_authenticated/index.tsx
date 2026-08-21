@@ -14,8 +14,6 @@ import {
 
 import {
   CalendarClock,
-  CircleCheck,
-  CircleX,
   Clock,
   Flame,
   Loader2,
@@ -55,10 +53,6 @@ import {
 } from "@/components/ui/select";
 
 import {
-  Switch,
-} from "@/components/ui/switch";
-
-import {
   Label,
 } from "@/components/ui/label";
 
@@ -87,19 +81,10 @@ import type {
 } from "@/lib/tasks.functions";
 
 import {
-  getWorkshopStatus,
-  setWorkshopStatus,
-} from "@/lib/workshop.functions";
-
-import {
   formatDuration,
   formatHours,
   formatDateTime,
 } from "@/lib/format";
-
-import {
-  cn,
-} from "@/lib/utils";
 
 import {
   toast,
@@ -156,16 +141,6 @@ function TrackerPage() {
   const loadOpenTasks =
     useServerFn(
       getMyOpenTasks,
-    );
-
-  const loadWorkshopStatus =
-    useServerFn(
-      getWorkshopStatus,
-    );
-
-  const changeWorkshopStatus =
-    useServerFn(
-      setWorkshopStatus,
     );
 
   const [
@@ -265,33 +240,6 @@ function TrackerPage() {
       null,
     );
 
-  const [
-    workshopOpen,
-    setWorkshopOpen,
-  ] =
-    useState<
-      boolean |
-      null
-    >(
-      null,
-    );
-
-  const [
-    workshopLoading,
-    setWorkshopLoading,
-  ] =
-    useState(
-      true,
-    );
-
-  const [
-    workshopSaving,
-    setWorkshopSaving,
-  ] =
-    useState(
-      false,
-    );
-
   const running =
     activeSession?.userId ===
     currentUser.id;
@@ -319,64 +267,6 @@ function TrackerPage() {
       );
   }, [
     running,
-  ]);
-
-  useEffect(() => {
-    let active =
-      true;
-
-    void loadWorkshopStatus()
-      .then(
-        (
-          result,
-        ) => {
-          if (
-            !active
-          ) {
-            return;
-          }
-
-          setWorkshopOpen(
-            result.isOpen,
-          );
-        },
-      )
-      .catch(
-        (
-          error,
-        ) => {
-          console.error(
-            "Failed to load workshop status:",
-            error,
-          );
-
-          if (
-            active
-          ) {
-            toast.error(
-              "Could not load workshop status.",
-            );
-          }
-        },
-      )
-      .finally(
-        () => {
-          if (
-            active
-          ) {
-            setWorkshopLoading(
-              false,
-            );
-          }
-        },
-      );
-
-    return () => {
-      active =
-        false;
-    };
-  }, [
-    loadWorkshopStatus,
   ]);
 
   const elapsed =
@@ -447,82 +337,6 @@ function TrackerPage() {
           entry.durationMs,
         0,
       );
-
-  async function handleWorkshopChange(
-    isOpen:
-      boolean,
-  ) {
-    if (
-      workshopSaving ||
-      workshopOpen ===
-        null
-    ) {
-      return;
-    }
-
-    const previous =
-      workshopOpen;
-
-    /*
-     * Optimistic update so it behaves like
-     * a physical light switch.
-     */
-    setWorkshopOpen(
-      isOpen,
-    );
-
-    setWorkshopSaving(
-      true,
-    );
-
-    try {
-      const result =
-        await changeWorkshopStatus({
-          data: {
-            isOpen,
-          },
-        });
-
-      setWorkshopOpen(
-        result.isOpen,
-      );
-
-      if (
-        result.isOpen
-      ) {
-        toast.success(
-          "Workshop opened",
-        );
-      } else if (
-        result.pushesSent >
-        0
-      ) {
-        toast.success(
-          "Workshop closed — Push notification sent",
-        );
-      } else {
-        toast.success(
-          "Workshop closed",
-        );
-      }
-    } catch (
-      error
-    ) {
-      setWorkshopOpen(
-        previous,
-      );
-
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not change workshop status.",
-      );
-    } finally {
-      setWorkshopSaving(
-        false,
-      );
-    }
-  }
 
   async function openStopDialog() {
     setDialogOpen(
@@ -748,133 +562,6 @@ function TrackerPage() {
             : "Tap start when you begin working."}
         </p>
       </div>
-
-      <section
-        className={cn(
-          "surface-card rounded-3xl border p-5 transition-colors sm:p-6",
-
-          workshopOpen ===
-            true &&
-            "border-success/30 bg-success/5",
-
-          workshopOpen ===
-            false &&
-            "border-destructive/30 bg-destructive/5",
-        )}
-      >
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            <div
-              className={cn(
-                "grid size-12 shrink-0 place-items-center rounded-full",
-
-                workshopOpen ===
-                  true
-                  ? "bg-success/15 text-success"
-                  : workshopOpen ===
-                      false
-                    ? "bg-destructive/15 text-destructive"
-                    : "bg-muted text-muted-foreground",
-              )}
-            >
-              {workshopOpen ===
-              true ? (
-                <CircleCheck className="size-6" />
-              ) : (
-                <CircleX className="size-6" />
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                Workshop status
-              </p>
-
-              <h2
-                className={cn(
-                  "mt-1 text-xl font-bold sm:text-2xl",
-
-                  workshopOpen ===
-                    true &&
-                    "text-success",
-
-                  workshopOpen ===
-                    false &&
-                    "text-destructive",
-                )}
-              >
-                {workshopLoading
-                  ? "Loading…"
-                  : workshopOpen ===
-                      true
-                    ? "Workshop is OPEN"
-                    : workshopOpen ===
-                        false
-                      ? "Workshop is CLOSED"
-                      : "Status unavailable"}
-              </h2>
-
-              <p className="mt-1 text-xs text-muted-foreground">
-                Anyone can update the workshop status.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center justify-center gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3">
-            <span
-              className={cn(
-                "text-sm font-semibold transition-colors",
-
-                workshopOpen ===
-                  false
-                  ? "text-destructive"
-                  : "text-muted-foreground",
-              )}
-            >
-              Closed
-            </span>
-
-            <Switch
-              checked={
-                workshopOpen ??
-                false
-              }
-              disabled={
-                workshopLoading ||
-                workshopSaving ||
-                workshopOpen ===
-                  null
-              }
-              onCheckedChange={(
-                checked,
-              ) =>
-                void handleWorkshopChange(
-                  checked,
-                )
-              }
-              aria-label="Workshop open or closed"
-              className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
-            />
-
-            <span
-              className={cn(
-                "text-sm font-semibold transition-colors",
-
-                workshopOpen ===
-                  true
-                  ? "text-success"
-                  : "text-muted-foreground",
-              )}
-            >
-              Open
-            </span>
-
-            {workshopSaving && (
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
-            )}
-          </div>
-        </div>
-      </section>
 
       <div className="surface-card flex flex-col items-center gap-6 rounded-[2rem] p-6 sm:p-10">
         <div className="relative grid place-items-center">

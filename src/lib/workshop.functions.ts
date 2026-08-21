@@ -14,6 +14,7 @@ export interface WorkshopStatus {
   isOpen: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
+  updatedByName: string | null;
 }
 
 const updateWorkshopSchema =
@@ -21,6 +22,56 @@ const updateWorkshopSchema =
     isOpen:
       z.boolean(),
   });
+
+async function getProfileName(
+  admin:
+    any,
+
+  userId:
+    string |
+    null |
+    undefined,
+) {
+  if (
+    !userId
+  ) {
+    return null;
+  }
+
+  const {
+    data:
+      profile,
+    error,
+  } =
+    await admin
+      .from(
+        "profiles",
+      )
+      .select(
+        "name",
+      )
+      .eq(
+        "id",
+        userId,
+      )
+      .maybeSingle();
+
+  if (
+    error
+  ) {
+    console.error(
+      "[workshop] Failed to load profile name",
+      error,
+    );
+
+    return null;
+  }
+
+  return (
+    profile?.name ??
+    null
+  );
+}
 
 export const getWorkshopStatus =
   createServerFn({
@@ -68,6 +119,12 @@ export const getWorkshopStatus =
           );
         }
 
+        const updatedByName =
+          await getProfileName(
+            admin,
+            status?.updated_by,
+          );
+
         return {
           isOpen:
             status?.is_open ??
@@ -80,6 +137,8 @@ export const getWorkshopStatus =
           updatedBy:
             status?.updated_by ??
             null,
+
+          updatedByName,
         } satisfies WorkshopStatus;
       },
     );
@@ -121,7 +180,7 @@ export const setWorkshopStatus =
               "workshop_status",
             )
             .select(
-              "is_open",
+              "is_open, updated_at, updated_by",
             )
             .eq(
               "id",
@@ -145,17 +204,42 @@ export const setWorkshopStatus =
           previousOpen ===
           data.isOpen
         ) {
+          const updatedByName =
+            await getProfileName(
+              admin,
+              current?.updated_by,
+            );
+
           return {
             isOpen:
-              data.isOpen,
+              previousOpen,
 
             changed:
               false,
 
             pushesSent:
               0,
+
+            updatedAt:
+              current?.updated_at ??
+              null,
+
+            updatedBy:
+              current?.updated_by ??
+              null,
+
+            updatedByName,
           };
         }
+
+        const actorName =
+          (
+            await getProfileName(
+              admin,
+              context.userId,
+            )
+          ) ??
+          "A team member";
 
         const now =
           new Date()
@@ -201,103 +285,103 @@ export const setWorkshopStatus =
           0;
 
         /*
-         * Send a Push only when the workshop
-         * changes from Open -> Closed.
+         * Send a notification for BOTH directions:
+         *
+         * Closed -> Open
+         * Open   -> Closed
+         *
+         * The person who moved the switch is excluded because
+         * they already see the result immediately in POM.
          */
-        if (
-          previousOpen &&
-          !data.isOpen
-        ) {
-          try {
-            const {
-              data:
-                profiles,
-              error:
-                profilesError,
-            } =
-              await admin
-                .from(
-                  "profiles",
+        try {
+          const {
+            data:
+              profiles,
+            error:
+              profilesError,
+          } =
+            await admin
+              .from(
+                "profiles",
+              )
+              .select(
+                "id",
+              );
+
+          if (
+            profilesError
+          ) {
+            console.error(
+              "[workshop] Failed to load push audience",
+              profilesError,
+            );
+          } else {
+            const userIds =
+              (
+                profiles ??
+                []
+              )
+                .map(
+                  (
+                    profile:
+                      any,
+                  ) =>
+                    profile.id,
                 )
-                .select(
-                  "id",
+                .filter(
+                  (
+                    userId:
+                      string,
+                  ) =>
+                    userId !==
+                    context.userId,
                 );
 
             if (
-              profilesError
+              userIds.length >
+              0
             ) {
-              console.error(
-                "[workshop] Failed to load push audience",
-                profilesError,
-              );
-            } else {
-              /*
-               * The person who changed the switch already
-               * sees the result immediately in POM.
-               */
-              const userIds =
-                (
-                  profiles ??
-                  []
-                )
-                  .map(
-                    (
-                      profile:
-                        any,
-                    ) =>
-                      profile.id,
-                  )
-                  .filter(
-                    (
-                      userId:
-                        string,
-                    ) =>
-                      userId !==
-                      context.userId,
-                  );
+              const {
+                sendPushToUsers,
+              } =
+                await import(
+                  "./push.server"
+                );
 
-              if (
-                userIds.length >
-                0
-              ) {
-                const {
-                  sendPushToUsers,
-                } =
-                  await import(
-                    "./push.server"
-                  );
+              pushesSent =
+                await sendPushToUsers(
+                  userIds,
+                  {
+                    title:
+                      data.isOpen
+                        ? "Workshop opened"
+                        : "Workshop closed",
 
-                pushesSent =
-                  await sendPushToUsers(
-                    userIds,
-                    {
-                      title:
-                        "Workshop closed",
+                    body:
+                      data.isOpen
+                        ? `${actorName} opened the workshop.`
+                        : `${actorName} closed the workshop.`,
 
-                      body:
-                        "The workshop is now closed.",
+                    url:
+                      "/meetings",
 
-                      url:
-                        "/",
-
-                      tag:
-                        "workshop-status",
-                    },
-                  );
-              }
+                    tag:
+                      "workshop-status",
+                  },
+                );
             }
-          } catch (
-            pushError
-          ) {
-            /*
-             * Changing workshop status must still succeed
-             * if Push is temporarily unavailable.
-             */
-            console.error(
-              "[workshop] Failed to send closed notification",
-              pushError,
-            );
           }
+        } catch (
+          pushError
+        ) {
+          /*
+           * The status change must still succeed if Push
+           * is temporarily unavailable.
+           */
+          console.error(
+            "[workshop] Failed to send workshop notification",
+            pushError,
+          );
         }
 
         return {
@@ -308,6 +392,15 @@ export const setWorkshopStatus =
             true,
 
           pushesSent,
+
+          updatedAt:
+            now,
+
+          updatedBy:
+            context.userId,
+
+          updatedByName:
+            actorName,
         };
       },
     );

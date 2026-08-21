@@ -1,10 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import {
   CalendarDays,
   Check,
+  CircleCheck,
+  CircleX,
   Clock,
   History,
+  Loader2,
   Lock,
   Pencil,
   Plus,
@@ -35,6 +39,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useStore } from "@/lib/store";
+import {
+  getWorkshopStatus,
+  setWorkshopStatus,
+} from "@/lib/workshop.functions";
+import type { WorkshopStatus } from "@/lib/workshop.functions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Meeting, Profile, Recurrence } from "@/lib/types";
@@ -114,13 +123,46 @@ function MeetingsPage() {
     toggleMeetingLock,
   } = useStore();
 
+  const loadWorkshopStatus = useServerFn(getWorkshopStatus);
+  const changeWorkshopStatus = useServerFn(setWorkshopStatus);
+
   const [tab, setTab] = useState<"upcoming" | "past">("upcoming");
   const [openId, setOpenId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Meeting | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyForm());
 
+  const [workshop, setWorkshop] = useState<WorkshopStatus | null>(null);
+  const [workshopLoading, setWorkshopLoading] = useState(true);
+  const [workshopSaving, setWorkshopSaving] = useState(false);
+
   const isAdmin = currentUser.role === "Admin";
+
+  useEffect(() => {
+    let active = true;
+
+    void loadWorkshopStatus()
+      .then((result) => {
+        if (!active) return;
+        setWorkshop(result);
+      })
+      .catch((error) => {
+        console.error("Failed to load workshop status:", error);
+
+        if (active) {
+          toast.error("Could not load workshop status.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setWorkshopLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [loadWorkshopStatus]);
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -146,6 +188,55 @@ function MeetingsPage() {
 
   const list = tab === "upcoming" ? upcoming : past;
   const openMeeting = meetings.find((m) => m.id === openId) ?? null;
+
+  async function handleWorkshopChange(isOpen: boolean) {
+    if (workshopSaving || !workshop) {
+      return;
+    }
+
+    const previous = workshop;
+
+    setWorkshop({
+      ...workshop,
+      isOpen,
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser.id,
+      updatedByName: currentUser.name,
+    });
+
+    setWorkshopSaving(true);
+
+    try {
+      const result = await changeWorkshopStatus({
+        data: {
+          isOpen,
+        },
+      });
+
+      setWorkshop({
+        isOpen: result.isOpen,
+        updatedAt: result.updatedAt,
+        updatedBy: result.updatedBy,
+        updatedByName: result.updatedByName,
+      });
+
+      toast.success(
+        result.isOpen
+          ? "Workshop opened"
+          : "Workshop closed",
+      );
+    } catch (error) {
+      setWorkshop(previous);
+
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not change workshop status.",
+      );
+    } finally {
+      setWorkshopSaving(false);
+    }
+  }
 
   function respond(meetingId: string, status: "Attending" | "Declined") {
     const m = meetings.find((x) => x.id === meetingId);
@@ -228,6 +319,107 @@ function MeetingsPage() {
           .
         </p>
       </div>
+
+      <section
+        className={cn(
+          "surface-card rounded-3xl border p-5 transition-colors sm:p-6",
+          workshop?.isOpen === true && "border-success/30 bg-success/5",
+          workshop?.isOpen === false && "border-destructive/30 bg-destructive/5",
+        )}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <div
+              className={cn(
+                "grid size-12 shrink-0 place-items-center rounded-full",
+                workshop?.isOpen === true
+                  ? "bg-success/15 text-success"
+                  : workshop?.isOpen === false
+                    ? "bg-destructive/15 text-destructive"
+                    : "bg-muted text-muted-foreground",
+              )}
+            >
+              {workshopLoading ? (
+                <Loader2 className="size-6 animate-spin" />
+              ) : workshop?.isOpen ? (
+                <CircleCheck className="size-6" />
+              ) : (
+                <CircleX className="size-6" />
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Workshop status
+              </p>
+
+              <h2
+                className={cn(
+                  "mt-1 text-xl font-bold sm:text-2xl",
+                  workshop?.isOpen === true && "text-success",
+                  workshop?.isOpen === false && "text-destructive",
+                )}
+              >
+                {workshopLoading
+                  ? "Loading…"
+                  : workshop?.isOpen === true
+                    ? "Workshop is OPEN"
+                    : workshop?.isOpen === false
+                      ? "Workshop is CLOSED"
+                      : "Status unavailable"}
+              </h2>
+
+              {!workshopLoading && workshop && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {workshop.updatedByName
+                    ? workshop.isOpen
+                      ? `Opened by ${workshop.updatedByName}`
+                      : `Closed by ${workshop.updatedByName}`
+                    : "No status change recorded yet."}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-center gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <span
+              className={cn(
+                "text-sm font-semibold transition-colors",
+                workshop?.isOpen === false
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+              )}
+            >
+              Closed
+            </span>
+
+            <Switch
+              checked={workshop?.isOpen ?? false}
+              disabled={workshopLoading || workshopSaving || !workshop}
+              onCheckedChange={(checked) =>
+                void handleWorkshopChange(checked)
+              }
+              aria-label="Workshop open or closed"
+              className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
+            />
+
+            <span
+              className={cn(
+                "text-sm font-semibold transition-colors",
+                workshop?.isOpen === true
+                  ? "text-success"
+                  : "text-muted-foreground",
+              )}
+            >
+              Open
+            </span>
+
+            {workshopSaving && (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="grid grid-cols-2 gap-1 rounded-full bg-muted p-1">
         {(["upcoming", "past"] as const).map((t) => (
