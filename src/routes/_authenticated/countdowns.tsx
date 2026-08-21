@@ -60,7 +60,7 @@ const GLOBAL_COUNTDOWN:
     "Piece Of Mind",
 
   targetAt:
-    "2026-08-21T12:00:00-05:00",
+    "2026-08-21T12:00:00-02:10",
 
   createdAt:
     "2026-08-11T00:00:00Z",
