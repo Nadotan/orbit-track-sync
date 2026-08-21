@@ -1,4 +1,9 @@
 import {
+  useEffect,
+  useState,
+} from "react";
+
+import {
   Bell,
   ChevronDown,
   CircleCheck,
@@ -13,6 +18,14 @@ import {
 } from "@tanstack/react-router";
 
 import {
+  useServerFn,
+} from "@tanstack/react-start";
+
+import {
+  toast,
+} from "sonner";
+
+import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
@@ -23,6 +36,10 @@ import {
 import {
   Badge,
 } from "@/components/ui/badge";
+
+import {
+  Switch,
+} from "@/components/ui/switch";
 
 import {
   Avatar,
@@ -64,6 +81,11 @@ import {
 } from "@/lib/store";
 
 import {
+  getWorkshopStatus,
+  setWorkshopStatus,
+} from "@/lib/workshop.functions";
+
+import {
   relativeTime,
 } from "@/lib/format";
 
@@ -78,8 +100,10 @@ function initials(
     name
       .split(" ")
       .map(
-        (n) =>
-          n[0],
+        (
+          part,
+        ) =>
+          part[0],
       )
       .join("")
       .slice(
@@ -101,14 +125,164 @@ export function AppHeader() {
   } =
     useStore();
 
+  const getWorkshop =
+    useServerFn(
+      getWorkshopStatus,
+    );
+
+  const setWorkshop =
+    useServerFn(
+      setWorkshopStatus,
+    );
+
+  const [
+    workshopOpen,
+    setWorkshopOpen,
+  ] =
+    useState<
+      boolean |
+      null
+    >(
+      null,
+    );
+
+  const [
+    workshopLoading,
+    setWorkshopLoading,
+  ] =
+    useState(
+      true,
+    );
+
+  const [
+    workshopSaving,
+    setWorkshopSaving,
+  ] =
+    useState(
+      false,
+    );
+
+  useEffect(() => {
+    let active =
+      true;
+
+    void getWorkshop()
+      .then(
+        (
+          result,
+        ) => {
+          if (
+            !active
+          ) {
+            return;
+          }
+
+          setWorkshopOpen(
+            result.isOpen,
+          );
+        },
+      )
+      .catch(
+        (
+          error,
+        ) => {
+          console.error(
+            "Failed to load workshop status:",
+            error,
+          );
+        },
+      )
+      .finally(
+        () => {
+          if (
+            active
+          ) {
+            setWorkshopLoading(
+              false,
+            );
+          }
+        },
+      );
+
+    return () => {
+      active =
+        false;
+    };
+  }, [
+    getWorkshop,
+  ]);
+
   const unread =
     notifications.filter(
-      (n) =>
-        !n.read,
+      (
+        notification,
+      ) =>
+        !notification.read,
     ).length;
 
   const navigate =
     useNavigate();
+
+  async function handleWorkshopChange(
+    isOpen:
+      boolean,
+  ) {
+    if (
+      workshopSaving
+    ) {
+      return;
+    }
+
+    const previous =
+      workshopOpen;
+
+    /*
+     * Update immediately so the switch feels responsive.
+     * Revert it if the server rejects the change.
+     */
+    setWorkshopOpen(
+      isOpen,
+    );
+
+    setWorkshopSaving(
+      true,
+    );
+
+    try {
+      const result =
+        await setWorkshop({
+          data: {
+            isOpen,
+          },
+        });
+
+      setWorkshopOpen(
+        result.isOpen,
+      );
+
+      toast.success(
+        result.isOpen
+          ? "Workshop opened"
+          : "Workshop closed",
+      );
+    } catch (
+      error
+    ) {
+      setWorkshopOpen(
+        previous,
+      );
+
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not change workshop status.",
+      );
+    } finally {
+      setWorkshopSaving(
+        false,
+      );
+    }
+  }
 
   return (
     <>
@@ -132,6 +306,60 @@ export function AppHeader() {
               )}{" "}
               team workspace
             </p>
+
+            <div className="mt-1.5 flex items-center gap-2">
+              <span
+                className={cn(
+                  "text-[11px] font-medium transition-colors",
+
+                  workshopOpen ===
+                    false
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+              >
+                Closed
+              </span>
+
+              <Switch
+                checked={
+                  workshopOpen ??
+                  false
+                }
+                disabled={
+                  workshopLoading ||
+                  workshopSaving
+                }
+                onCheckedChange={(
+                  checked,
+                ) =>
+                  void handleWorkshopChange(
+                    checked,
+                  )
+                }
+                aria-label="Workshop status"
+                className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
+              />
+
+              <span
+                className={cn(
+                  "text-[11px] font-medium transition-colors",
+
+                  workshopOpen ===
+                    true
+                    ? "text-success"
+                    : "text-muted-foreground",
+                )}
+              >
+                Open
+              </span>
+
+              {workshopSaving && (
+                <span className="text-[10px] text-muted-foreground">
+                  Saving…
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -142,9 +370,9 @@ export function AppHeader() {
             "Admin" && (
             <Sheet
               onOpenChange={(
-                o,
+                open,
               ) =>
-                o &&
+                open &&
                 markNotificationsRead()
               }
             >
@@ -186,12 +414,14 @@ export function AppHeader() {
                     )}
 
                     {notifications.map(
-                      (n) => {
+                      (
+                        notification,
+                      ) => {
                         const Icon =
-                          n.tone ===
+                          notification.tone ===
                           "positive"
                             ? CircleCheck
-                            : n.tone ===
+                            : notification.tone ===
                                 "negative"
                               ? CircleX
                               : Info;
@@ -199,7 +429,7 @@ export function AppHeader() {
                         return (
                           <div
                             key={
-                              n.id
+                              notification.id
                             }
                             className="flex items-start gap-3 rounded-xl border border-border bg-card p-3"
                           >
@@ -207,15 +437,15 @@ export function AppHeader() {
                               className={cn(
                                 "mt-0.5 size-4 shrink-0",
 
-                                n.tone ===
+                                notification.tone ===
                                   "positive" &&
                                   "text-success",
 
-                                n.tone ===
+                                notification.tone ===
                                   "negative" &&
                                   "text-destructive",
 
-                                n.tone ===
+                                notification.tone ===
                                   "neutral" &&
                                   "text-muted-foreground",
                               )}
@@ -224,13 +454,13 @@ export function AppHeader() {
                             <div className="min-w-0">
                               <p className="text-sm leading-snug">
                                 {
-                                  n.message
+                                  notification.message
                                 }
                               </p>
 
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {relativeTime(
-                                  n.createdAt,
+                                  notification.createdAt,
                                 )}
                               </p>
                             </div>
