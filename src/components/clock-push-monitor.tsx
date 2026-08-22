@@ -89,10 +89,13 @@ export function ClockPushMonitor() {
    * 3-HOUR REMINDERS
    * ------------------------------------------------
    *
-   * No polling.
+   * No polling and no cron.
    *
-   * One local browser timer wakes up only
-   * when the next reminder becomes due.
+   * One local browser timer wakes up only when
+   * the reminder becomes due. If the browser
+   * suspended that timer while POM was hidden,
+   * we do one local due-time check when POM
+   * becomes visible again.
    */
   useEffect(() => {
     if (
@@ -117,10 +120,37 @@ export function ClockPushMonitor() {
     let cancelled =
       false;
 
+    let running =
+      false;
+
+    let monitoringActive =
+      true;
+
     let timeoutId:
       | number
       | null =
       null;
+
+    let nextDueAt =
+      startedAt +
+      THREE_HOURS_MS;
+
+    const clearTimer =
+      () => {
+        if (
+          timeoutId ===
+          null
+        ) {
+          return;
+        }
+
+        window.clearTimeout(
+          timeoutId,
+        );
+
+        timeoutId =
+          null;
+      };
 
     const scheduleAt =
       (
@@ -128,19 +158,16 @@ export function ClockPushMonitor() {
           number,
       ) => {
         if (
-          cancelled
+          cancelled ||
+          !monitoringActive
         ) {
           return;
         }
 
-        if (
-          timeoutId !==
-          null
-        ) {
-          window.clearTimeout(
-            timeoutId,
-          );
-        }
+        clearTimer();
+
+        nextDueAt =
+          when;
 
         const delay =
           Math.max(
@@ -152,6 +179,9 @@ export function ClockPushMonitor() {
         timeoutId =
           window.setTimeout(
             () => {
+              timeoutId =
+                null;
+
               void runReminder();
             },
 
@@ -162,19 +192,34 @@ export function ClockPushMonitor() {
     const runReminder =
       async () => {
         if (
-          cancelled
+          cancelled ||
+          !monitoringActive ||
+          running
         ) {
           return;
         }
+
+        running =
+          true;
 
         try {
           const result =
             await sendClockReminder();
 
           if (
-            cancelled ||
+            cancelled
+          ) {
+            return;
+          }
+
+          if (
             !result.active
           ) {
+            monitoringActive =
+              false;
+
+            clearTimer();
+
             return;
           }
 
@@ -203,52 +248,65 @@ export function ClockPushMonitor() {
           );
 
           /*
-           * Don't repeatedly hit the server
-           * when something is wrong.
+           * Don't repeatedly hit the server when
+           * something is wrong. Retry only at the
+           * next normal 3-hour interval.
            */
           scheduleAt(
             Date.now() +
               THREE_HOURS_MS,
           );
+        } finally {
+          running =
+            false;
         }
       };
 
-    const firstReminder =
-      startedAt +
-      THREE_HOURS_MS;
-
     if (
       Date.now() >=
-      firstReminder
+      nextDueAt
     ) {
-      /*
-       * Example:
-       *
-       * Clock started 4 hours ago,
-       * POM was closed,
-       * user opens it now.
-       *
-       * Ask the server if a reminder is due.
-       */
       void runReminder();
     } else {
       scheduleAt(
-        firstReminder,
+        nextDueAt,
       );
     }
+
+    const handleVisibility =
+      () => {
+        /*
+         * This is a LOCAL check only.
+         *
+         * Returning to the app does not consume a
+         * server run unless the reminder is actually due.
+         */
+        if (
+          monitoringActive &&
+          document.visibilityState ===
+            "visible" &&
+          Date.now() >=
+            nextDueAt
+        ) {
+          void runReminder();
+        }
+      };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
 
     return () => {
       cancelled =
         true;
 
-      if (
-        timeoutId !==
-        null
-      ) {
-        window.clearTimeout(
-          timeoutId,
-        );
-      }
+      clearTimer();
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
     };
   }, [
     activeSession?.startTime,
@@ -257,8 +315,22 @@ export function ClockPushMonitor() {
 
   /*
    * ------------------------------------------------
-   * APP CLOSED WHILE CLOCK RUNS
+   * PAGE CLOSED WHILE CLOCK RUNS
    * ------------------------------------------------
+   *
+   * IMPORTANT:
+   * Do NOT use visibilitychange here.
+   *
+   * A tab switch, app switch or phone lock makes a
+   * page hidden even though POM was not closed. The
+   * previous implementation therefore produced false
+   * "You closed POM" pushes and spent a server run on
+   * every hidden episode.
+   *
+   * pagehide is much narrower: it fires when this page
+   * is actually being unloaded. This is event-driven,
+   * has no polling, and costs at most one request for
+   * this page lifecycle.
    */
   useEffect(() => {
     if (
@@ -267,20 +339,13 @@ export function ClockPushMonitor() {
       return;
     }
 
-    /*
-     * Phones almost never fire "pagehide" when the
-     * app is swiped away or the screen locks, but
-     * they do fire "visibilitychange" first.
-     *
-     * Fire once per hidden episode.
-     */
-    let notifiedWhileHidden =
+    let notifiedForThisPage =
       false;
 
     const notifyClosed =
       () => {
         if (
-          notifiedWhileHidden
+          notifiedForThisPage
         ) {
           return;
         }
@@ -294,14 +359,9 @@ export function ClockPushMonitor() {
           return;
         }
 
-        notifiedWhileHidden =
+        notifiedForThisPage =
           true;
 
-        /*
-         * keepalive allows this small request
-         * to continue while the page is
-         * unloading or backgrounded.
-         */
         void fetch(
           "/api/timer-closed",
           {
@@ -325,27 +385,14 @@ export function ClockPushMonitor() {
         );
       };
 
-    const handleVisibility =
-      () => {
-        if (
-          document.visibilityState ===
-          "hidden"
-        ) {
-          notifyClosed();
-        } else {
-          notifiedWhileHidden =
-            false;
-        }
-      };
-
     const handlePageHide =
       (
         event:
           PageTransitionEvent,
       ) => {
         /*
-         * Don't treat the browser's
-         * back-forward cache as a real close.
+         * Do not treat the browser's back-forward
+         * cache as a real page close.
          */
         if (
           event.persisted
@@ -356,29 +403,20 @@ export function ClockPushMonitor() {
         notifyClosed();
       };
 
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibility,
-    );
-
     window.addEventListener(
       "pagehide",
       handlePageHide,
     );
 
     return () => {
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibility,
-      );
-
       window.removeEventListener(
         "pagehide",
         handlePageHide,
       );
     };
   }, [
-    activeSession,
+    activeSession?.startTime,
+    activeSession?.userId,
   ]);
 
   return null;

@@ -32,6 +32,14 @@ interface PushHealthPatch {
     string | null;
 }
 
+interface PushDeliveryResult {
+  sentDevices:
+    number;
+
+  successfulUserIds:
+    string[];
+}
+
 function vapidKeys() {
   return {
     subject:
@@ -97,13 +105,19 @@ function pushErrorMessage(
 }
 
 /**
- * Send Web Push to every registered device
- * belonging to the supplied users.
+ * Internal detailed delivery result.
+ *
+ * This is used by RSVP reminders so we record only
+ * users whose push was actually accepted by at least
+ * one registered device.
+ *
+ * It does NOT add extra push requests or extra server
+ * runs compared with the normal send path.
  */
-export async function sendPushToUsers(
+async function sendPushToUsersDetailed(
   userIds: string[],
   payload: PushPayload,
-) {
+): Promise<PushDeliveryResult> {
   const unique = [
     ...new Set(
       userIds.filter(Boolean),
@@ -111,7 +125,13 @@ export async function sendPushToUsers(
   ];
 
   if (unique.length === 0) {
-    return 0;
+    return {
+      sentDevices:
+        0,
+
+      successfulUserIds:
+        [],
+    };
   }
 
   const {
@@ -123,7 +143,7 @@ export async function sendPushToUsers(
         "push_subscriptions",
       )
       .select(
-        "id, endpoint, p256dh, auth",
+        "id, user_id, endpoint, p256dh, auth",
       )
       .in(
         "user_id",
@@ -136,14 +156,26 @@ export async function sendPushToUsers(
       error,
     );
 
-    return 0;
+    return {
+      sentDevices:
+        0,
+
+      successfulUserIds:
+        [],
+    };
   }
 
   if (
     !subscriptions ||
     subscriptions.length === 0
   ) {
-    return 0;
+    return {
+      sentDevices:
+        0,
+
+      successfulUserIds:
+        [],
+    };
   }
 
   const vapid =
@@ -183,10 +215,20 @@ export async function sendPushToUsers(
       ),
     );
 
-    return 0;
+    return {
+      sentDevices:
+        0,
+
+      successfulUserIds:
+        [],
+    };
   }
 
-  let sent = 0;
+  let sentDevices =
+    0;
+
+  const successfulUserIds =
+    new Set<string>();
 
   const stale:
     string[] = [];
@@ -291,8 +333,7 @@ export async function sendPushToUsers(
                 await response
                   .text();
             } catch {
-              // Ignore unreadable
-              // response bodies.
+              // Ignore unreadable response bodies.
             }
 
             await recordPushHealth(
@@ -336,8 +377,7 @@ export async function sendPushToUsers(
                 await response
                   .text();
             } catch {
-              // Ignore unreadable
-              // response bodies.
+              // Ignore unreadable response bodies.
             }
 
             console.error(
@@ -372,7 +412,12 @@ export async function sendPushToUsers(
             return;
           }
 
-          sent += 1;
+          sentDevices +=
+            1;
+
+          successfulUserIds.add(
+            row.user_id,
+          );
 
           await recordPushHealth(
             row.id,
@@ -446,7 +491,31 @@ export async function sendPushToUsers(
     }
   }
 
-  return sent;
+  return {
+    sentDevices,
+
+    successfulUserIds:
+      [
+        ...successfulUserIds,
+      ],
+  };
+}
+
+/**
+ * Send Web Push to every registered device
+ * belonging to the supplied users.
+ */
+export async function sendPushToUsers(
+  userIds: string[],
+  payload: PushPayload,
+) {
+  const result =
+    await sendPushToUsersDetailed(
+      userIds,
+      payload,
+    );
+
+  return result.sentDevices;
 }
 
 /**
@@ -606,11 +675,6 @@ export async function sendClockClosedPush(
     return 0;
   }
 
-  /*
-   * Leaving the app briefly (switching apps,
-   * locking the phone) can fire this more than
-   * once — only warn every 30 minutes.
-   */
   const lastClosedPush =
     timer.closed_notified_at
       ? new Date(
@@ -833,12 +897,6 @@ export async function sendClockRunningReminder(
     reminderBase +
     THREE_HOURS_MS;
 
-  /*
-   * Not due yet.
-   *
-   * Tell the browser exactly when
-   * to wake up next.
-   */
   if (
     now <
     dueAt
@@ -893,11 +951,6 @@ export async function sendClockRunningReminder(
       },
     );
 
-  /*
-   * Only mark it as reminded if
-   * at least one Web Push was
-   * successfully accepted.
-   */
   if (
     sent > 0
   ) {
@@ -931,10 +984,9 @@ export async function sendClockRunningReminder(
   }
 
   /*
-   * Do not retry constantly if push is
-   * disabled or temporarily fails.
-   *
-   * The next attempt is three hours later.
+   * Do not retry constantly if push is disabled
+   * or temporarily fails. The next attempt is
+   * three hours later.
    */
   return {
     active:
@@ -1131,8 +1183,8 @@ export async function runReminderSweep() {
       continue;
     }
 
-    const sent =
-      await sendPushToUsers(
+    const delivery =
+      await sendPushToUsersDetailed(
         pending,
         {
           title:
@@ -1150,10 +1202,11 @@ export async function runReminderSweep() {
       );
 
     rsvpReminders +=
-      sent;
+      delivery.sentDevices;
 
     if (
-      sent > 0
+      delivery.successfulUserIds.length >
+      0
     ) {
       const {
         error:
@@ -1164,7 +1217,7 @@ export async function runReminderSweep() {
             "push_reminders_sent",
           )
           .insert(
-            pending.map(
+            delivery.successfulUserIds.map(
               (
                 userId,
               ) => ({

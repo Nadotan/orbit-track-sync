@@ -62,6 +62,7 @@ import { formatDateTime, formatHours } from "@/lib/format";
 import {
   broadcastPush,
   getPushAdminStatus,
+  type PushAdminUserHealth,
 } from "@/lib/push.functions";
 import { useStore } from "@/lib/store";
 import type { Meeting, Profile, Rsvp } from "@/lib/types";
@@ -336,9 +337,7 @@ function AdminPage() {
     const today = new Date().toDateString();
     const ids = new Set(
       timeEntries
-        .filter(
-          (entry) => new Date(entry.endTime).toDateString() === today,
-        )
+        .filter((entry) => new Date(entry.endTime).toDateString() === today)
         .map((entry) => entry.userId),
     );
 
@@ -431,7 +430,11 @@ function AdminPage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Active today" value={String(activeToday)} icon={Users} />
-        <Stat label="Hours logged" value={formatHours(totalHours)} icon={Clock} />
+        <Stat
+          label="Hours logged"
+          value={formatHours(totalHours)}
+          icon={Clock}
+        />
         <Stat
           label="Next 7 days"
           value={String(next7Meetings.length)}
@@ -526,7 +529,9 @@ function AdminPage() {
                             <p className="truncate font-medium">{profile.name}</p>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground">
                               {profileTeams.length > 0
-                                ? profileTeams.map((id) => teamName(id)).join(", ")
+                                ? profileTeams
+                                    .map((id) => teamName(id))
+                                    .join(", ")
                                 : "Unassigned"}
                             </p>
                           </div>
@@ -539,7 +544,10 @@ function AdminPage() {
                         </div>
 
                         <div className="mt-4 grid grid-cols-2 gap-2">
-                          <MiniMetric label="Hours" value={formatHours(hours)} />
+                          <MiniMetric
+                            label="Hours"
+                            value={formatHours(hours)}
+                          />
                           <MiniMetric
                             label="Attended"
                             value={String(attended)}
@@ -613,11 +621,12 @@ function AdminPage() {
                         (total, entry) => total + entry.durationMs,
                         0,
                       );
-                      const { attended, notAttended, cancelled } = attendanceStats(
-                        rsvps,
-                        profile.id,
-                        cancelledRsvpIds,
-                      );
+                      const { attended, notAttended, cancelled } =
+                        attendanceStats(
+                          rsvps,
+                          profile.id,
+                          cancelledRsvpIds,
+                        );
                       const open = expanded === profile.id;
                       const profileTeams = effectiveTeamIds(profile);
 
@@ -625,7 +634,9 @@ function AdminPage() {
                         <FragmentRow key={profile.id}>
                           <TableRow
                             className="cursor-pointer"
-                            onClick={() => setExpanded(open ? null : profile.id)}
+                            onClick={() =>
+                              setExpanded(open ? null : profile.id)
+                            }
                           >
                             <TableCell>
                               {open ? (
@@ -639,7 +650,9 @@ function AdminPage() {
                             </TableCell>
                             <TableCell className="text-muted-foreground">
                               {profileTeams.length > 0
-                                ? profileTeams.map((id) => teamName(id)).join(", ")
+                                ? profileTeams
+                                    .map((id) => teamName(id))
+                                    .join(", ")
                                 : "Unassigned"}
                             </TableCell>
                             <TableCell className="tabular text-right">
@@ -721,7 +734,9 @@ function AdminPage() {
         >
           <Card className="surface-card">
             <CardHeader>
-              <CardTitle className="text-base">Assign users to teams</CardTitle>
+              <CardTitle className="text-base">
+                Assign users to teams
+              </CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-3">
@@ -944,7 +959,9 @@ function AdminPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="general">General (everyone)</SelectItem>
+                      <SelectItem value="general">
+                        General (everyone)
+                      </SelectItem>
                       {teams.map((team) => (
                         <SelectItem key={team.id} value={team.id}>
                           {team.name}
@@ -980,7 +997,9 @@ function AdminPage() {
                     <p className="mt-1 break-words text-xs text-muted-foreground">
                       {meeting.date} · {meeting.time} ·{" "}
                       {teamName(
-                        meeting.teamId === "general" ? "general" : meeting.teamId,
+                        meeting.teamId === "general"
+                          ? "general"
+                          : meeting.teamId,
                       )}
                     </p>
                   </div>
@@ -1060,7 +1079,9 @@ function RsvpInsightsPanel({
   setQueryTeam: (value: string) => void;
   applyPreset: (metric: QueryMetric, rule: QueryRule, amount?: number) => void;
 }) {
-  const usesAmount = queryRule === "at-least" || queryRule === "at-most";
+  const usesAmount =
+    queryRule === "at-least" ||
+    queryRule === "at-most";
 
   return (
     <Card className="surface-card overflow-hidden">
@@ -1077,10 +1098,14 @@ function RsvpInsightsPanel({
           </div>
 
           <div className="rounded-2xl bg-warning/10 px-4 py-3 text-sm">
-            <span className="font-semibold text-warning">{missingRsvpCount}</span>{" "}
+            <span className="font-semibold text-warning">
+              {missingRsvpCount}
+            </span>{" "}
             missing RSVPs from{" "}
-            <span className="font-semibold">{missingPeopleCount}</span> people in
-            the next 7 days
+            <span className="font-semibold">
+              {missingPeopleCount}
+            </span>{" "}
+            people in the next 7 days
           </div>
         </div>
       </CardHeader>
@@ -1101,6 +1126,7 @@ function RsvpInsightsPanel({
             >
               No answers
             </Button>
+
             <Button
               type="button"
               size="sm"
@@ -1110,6 +1136,7 @@ function RsvpInsightsPanel({
             >
               Missing 1+
             </Button>
+
             <Button
               type="button"
               size="sm"
@@ -1119,6 +1146,7 @@ function RsvpInsightsPanel({
             >
               Missing 2+
             </Button>
+
             <Button
               type="button"
               size="sm"
@@ -1128,6 +1156,7 @@ function RsvpInsightsPanel({
             >
               Answered all
             </Button>
+
             <Button
               type="button"
               size="sm"
@@ -1137,6 +1166,7 @@ function RsvpInsightsPanel({
             >
               Attend none
             </Button>
+
             <Button
               type="button"
               size="sm"
@@ -1146,12 +1176,15 @@ function RsvpInsightsPanel({
             >
               Attend ≤1
             </Button>
+
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="rounded-full"
-              onClick={() => applyPreset("attending", "less-than-half")}
+              onClick={() =>
+                applyPreset("attending", "less-than-half")
+              }
             >
               Attend &lt;50%
             </Button>
@@ -1163,7 +1196,9 @@ function RsvpInsightsPanel({
             <Label>Period</Label>
             <Select
               value={queryPeriod}
-              onValueChange={(value) => setQueryPeriod(value as QueryPeriod)}
+              onValueChange={(value) =>
+                setQueryPeriod(value as QueryPeriod)
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -1198,7 +1233,9 @@ function RsvpInsightsPanel({
             <Label>Metric</Label>
             <Select
               value={queryMetric}
-              onValueChange={(value) => setQueryMetric(value as QueryMetric)}
+              onValueChange={(value) =>
+                setQueryMetric(value as QueryMetric)
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -1214,21 +1251,31 @@ function RsvpInsightsPanel({
             <Label>Condition</Label>
             <Select
               value={queryRule}
-              onValueChange={(value) => setQueryRule(value as QueryRule)}
+              onValueChange={(value) =>
+                setQueryRule(value as QueryRule)
+              }
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">
-                  {queryMetric === "unanswered" ? "All meetings" : "Attend all"}
+                  {queryMetric === "unanswered"
+                    ? "All meetings"
+                    : "Attend all"}
                 </SelectItem>
+
                 <SelectItem value="none">
-                  {queryMetric === "unanswered" ? "None" : "Attend none"}
+                  {queryMetric === "unanswered"
+                    ? "None"
+                    : "Attend none"}
                 </SelectItem>
+
                 <SelectItem value="at-least">At least</SelectItem>
                 <SelectItem value="at-most">At most</SelectItem>
-                <SelectItem value="less-than-half">Less than 50%</SelectItem>
+                <SelectItem value="less-than-half">
+                  Less than 50%
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1242,7 +1289,9 @@ function RsvpInsightsPanel({
               value={usesAmount ? queryAmount : ""}
               placeholder="—"
               onChange={(event) =>
-                setQueryAmount(Math.max(0, Number(event.target.value) || 0))
+                setQueryAmount(
+                  Math.max(0, Number(event.target.value) || 0),
+                )
               }
             />
           </div>
@@ -1255,9 +1304,10 @@ function RsvpInsightsPanel({
                 {queryResults.length}{" "}
                 {queryResults.length === 1 ? "person" : "people"} found
               </p>
+
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {meetingsInScope} meeting{meetingsInScope === 1 ? "" : "s"} in
-                scope
+                {meetingsInScope} meeting
+                {meetingsInScope === 1 ? "" : "s"} in scope
               </p>
             </div>
 
@@ -1270,8 +1320,11 @@ function RsvpInsightsPanel({
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(
-                      queryResults.map((person) => person.name).join("\n"),
+                      queryResults
+                        .map((person) => person.name)
+                        .join("\n"),
                     );
+
                     toast.success("Names copied");
                   } catch {
                     toast.error("Could not copy names");
@@ -1298,17 +1351,22 @@ function RsvpInsightsPanel({
                   className="flex flex-col gap-3 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="break-words font-medium">{person.name}</p>
+                    <p className="break-words font-medium">
+                      {person.name}
+                    </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {person.teamIds.map((id) => teamName(id)).join(", ") ||
-                        "Unassigned"}
+                      {person.teamIds
+                        .map((id) => teamName(id))
+                        .join(", ") || "Unassigned"}
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     <Badge
                       variant={
-                        queryMetric === "unanswered" ? "outline" : "secondary"
+                        queryMetric === "unanswered"
+                          ? "outline"
+                          : "secondary"
                       }
                       className="rounded-full"
                     >
@@ -1318,8 +1376,9 @@ function RsvpInsightsPanel({
                     </Badge>
 
                     <span className="text-xs text-muted-foreground">
-                      {person.attending} attending · {person.notAttending} not
-                      attending · {person.cancelled} cancelled
+                      {person.attending} attending ·{" "}
+                      {person.notAttending} not attending ·{" "}
+                      {person.cancelled} cancelled
                     </span>
                   </div>
                 </div>
@@ -1359,6 +1418,7 @@ function Stat({
       >
         <Icon className="size-4 sm:size-5" />
       </div>
+
       <div className="min-w-0">
         <p className="text-[10px] uppercase leading-tight tracking-wide text-muted-foreground sm:text-xs">
           {label}
@@ -1385,6 +1445,7 @@ function MiniMetric({
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
+
       <p
         className={`tabular mt-1 font-semibold ${
           tone === "success"
@@ -1402,77 +1463,352 @@ function MiniMetric({
   );
 }
 
-function AdminPushPanel() {
-  const { profiles } = useStore();
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [sending, setSending] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState(true);
-  const [enabledUserIds, setEnabledUserIds] = useState<string[]>([]);
-  const [recipientMode, setRecipientMode] = useState<"all" | "selected">("all");
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+function emptyPushHealth(
+  userId: string,
+): PushAdminUserHealth {
+  return {
+    userId,
+    status: "no_push",
+    registeredDevices: 0,
+    workingDevices: 0,
+    failingDevices: 0,
+    untestedDevices: 0,
+    reportingClients: 0,
+    blockedClients: 0,
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastFailureAt: null,
+    lastFailureStatus: null,
+    lastFailureMessage: null,
+    lastPermission: null,
+    lastPermissionAt: null,
+  };
+}
 
-  const send = useServerFn(broadcastPush);
-  const getStatus = useServerFn(getPushAdminStatus);
+function visiblePushStatus(
+  health: PushAdminUserHealth,
+): PushAdminUserHealth["status"] {
+  /*
+   * Browser permission is newer/more authoritative
+   * than an older successful delivery.
+   */
+  if (
+    health.reportingClients > 0 &&
+    health.blockedClients > 0 &&
+    health.blockedClients === health.reportingClients &&
+    health.lastPermission !== "granted"
+  ) {
+    return "blocked";
+  }
+
+  return health.status;
+}
+
+function pushStatusLabel(
+  status: PushAdminUserHealth["status"],
+) {
+  if (status === "working") return "Working";
+  if (status === "blocked") return "Blocked";
+  if (status === "failing") return "Failing";
+  if (status === "untested") return "Untested";
+
+  return "No Push";
+}
+
+function pushStatusBadgeClass(
+  status: PushAdminUserHealth["status"],
+) {
+  if (status === "working") {
+    return "border-success/30 bg-success/10 text-success";
+  }
+
+  if (
+    status === "blocked" ||
+    status === "failing"
+  ) {
+    return "border-destructive/30 bg-destructive/10 text-destructive";
+  }
+
+  if (status === "untested") {
+    return "border-warning/30 bg-warning/10 text-warning";
+  }
+
+  return "border-border bg-muted text-muted-foreground";
+}
+
+function pushStatusCardClass(
+  status: PushAdminUserHealth["status"],
+) {
+  if (status === "working") {
+    return "border-success/20 bg-success/[0.03]";
+  }
+
+  if (
+    status === "blocked" ||
+    status === "failing"
+  ) {
+    return "border-destructive/25 bg-destructive/[0.03]";
+  }
+
+  if (status === "untested") {
+    return "border-warning/25 bg-warning/[0.03]";
+  }
+
+  return "border-border";
+}
+
+function healthTime(
+  value: string | null,
+) {
+  return value
+    ? formatDateTime(value)
+    : "Never";
+}
+
+function AdminPushPanel() {
+  const { profiles } =
+    useStore();
+
+  const [title, setTitle] =
+    useState("");
+
+  const [body, setBody] =
+    useState("");
+
+  const [sending, setSending] =
+    useState(false);
+
+  const [
+    loadingStatus,
+    setLoadingStatus,
+  ] =
+    useState(true);
+
+  const [
+    enabledUserIds,
+    setEnabledUserIds,
+  ] =
+    useState<string[]>([]);
+
+  const [
+    userStatuses,
+    setUserStatuses,
+  ] =
+    useState<PushAdminUserHealth[]>([]);
+
+  const [
+    workingWindowDays,
+    setWorkingWindowDays,
+  ] =
+    useState(30);
+
+  const [
+    recipientMode,
+    setRecipientMode,
+  ] =
+    useState<"all" | "selected">("all");
+
+  const [
+    selectedUserIds,
+    setSelectedUserIds,
+  ] =
+    useState<string[]>([]);
+
+  const send =
+    useServerFn(broadcastPush);
+
+  const getStatus =
+    useServerFn(getPushAdminStatus);
 
   useEffect(() => {
-    let active = true;
+    let active =
+      true;
+
     setLoadingStatus(true);
 
     getStatus()
       .then((result) => {
         if (!active) return;
-        setEnabledUserIds(result.enabledUserIds);
+
+        setEnabledUserIds(
+          result.enabledUserIds,
+        );
+
+        setUserStatuses(
+          result.userStatuses,
+        );
+
+        setWorkingWindowDays(
+          result.workingWindowDays,
+        );
       })
       .catch(() => {
         if (!active) return;
-        toast.error("Could not load notification status");
+
+        toast.error(
+          "Could not load notification status",
+        );
       })
       .finally(() => {
-        if (active) setLoadingStatus(false);
+        if (active) {
+          setLoadingStatus(false);
+        }
       });
 
     return () => {
-      active = false;
+      active =
+        false;
     };
   }, [getStatus]);
 
-  const enabledSet = useMemo(() => new Set(enabledUserIds), [enabledUserIds]);
-  const enabledProfiles = useMemo(
-    () =>
-      profiles
-        .filter((profile) => enabledSet.has(profile.id))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [profiles, enabledSet],
-  );
-  const disabledProfiles = useMemo(
-    () =>
-      profiles
-        .filter((profile) => !enabledSet.has(profile.id))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [profiles, enabledSet],
-  );
+  const enabledSet =
+    useMemo(
+      () =>
+        new Set(enabledUserIds),
+      [enabledUserIds],
+    );
+
+  const healthByUser =
+    useMemo(
+      () =>
+        new Map(
+          userStatuses.map((status) => [
+            status.userId,
+            status,
+          ]),
+        ),
+      [userStatuses],
+    );
+
+  const enabledProfiles =
+    useMemo(
+      () =>
+        profiles
+          .filter((profile) =>
+            enabledSet.has(profile.id),
+          )
+          .sort((a, b) =>
+            a.name.localeCompare(b.name),
+          ),
+      [profiles, enabledSet],
+    );
+
+  const profileHealth =
+    useMemo(() => {
+      const priority:
+        Record<
+          PushAdminUserHealth["status"],
+          number
+        > = {
+        blocked: 0,
+        failing: 1,
+        no_push: 2,
+        untested: 3,
+        working: 4,
+      };
+
+      return profiles
+        .map((profile) => {
+          const health =
+            healthByUser.get(profile.id) ??
+            emptyPushHealth(profile.id);
+
+          const status =
+            visiblePushStatus(health);
+
+          return {
+            profile,
+            health,
+            status,
+          };
+        })
+        .sort(
+          (a, b) =>
+            priority[a.status] -
+              priority[b.status] ||
+            a.profile.name.localeCompare(
+              b.profile.name,
+            ),
+        );
+    }, [profiles, healthByUser]);
+
+  const statusCounts =
+    useMemo(() => {
+      const result = {
+        working: 0,
+        blocked: 0,
+        failing: 0,
+        untested: 0,
+        no_push: 0,
+      };
+
+      for (const item of profileHealth) {
+        result[item.status] += 1;
+      }
+
+      return result;
+    }, [profileHealth]);
 
   const canSend =
     title.trim().length > 0 &&
     body.trim().length > 0 &&
     !sending &&
-    (recipientMode === "all" || selectedUserIds.length > 0);
+    (
+      recipientMode === "all" ||
+      selectedUserIds.length > 0
+    );
 
-  function toggleUser(userId: string) {
+  function toggleUser(
+    userId: string,
+  ) {
     setSelectedUserIds((current) =>
       current.includes(userId)
-        ? current.filter((id) => id !== userId)
+        ? current.filter(
+            (id) => id !== userId,
+          )
         : [...current, userId],
     );
   }
 
-  async function refreshStatus() {
+  async function refreshStatus(
+    showError = false,
+  ) {
+    setLoadingStatus(true);
+
     try {
-      const result = await getStatus();
-      setEnabledUserIds(result.enabledUserIds);
+      const result =
+        await getStatus();
+
+      setEnabledUserIds(
+        result.enabledUserIds,
+      );
+
+      setUserStatuses(
+        result.userStatuses,
+      );
+
+      setWorkingWindowDays(
+        result.workingWindowDays,
+      );
+
+      const enabled =
+        new Set(
+          result.enabledUserIds,
+        );
+
+      setSelectedUserIds((current) =>
+        current.filter((id) =>
+          enabled.has(id),
+        ),
+      );
     } catch {
-      // Keep current UI state.
+      if (showError) {
+        toast.error(
+          "Could not refresh notification status",
+        );
+      }
+    } finally {
+      setLoadingStatus(false);
     }
   }
 
@@ -1481,25 +1817,311 @@ function AdminPushPanel() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Send className="size-4 text-primary" />
-          Send push notification
+          Push notifications
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="font-semibold">
+                Push health
+              </p>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                Browser permission, registration and recent Push delivery
+                health for every user.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full rounded-full sm:w-auto"
+              disabled={loadingStatus}
+              onClick={() =>
+                void refreshStatus(true)
+              }
+            >
+              {loadingStatus
+                ? "Checking…"
+                : "Refresh status"}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="rounded-2xl border border-success/20 bg-success/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Working
+              </p>
+              <p className="mt-1 text-xl font-semibold text-success">
+                {statusCounts.working}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-destructive/20 bg-destructive/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Blocked
+              </p>
+              <p className="mt-1 text-xl font-semibold text-destructive">
+                {statusCounts.blocked}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-destructive/20 bg-destructive/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Failing
+              </p>
+              <p className="mt-1 text-xl font-semibold text-destructive">
+                {statusCounts.failing}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-warning/20 bg-warning/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Untested
+              </p>
+              <p className="mt-1 text-xl font-semibold text-warning">
+                {statusCounts.untested}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-muted/30 p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                No Push
+              </p>
+              <p className="mt-1 text-xl font-semibold">
+                {statusCounts.no_push}
+              </p>
+            </div>
+          </div>
+
+          {loadingStatus &&
+          userStatuses.length === 0 ? (
+            <p className="rounded-2xl bg-muted/40 p-4 text-sm text-muted-foreground">
+              Checking notification health…
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {profileHealth.map(
+                ({
+                  profile,
+                  health,
+                  status,
+                }) => {
+                  const StatusIcon =
+                    status === "working"
+                      ? BellRing
+                      : status === "blocked" ||
+                          status === "no_push"
+                        ? BellOff
+                        : AlertTriangle;
+
+                  return (
+                    <div
+                      key={profile.id}
+                      className={`rounded-2xl border p-4 ${pushStatusCardClass(
+                        status,
+                      )}`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div
+                            className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-full ${
+                              status === "working"
+                                ? "bg-success/10 text-success"
+                                : status === "blocked" ||
+                                    status === "failing"
+                                  ? "bg-destructive/10 text-destructive"
+                                  : status === "untested"
+                                    ? "bg-warning/10 text-warning"
+                                    : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            <StatusIcon className="size-4" />
+                          </div>
+
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">
+                              {profile.name}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {profile.email}
+                            </p>
+                          </div>
+                        </div>
+
+                        <Badge
+                          variant="outline"
+                          className={`w-fit rounded-full ${pushStatusBadgeClass(
+                            status,
+                          )}`}
+                        >
+                          {pushStatusLabel(status)}
+                        </Badge>
+                      </div>
+
+                      <div className="mt-3 pl-12 text-xs text-muted-foreground">
+                        {status === "working" && (
+                          <>
+                            <p>
+                              Last successful Push:{" "}
+                              <span className="font-medium text-foreground">
+                                {healthTime(
+                                  health.lastSuccessAt,
+                                )}
+                              </span>
+                            </p>
+
+                            <p className="mt-1">
+                              {health.registeredDevices} registered device
+                              {health.registeredDevices === 1
+                                ? ""
+                                : "s"}
+                              {health.workingDevices > 0
+                                ? ` · ${health.workingDevices} recently working`
+                                : ""}
+                            </p>
+                          </>
+                        )}
+
+                        {status === "blocked" && (
+                          <>
+                            <p className="text-destructive">
+                              Browser notifications are blocked or no longer
+                              granted.
+                            </p>
+
+                            <p className="mt-1">
+                              Permission:{" "}
+                              <span className="font-medium">
+                                {health.lastPermission ??
+                                  "blocked"}
+                              </span>
+                              {" · "}
+                              Last browser check:{" "}
+                              {healthTime(
+                                health.lastPermissionAt,
+                              )}
+                            </p>
+                          </>
+                        )}
+
+                        {status === "failing" && (
+                          <>
+                            <p>
+                              Last failed Push:{" "}
+                              <span className="font-medium text-destructive">
+                                {healthTime(
+                                  health.lastFailureAt,
+                                )}
+                              </span>
+
+                              {health.lastFailureStatus
+                                ? ` · HTTP ${health.lastFailureStatus}`
+                                : ""}
+                            </p>
+
+                            {health.lastFailureMessage && (
+                              <p className="mt-1 break-words text-destructive/80">
+                                {health.lastFailureMessage}
+                              </p>
+                            )}
+
+                            <p className="mt-1">
+                              {health.registeredDevices} registered device
+                              {health.registeredDevices === 1
+                                ? ""
+                                : "s"}
+                            </p>
+                          </>
+                        )}
+
+                        {status === "untested" && (
+                          <>
+                            <p>
+                              A device is registered, but there is no recent
+                              successful Push delivery.
+                            </p>
+
+                            <p className="mt-1">
+                              Last attempt:{" "}
+                              {healthTime(
+                                health.lastAttemptAt,
+                              )}
+                              {" · "}
+                              {health.registeredDevices} registered device
+                              {health.registeredDevices === 1
+                                ? ""
+                                : "s"}
+                            </p>
+                          </>
+                        )}
+
+                        {status === "no_push" && (
+                          <>
+                            <p>
+                              No registered notification device.
+                            </p>
+
+                            {health.lastPermissionAt && (
+                              <p className="mt-1">
+                                Last browser check:{" "}
+                                {healthTime(
+                                  health.lastPermissionAt,
+                                )}
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                },
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Working means at least one registered device had a Push accepted
+            successfully within the last {workingWindowDays} days. Browser
+            permission is updated when POM detects that the permission changed.
+          </p>
+        </div>
+
+        <div className="border-t border-border pt-6">
+          <p className="font-semibold">
+            Send push notification
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Send a notification and the health list above will refresh with
+            the delivery result.
+          </p>
+        </div>
+
         <div className="space-y-2">
           <Label>Recipients</Label>
           <Select
             value={recipientMode}
             onValueChange={(value) =>
-              setRecipientMode(value as "all" | "selected")
+              setRecipientMode(
+                value as "all" | "selected",
+              )
             }
           >
             <SelectTrigger className="w-full sm:max-w-sm">
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
-              <SelectItem value="all">Everyone with notifications</SelectItem>
-              <SelectItem value="selected">Choose people</SelectItem>
+              <SelectItem value="all">
+                Everyone with notifications
+              </SelectItem>
+              <SelectItem value="selected">
+                Choose people
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1508,9 +2130,12 @@ function AdminPushPanel() {
           <div className="rounded-2xl border border-border p-4">
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-medium">Choose people</p>
+                <p className="text-sm font-medium">
+                  Choose people
+                </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Only people with notifications enabled can be selected.
+                  Only people with a registered notification device can be
+                  selected.
                 </p>
               </div>
 
@@ -1521,24 +2146,30 @@ function AdminPushPanel() {
                   variant="outline"
                   onClick={() =>
                     setSelectedUserIds(
-                      enabledProfiles.map((profile) => profile.id),
+                      enabledProfiles.map(
+                        (profile) => profile.id,
+                      ),
                     )
                   }
                 >
                   Select all
                 </Button>
+
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
-                  onClick={() => setSelectedUserIds([])}
+                  onClick={() =>
+                    setSelectedUserIds([])
+                  }
                 >
                   Clear
                 </Button>
               </div>
             </div>
 
-            {loadingStatus ? (
+            {loadingStatus &&
+            enabledProfiles.length === 0 ? (
               <p className="py-4 text-sm text-muted-foreground">
                 Loading notification status…
               </p>
@@ -1549,7 +2180,23 @@ function AdminPushPanel() {
             ) : (
               <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
                 {enabledProfiles.map((profile) => {
-                  const checked = selectedUserIds.includes(profile.id);
+                  const checked =
+                    selectedUserIds.includes(
+                      profile.id,
+                    );
+
+                  const health =
+                    healthByUser.get(
+                      profile.id,
+                    ) ??
+                    emptyPushHealth(
+                      profile.id,
+                    );
+
+                  const status =
+                    visiblePushStatus(
+                      health,
+                    );
 
                   return (
                     <label
@@ -1558,8 +2205,11 @@ function AdminPushPanel() {
                     >
                       <Checkbox
                         checked={checked}
-                        onCheckedChange={() => toggleUser(profile.id)}
+                        onCheckedChange={() =>
+                          toggleUser(profile.id)
+                        }
                       />
+
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
                           {profile.name}
@@ -1568,7 +2218,15 @@ function AdminPushPanel() {
                           {profile.email}
                         </p>
                       </div>
-                      <BellRing className="size-4 shrink-0 text-success" />
+
+                      <Badge
+                        variant="outline"
+                        className={`shrink-0 rounded-full text-[10px] ${pushStatusBadgeClass(
+                          status,
+                        )}`}
+                      >
+                        {pushStatusLabel(status)}
+                      </Badge>
                     </label>
                   );
                 })}
@@ -1588,7 +2246,9 @@ function AdminPushPanel() {
             maxLength={80}
             placeholder="e.g. Office closed tomorrow"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) =>
+              setTitle(event.target.value)
+            }
           />
         </div>
 
@@ -1601,7 +2261,9 @@ function AdminPushPanel() {
             className="resize-none rounded-2xl"
             placeholder="What do you want them to know?"
             value={body}
-            onChange={(event) => setBody(event.target.value)}
+            onChange={(event) =>
+              setBody(event.target.value)
+            }
           />
         </div>
 
@@ -1612,26 +2274,44 @@ function AdminPushPanel() {
             setSending(true);
 
             try {
-              const result = await send({
-                data: {
-                  title: title.trim(),
-                  body: body.trim(),
-                  ...(recipientMode === "selected"
-                    ? { userIds: selectedUserIds }
-                    : {}),
-                },
-              });
+              const result =
+                await send({
+                  data: {
+                    title:
+                      title.trim(),
+                    body:
+                      body.trim(),
+                    ...(recipientMode === "selected"
+                      ? {
+                          userIds:
+                            selectedUserIds,
+                        }
+                      : {}),
+                  },
+                });
 
-              toast.success(
-                `Push accepted by ${result.sent} registered device${
-                  result.sent === 1 ? "" : "s"
-                }`,
-              );
-              setTitle("");
-              setBody("");
+              if (result.sent > 0) {
+                toast.success(
+                  `Push accepted by ${result.sent} registered device${
+                    result.sent === 1 ? "" : "s"
+                  }`,
+                );
+
+                setTitle("");
+                setBody("");
+              } else {
+                toast.warning(
+                  "The Push was not accepted by any registered device",
+                );
+              }
+
               await refreshStatus();
             } catch {
-              toast.error("Could not send the push");
+              toast.error(
+                "Could not send the Push",
+              );
+
+              await refreshStatus();
             } finally {
               setSending(false);
             }
@@ -1641,67 +2321,18 @@ function AdminPushPanel() {
             ? "Sending…"
             : recipientMode === "selected"
               ? `Send to ${selectedUserIds.length} ${
-                  selectedUserIds.length === 1 ? "person" : "people"
+                  selectedUserIds.length === 1
+                    ? "person"
+                    : "people"
                 }`
               : "Send to everyone"}
         </Button>
 
         <p className="text-xs text-muted-foreground">
-          One person can have more than one registered device, so the number of
-          delivered devices can be higher than the number of selected people.
+          One person can have more than one registered device, so the number
+          of delivered devices can be higher than the number of selected
+          people.
         </p>
-
-        <div className="border-t border-border pt-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <BellOff className="size-4 text-warning" />
-                <p className="font-semibold">No registered notification device</p>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                These users currently cannot receive POM push notifications.
-              </p>
-            </div>
-
-            {!loadingStatus && (
-              <Badge variant="outline" className="w-fit rounded-full">
-                {disabledProfiles.length} / {profiles.length}
-              </Badge>
-            )}
-          </div>
-
-          {loadingStatus ? (
-            <p className="mt-4 text-sm text-muted-foreground">
-              Checking notification registrations…
-            </p>
-          ) : disabledProfiles.length === 0 ? (
-            <div className="mt-4 rounded-2xl bg-success/10 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-success">
-                <BellRing className="size-4" />
-                Everyone has at least one registered notification device.
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {disabledProfiles.map((profile) => (
-                <div
-                  key={profile.id}
-                  className="flex min-w-0 items-center gap-3 rounded-2xl border border-warning/30 bg-warning/5 p-3"
-                >
-                  <div className="grid size-9 shrink-0 place-items-center rounded-full bg-warning/15">
-                    <BellOff className="size-4 text-warning" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{profile.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {profile.email}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </CardContent>
     </Card>
   );

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -67,112 +68,143 @@ export function PushToggle() {
       "unknown",
     );
 
+  const permissionRef =
+    useRef<
+      PushPermissionState |
+      "unknown"
+    >(
+      "unknown",
+    );
+
+  const syncingRef =
+    useRef(
+      false,
+    );
+
   useEffect(() => {
     let active =
       true;
 
-    let syncing =
-      false;
-
-    let lastSyncAt =
-      0;
-
-    async function refresh(
-      force =
-        false,
-    ) {
-      const now =
-        Date.now();
-
-      if (
-        syncing
-      ) {
-        return;
-      }
-
-      if (
-        !force &&
-        now -
-          lastSyncAt <
-          1500
-      ) {
-        return;
-      }
-
-      syncing =
-        true;
-
-      lastSyncAt =
-        now;
-
-      try {
-        const state =
-          await syncPushClientStatus();
+    const applyPermission =
+      (
+        next:
+          PushPermissionState,
+      ) => {
+        permissionRef.current =
+          next;
 
         if (
-          !active
+          active
         ) {
-          return;
+          setPermission(
+            next,
+          );
         }
-
-        setSupported(
-          state.supported,
-        );
-
-        setPermission(
-          state.permission,
-        );
-
-        setEnabled(
-          state.enabled,
-        );
-      } catch {
-        if (
-          !active
-        ) {
-          return;
-        }
-
-        setSupported(
-          isPushSupported(),
-        );
-
-        setEnabled(
-          false,
-        );
-      } finally {
-        syncing =
-          false;
-      }
-    }
-
-    void refresh(
-      true,
-    );
-
-    const onFocus =
-      () => {
-        void refresh();
       };
 
-    const onVisibilityChange =
+    const sync =
+      async () => {
+        if (
+          syncingRef.current
+        ) {
+          return;
+        }
+
+        syncingRef.current =
+          true;
+
+        try {
+          const state =
+            await syncPushClientStatus();
+
+          if (
+            !active
+          ) {
+            return;
+          }
+
+          setSupported(
+            state.supported,
+          );
+
+          applyPermission(
+            state.permission,
+          );
+
+          setEnabled(
+            state.enabled,
+          );
+        } catch {
+          if (
+            !active
+          ) {
+            return;
+          }
+
+          const nextSupported =
+            isPushSupported();
+
+          setSupported(
+            nextSupported,
+          );
+
+          if (
+            nextSupported
+          ) {
+            applyPermission(
+              Notification.permission,
+            );
+          }
+
+          setEnabled(
+            false,
+          );
+        } finally {
+          syncingRef.current =
+            false;
+        }
+      };
+
+    /*
+     * One server sync when this component mounts.
+     * No polling.
+     */
+    void sync();
+
+    const syncOnlyIfPermissionChanged =
       () => {
         if (
-          document.visibilityState ===
-          "visible"
+          !isPushSupported()
         ) {
-          void refresh();
+          return;
         }
+
+        const current =
+          Notification.permission;
+
+        /*
+         * Focus/visibility events are common and should
+         * not spend server runs. We only sync again if
+         * Chrome's permission actually changed.
+         */
+        if (
+          current ===
+          permissionRef.current
+        ) {
+          return;
+        }
+
+        void sync();
       };
 
     window.addEventListener(
       "focus",
-      onFocus,
+      syncOnlyIfPermissionChanged,
     );
 
     document.addEventListener(
       "visibilitychange",
-      onVisibilityChange,
+      syncOnlyIfPermissionChanged,
     );
 
     return () => {
@@ -181,12 +213,12 @@ export function PushToggle() {
 
       window.removeEventListener(
         "focus",
-        onFocus,
+        syncOnlyIfPermissionChanged,
       );
 
       document.removeEventListener(
         "visibilitychange",
-        onVisibilityChange,
+        syncOnlyIfPermissionChanged,
       );
     };
   }, []);
@@ -209,15 +241,18 @@ export function PushToggle() {
         ) {
           await disablePush();
 
-          const state =
-            await syncPushClientStatus();
+          const nextPermission =
+            Notification.permission;
+
+          permissionRef.current =
+            nextPermission;
 
           setPermission(
-            state.permission,
+            nextPermission,
           );
 
           setEnabled(
-            state.enabled,
+            false,
           );
 
           toast.success(
@@ -226,24 +261,16 @@ export function PushToggle() {
         } else {
           await enablePush();
 
-          const state =
-            await syncPushClientStatus();
+          permissionRef.current =
+            "granted";
 
           setPermission(
-            state.permission,
+            "granted",
           );
 
           setEnabled(
-            state.enabled,
+            true,
           );
-
-          if (
-            !state.enabled
-          ) {
-            throw new Error(
-              "Push registration could not be verified on the server.",
-            );
-          }
 
           toast.success(
             "Push notifications are on for this device",
@@ -252,28 +279,23 @@ export function PushToggle() {
       } catch (
         error
       ) {
-        const state =
-          await syncPushClientStatus()
-            .catch(
-              () =>
-                null,
-            );
-
         if (
-          state
+          isPushSupported()
         ) {
-          setSupported(
-            state.supported,
-          );
+          const nextPermission =
+            Notification.permission;
+
+          permissionRef.current =
+            nextPermission;
 
           setPermission(
-            state.permission,
-          );
-
-          setEnabled(
-            state.enabled,
+            nextPermission,
           );
         }
+
+        setEnabled(
+          false,
+        );
 
         toast.error(
           error instanceof
