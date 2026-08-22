@@ -156,23 +156,32 @@ export async function syncGoogleSheetsSnapshot():
           "id, name",
         ),
 
+      /*
+       * Do NOT filter archived/deleted projects here.
+       * Google Sheets is the historical snapshot too.
+       */
       admin
         .from(
           "projects",
         )
         .select(
-          "id, name, team_id, created_by, archived_at, created_at, updated_at",
+          "id, name, team_id, created_by, archived_at, deleted_at, created_at, updated_at",
         )
         .order(
           "name",
         ),
 
+      /*
+       * Do NOT filter archived/deleted tasks here.
+       * A task removed from the live POM workspace must
+       * remain in Google Sheets as a historical record.
+       */
       admin
         .from(
           "tasks",
         )
         .select(
-          "id, title, team_id, owner_id, project_id, priority, status, deadline, blocked_reason, archived_at, updated_at",
+          "id, title, team_id, owner_id, project_id, priority, status, deadline, blocked_reason, archived_at, deleted_at, updated_at",
         )
         .order(
           "deadline",
@@ -316,7 +325,8 @@ export async function syncGoogleSheetsSnapshot():
 
         archived:
           Boolean(
-            project.archived_at,
+            project.archived_at ||
+              project.deleted_at,
           ),
 
         createdAt:
@@ -400,8 +410,16 @@ export async function syncGoogleSheetsSnapshot():
           priority:
             task.priority,
 
+          /*
+           * Use the existing Status column so the sheet
+           * clearly shows that a soft-deleted task was
+           * deleted, without requiring an Apps Script
+           * column change.
+           */
           status:
-            task.status,
+            task.deleted_at
+              ? "Deleted"
+              : task.status,
 
           deadline:
             task.deadline,
@@ -412,7 +430,8 @@ export async function syncGoogleSheetsSnapshot():
 
           archived:
             Boolean(
-              task.archived_at,
+              task.archived_at ||
+                task.deleted_at,
             ),
 
           updatedAt:

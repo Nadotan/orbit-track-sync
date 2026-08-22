@@ -137,7 +137,7 @@ export function AppSidebar() {
             </p>
 
             <p className="truncate text-xs text-sidebar-foreground/60">
-              version 3.1.0 tasks
+              version 4.0.0
             </p>
           </div>
         </div>
