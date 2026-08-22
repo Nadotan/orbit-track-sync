@@ -3,71 +3,99 @@ import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const subscriptionSchema =
-  z.object({
-    endpoint:
-      z.string()
-        .url()
-        .max(2000),
+export type PushAdminHealthStatus =
+  | "working"
+  | "blocked"
+  | "failing"
+  | "untested"
+  | "no_push";
 
-    p256dh:
-      z.string()
-        .min(1)
-        .max(500),
+export interface PushAdminUserHealth {
+  userId: string;
+  status: PushAdminHealthStatus;
+  registeredDevices: number;
+  workingDevices: number;
+  failingDevices: number;
+  untestedDevices: number;
+  reportingClients: number;
+  blockedClients: number;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureStatus: number | null;
+  lastFailureMessage: string | null;
+  lastPermission: "granted" | "denied" | "default" | "unsupported" | null;
+  lastPermissionAt: string | null;
+}
 
-    auth:
-      z.string()
-        .min(1)
-        .max(500),
-  });
+const PUSH_WORKING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-const endpointSchema =
-  z.object({
-    endpoint:
-      z.string()
-        .url()
-        .max(2000),
-  });
+const subscriptionSchema = z.object({
+  endpoint: z.string().url().max(2000),
+  p256dh: z.string().min(1).max(500),
+  auth: z.string().min(1).max(500),
+});
 
-const meetingSchema =
-  z.object({
-    meetingId:
-      z.string()
-        .uuid(),
-  });
+const endpointSchema = z.object({
+  endpoint: z.string().url().max(2000),
+});
 
-const rsvpChangeSchema =
-  z.object({
-    meetingId:
-      z.string()
-        .uuid(),
+const pushClientStatusSchema = z.object({
+  clientId: z.string().uuid(),
+  permission: z.enum(["granted", "denied", "default", "unsupported"]),
+  endpoint: z.string().url().max(2000).nullable(),
+});
 
-    status:
-      z.enum([
-        "Attending",
-        "Declined",
-      ]),
+const meetingSchema = z.object({
+  meetingId: z.string().uuid(),
+});
 
-    previousStatus:
-      z
-        .enum([
-          "Attending",
-          "Declined",
-        ])
-        .nullable(),
-  });
+const rsvpChangeSchema = z.object({
+  meetingId: z.string().uuid(),
+  status: z.enum(["Attending", "Declined"]),
+  previousStatus: z.enum(["Attending", "Declined"]).nullable(),
+});
 
-const timerSchema =
-  z.object({
-    startedAt:
-      z.string()
-        .datetime(),
-  });
+const timerSchema = z.object({
+  startedAt: z.string().datetime(),
+});
+
+function timestampMs(value: string | null | undefined) {
+  if (!value) return null;
+
+  const parsed = new Date(value).getTime();
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : null;
+}
+
+function latestTimestamp(
+  values: Array<string | null | undefined>,
+) {
+  let bestValue: string | null = null;
+  let bestMs = -Infinity;
+
+  for (const value of values) {
+    const ms = timestampMs(value);
+
+    if (
+      ms === null ||
+      ms <= bestMs
+    ) {
+      continue;
+    }
+
+    bestMs = ms;
+    bestValue = value ?? null;
+  }
+
+  return bestValue;
+}
 
 export const savePushSubscription =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -127,16 +155,14 @@ export const savePushSubscription =
         }
 
         return {
-          ok:
-            true,
+          ok: true,
         };
       },
     );
 
 export const removePushSubscription =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -180,16 +206,187 @@ export const removePushSubscription =
         }
 
         return {
-          ok:
-            true,
+          ok: true,
+        };
+      },
+    );
+
+export const reportPushClientStatus =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      pushClientStatusSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const now =
+          new Date()
+            .toISOString();
+
+        const [
+          {
+            data:
+              existing,
+            error:
+              existingError,
+          },
+
+          endpointResult,
+        ] =
+          await Promise.all([
+            (
+              supabaseAdmin as any
+            )
+              .from(
+                "push_clients",
+              )
+              .select(
+                "ever_registered_at",
+              )
+              .eq(
+                "user_id",
+                context.userId,
+              )
+              .eq(
+                "client_id",
+                data.clientId,
+              )
+              .maybeSingle(),
+
+            data.endpoint
+              ? supabaseAdmin
+                  .from(
+                    "push_subscriptions",
+                  )
+                  .select(
+                    "endpoint",
+                  )
+                  .eq(
+                    "user_id",
+                    context.userId,
+                  )
+                  .eq(
+                    "endpoint",
+                    data.endpoint,
+                  )
+                  .maybeSingle()
+              : Promise.resolve({
+                  data: null,
+                  error: null,
+                }),
+          ]);
+
+        if (
+          existingError
+        ) {
+          console.error(
+            "[push] Failed to load push client state",
+            existingError,
+          );
+
+          throw new Error(
+            existingError.message,
+          );
+        }
+
+        if (
+          endpointResult.error
+        ) {
+          console.error(
+            "[push] Failed to verify push client endpoint",
+            endpointResult.error,
+          );
+
+          throw new Error(
+            endpointResult.error.message,
+          );
+        }
+
+        const verifiedEndpoint =
+          endpointResult
+            .data
+            ?.endpoint ??
+          null;
+
+        const everRegisteredAt =
+          existing
+            ?.ever_registered_at ??
+          (
+            verifiedEndpoint
+              ? now
+              : null
+          );
+
+        const {
+          error,
+        } =
+          await (
+            supabaseAdmin as any
+          )
+            .from(
+              "push_clients",
+            )
+            .upsert(
+              {
+                user_id:
+                  context.userId,
+
+                client_id:
+                  data.clientId,
+
+                endpoint:
+                  verifiedEndpoint,
+
+                permission:
+                  data.permission,
+
+                last_seen_at:
+                  now,
+
+                ever_registered_at:
+                  everRegisteredAt,
+              },
+
+              {
+                onConflict:
+                  "user_id,client_id",
+              },
+            );
+
+        if (error) {
+          console.error(
+            "[push] Failed to save push client state",
+            error,
+          );
+
+          throw new Error(
+            error.message,
+          );
+        }
+
+        return {
+          ok: true,
         };
       },
     );
 
 export const markTimerRunning =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -246,16 +443,14 @@ export const markTimerRunning =
         }
 
         return {
-          ok:
-            true,
+          ok: true,
         };
       },
     );
 
 export const markTimerStopped =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -296,16 +491,14 @@ export const markTimerStopped =
         }
 
         return {
-          ok:
-            true,
+          ok: true,
         };
       },
     );
 
 export const sendClockReminder =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -329,8 +522,7 @@ export const sendClockReminder =
 
 export const notifyMeetingCreated =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -365,13 +557,8 @@ export const notifyMeetingCreated =
             )
             .maybeSingle();
 
-        const isAdmin =
-          Boolean(
-            adminRole,
-          );
-
         if (
-          !isAdmin
+          !adminRole
         ) {
           throw new Error(
             "Forbidden",
@@ -424,8 +611,7 @@ export const notifyMeetingCreated =
           !meeting
         ) {
           return {
-            sent:
-              0,
+            sent: 0,
           };
         }
 
@@ -466,8 +652,7 @@ export const notifyMeetingCreated =
 
 export const notifyRsvpChange =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -486,8 +671,7 @@ export const notifyRsvpChange =
             data.status
         ) {
           return {
-            sent:
-              0,
+            sent: 0,
           };
         }
 
@@ -528,8 +712,7 @@ export const notifyRsvpChange =
             data.status
         ) {
           return {
-            sent:
-              0,
+            sent: 0,
           };
         }
 
@@ -622,8 +805,7 @@ export const notifyRsvpChange =
 
 export const sweepReminders =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -667,8 +849,7 @@ const broadcastSchema =
 
 export const getPushAdminStatus =
   createServerFn({
-    method:
-      "GET",
+    method: "GET",
   })
     .middleware([
       requireSupabaseAuth,
@@ -714,49 +895,422 @@ export const getPushAdminStatus =
             "@/integrations/supabase/client.server"
           );
 
-        const {
-          data,
-          error,
-        } =
-          await supabaseAdmin
-            .from(
-              "push_subscriptions",
+        const [
+          subscriptionsResult,
+          clientsResult,
+        ] =
+          await Promise.all([
+            (
+              supabaseAdmin as any
             )
-            .select(
-              "user_id",
-            );
+              .from(
+                "push_subscriptions",
+              )
+              .select(
+                "user_id, endpoint, last_attempt_at, last_success_at, last_failure_at, last_failure_status, last_failure_message",
+              ),
+
+            (
+              supabaseAdmin as any
+            )
+              .from(
+                "push_clients",
+              )
+              .select(
+                "user_id, client_id, endpoint, permission, last_seen_at, ever_registered_at",
+              ),
+          ]);
 
         if (
-          error
+          subscriptionsResult.error
         ) {
           throw new Error(
-            error.message,
+            subscriptionsResult
+              .error
+              .message,
           );
         }
 
-        const enabledUserIds =
+        if (
+          clientsResult.error
+        ) {
+          throw new Error(
+            clientsResult
+              .error
+              .message,
+          );
+        }
+
+        type SubscriptionHealthRow = {
+          user_id: string;
+          endpoint: string;
+          last_attempt_at: string | null;
+          last_success_at: string | null;
+          last_failure_at: string | null;
+          last_failure_status: number | null;
+          last_failure_message: string | null;
+        };
+
+        type ClientHealthRow = {
+          user_id: string;
+          client_id: string;
+          endpoint: string | null;
+          permission:
+            | "granted"
+            | "denied"
+            | "default"
+            | "unsupported";
+          last_seen_at: string;
+          ever_registered_at: string | null;
+        };
+
+        const subscriptions =
+          (
+            subscriptionsResult
+              .data ??
+            []
+          ) as SubscriptionHealthRow[];
+
+        const clients =
+          (
+            clientsResult
+              .data ??
+            []
+          ) as ClientHealthRow[];
+
+        const userIds =
           [
-            ...new Set(
-              (
-                data ??
-                []
-              ).map(
+            ...new Set([
+              ...subscriptions.map(
                 (row) =>
                   row.user_id,
               ),
-            ),
+
+              ...clients.map(
+                (row) =>
+                  row.user_id,
+              ),
+            ]),
           ];
+
+        const now =
+          Date.now();
+
+        const userStatuses:
+          PushAdminUserHealth[] =
+          userIds.map(
+            (
+              userId,
+            ) => {
+              const userSubscriptions =
+                subscriptions.filter(
+                  (row) =>
+                    row.user_id ===
+                    userId,
+                );
+
+              const userClients =
+                clients.filter(
+                  (row) =>
+                    row.user_id ===
+                    userId,
+                );
+
+              let workingDevices =
+                0;
+
+              let failingDevices =
+                0;
+
+              let untestedDevices =
+                0;
+
+              const failingSubscriptionRows:
+                SubscriptionHealthRow[] =
+                [];
+
+              for (
+                const row of
+                userSubscriptions
+              ) {
+                const successMs =
+                  timestampMs(
+                    row.last_success_at,
+                  );
+
+                const failureMs =
+                  timestampMs(
+                    row.last_failure_at,
+                  );
+
+                if (
+                  failureMs !==
+                    null &&
+                  (
+                    successMs ===
+                      null ||
+                    failureMs >
+                      successMs
+                  )
+                ) {
+                  failingDevices +=
+                    1;
+
+                  failingSubscriptionRows.push(
+                    row,
+                  );
+
+                  continue;
+                }
+
+                if (
+                  successMs !==
+                    null &&
+                  now -
+                    successMs <=
+                    PUSH_WORKING_WINDOW_MS
+                ) {
+                  workingDevices +=
+                    1;
+
+                  continue;
+                }
+
+                untestedDevices +=
+                  1;
+              }
+
+              const registeredClients =
+                userClients.filter(
+                  (row) =>
+                    row.ever_registered_at !==
+                    null,
+                );
+
+              const blockedClients =
+                registeredClients.filter(
+                  (row) =>
+                    row.permission !==
+                    "granted",
+                ).length;
+
+              const allRegisteredClientsBlocked =
+                registeredClients.length >
+                  0 &&
+                blockedClients ===
+                  registeredClients.length;
+
+              let status:
+                PushAdminHealthStatus;
+
+              if (
+                workingDevices >
+                0
+              ) {
+                status =
+                  "working";
+              } else if (
+                blockedClients >
+                  0 &&
+                (
+                  userSubscriptions.length ===
+                    0 ||
+                  allRegisteredClientsBlocked
+                )
+              ) {
+                status =
+                  "blocked";
+              } else if (
+                failingDevices >
+                0
+              ) {
+                status =
+                  "failing";
+              } else if (
+                userSubscriptions.length >
+                0
+              ) {
+                status =
+                  "untested";
+              } else {
+                status =
+                  "no_push";
+              }
+
+              const failureRowsForDetails =
+                failingSubscriptionRows.length >
+                0
+                  ? failingSubscriptionRows
+                  : userSubscriptions;
+
+              const latestFailureRow =
+                failureRowsForDetails
+                  .reduce<
+                    SubscriptionHealthRow | null
+                  >(
+                    (
+                      latest,
+                      row,
+                    ) => {
+                      const rowMs =
+                        timestampMs(
+                          row.last_failure_at,
+                        );
+
+                      const latestMs =
+                        timestampMs(
+                          latest
+                            ?.last_failure_at,
+                        );
+
+                      if (
+                        rowMs ===
+                        null
+                      ) {
+                        return latest;
+                      }
+
+                      if (
+                        latestMs ===
+                          null ||
+                        rowMs >
+                          latestMs
+                      ) {
+                        return row;
+                      }
+
+                      return latest;
+                    },
+
+                    null,
+                  );
+
+              const latestClient =
+                userClients
+                  .reduce<
+                    ClientHealthRow | null
+                  >(
+                    (
+                      latest,
+                      row,
+                    ) => {
+                      const rowMs =
+                        timestampMs(
+                          row.last_seen_at,
+                        );
+
+                      const latestMs =
+                        timestampMs(
+                          latest
+                            ?.last_seen_at,
+                        );
+
+                      if (
+                        rowMs ===
+                        null
+                      ) {
+                        return latest;
+                      }
+
+                      if (
+                        latestMs ===
+                          null ||
+                        rowMs >
+                          latestMs
+                      ) {
+                        return row;
+                      }
+
+                      return latest;
+                    },
+
+                    null,
+                  );
+
+              return {
+                userId,
+                status,
+
+                registeredDevices:
+                  userSubscriptions.length,
+
+                workingDevices,
+                failingDevices,
+                untestedDevices,
+
+                reportingClients:
+                  userClients.length,
+
+                blockedClients,
+
+                lastAttemptAt:
+                  latestTimestamp(
+                    userSubscriptions.map(
+                      (row) =>
+                        row.last_attempt_at,
+                    ),
+                  ),
+
+                lastSuccessAt:
+                  latestTimestamp(
+                    userSubscriptions.map(
+                      (row) =>
+                        row.last_success_at,
+                    ),
+                  ),
+
+                lastFailureAt:
+                  latestFailureRow
+                    ?.last_failure_at ??
+                  null,
+
+                lastFailureStatus:
+                  latestFailureRow
+                    ?.last_failure_status ??
+                  null,
+
+                lastFailureMessage:
+                  latestFailureRow
+                    ?.last_failure_message ??
+                  null,
+
+                lastPermission:
+                  latestClient
+                    ?.permission ??
+                  null,
+
+                lastPermissionAt:
+                  latestClient
+                    ?.last_seen_at ??
+                  null,
+              };
+            },
+          );
+
+        const enabledUserIds =
+          userStatuses
+            .filter(
+              (status) =>
+                status.registeredDevices >
+                0,
+            )
+            .map(
+              (status) =>
+                status.userId,
+            );
 
         return {
           enabledUserIds,
+          userStatuses,
+          workingWindowDays:
+            30,
         };
       },
     );
 
 export const broadcastPush =
   createServerFn({
-    method:
-      "POST",
+    method: "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -831,11 +1385,8 @@ export const broadcastPush =
             0
           ) {
             return {
-              sent:
-                0,
-
-              recipients:
-                0,
+              sent: 0,
+              recipients: 0,
             };
           }
 
@@ -856,9 +1407,7 @@ export const broadcastPush =
                 requested,
               );
 
-          if (
-            error
-          ) {
+          if (error) {
             throw new Error(
               error.message,
             );
@@ -873,14 +1422,6 @@ export const broadcastPush =
                 profile.id,
             );
         } else {
-          /*
-           * "Everyone" means everyone who actually
-           * has at least one registered push device.
-           *
-           * Do not build the audience from profiles.
-           * The push subscription table is the
-           * source of truth for push recipients.
-           */
           const {
             data:
               subscriptions,
@@ -894,9 +1435,7 @@ export const broadcastPush =
                 "user_id",
               );
 
-          if (
-            error
-          ) {
+          if (error) {
             throw new Error(
               error.message,
             );
@@ -904,13 +1443,15 @@ export const broadcastPush =
 
           targetUserIds =
             [
-              ...new Set(
+              ...new Set<string>(
                 (
                   subscriptions ??
                   []
                 ).map(
                   (subscription) =>
-                    subscription.user_id,
+                    String(
+                      subscription.user_id,
+                    ),
                 ),
               ),
             ];
@@ -921,11 +1462,8 @@ export const broadcastPush =
           0
         ) {
           return {
-            sent:
-              0,
-
-            recipients:
-              0,
+            sent: 0,
+            recipients: 0,
           };
         }
 

@@ -12,6 +12,26 @@ export interface PushPayload {
 const THREE_HOURS_MS =
   3 * 60 * 60 * 1000;
 
+const PUSH_FETCH_TIMEOUT_MS =
+  10 * 1000;
+
+interface PushHealthPatch {
+  last_attempt_at:
+    string;
+
+  last_success_at?:
+    string | null;
+
+  last_failure_at?:
+    string | null;
+
+  last_failure_status?:
+    number | null;
+
+  last_failure_message?:
+    string | null;
+}
+
 function vapidKeys() {
   return {
     subject:
@@ -24,6 +44,56 @@ function vapidKeys() {
     privateKey:
       process.env["VAPID_PRIVATE_KEY"],
   };
+}
+
+async function recordPushHealth(
+  subscriptionId: string,
+  patch: PushHealthPatch,
+) {
+  const {
+    error,
+  } =
+    await (
+      supabaseAdmin as any
+    )
+      .from(
+        "push_subscriptions",
+      )
+      .update(
+        patch,
+      )
+      .eq(
+        "id",
+        subscriptionId,
+      );
+
+  if (error) {
+    console.error(
+      "[push] Failed to record delivery health",
+      error,
+    );
+  }
+}
+
+function pushErrorMessage(
+  error: unknown,
+) {
+  if (
+    error instanceof Error
+  ) {
+    return error.message
+      .slice(
+        0,
+        500,
+      );
+  }
+
+  return String(
+    error,
+  ).slice(
+    0,
+    500,
+  );
 }
 
 /**
@@ -44,26 +114,14 @@ export async function sendPushToUsers(
     return 0;
   }
 
-  const vapid =
-    vapidKeys();
-
-  if (
-    !vapid.publicKey ||
-    !vapid.privateKey
-  ) {
-    console.error(
-      "[push] Missing VAPID keys",
-    );
-
-    return 0;
-  }
-
   const {
     data: subscriptions,
     error,
   } =
     await supabaseAdmin
-      .from("push_subscriptions")
+      .from(
+        "push_subscriptions",
+      )
       .select(
         "id, endpoint, p256dh, auth",
       )
@@ -81,17 +139,65 @@ export async function sendPushToUsers(
     return 0;
   }
 
+  if (
+    !subscriptions ||
+    subscriptions.length === 0
+  ) {
+    return 0;
+  }
+
+  const vapid =
+    vapidKeys();
+
+  if (
+    !vapid.publicKey ||
+    !vapid.privateKey
+  ) {
+    console.error(
+      "[push] Missing VAPID keys",
+    );
+
+    const attemptAt =
+      new Date()
+        .toISOString();
+
+    await Promise.all(
+      subscriptions.map(
+        (row) =>
+          recordPushHealth(
+            row.id,
+            {
+              last_attempt_at:
+                attemptAt,
+
+              last_failure_at:
+                attemptAt,
+
+              last_failure_status:
+                null,
+
+              last_failure_message:
+                "Missing VAPID keys",
+            },
+          ),
+      ),
+    );
+
+    return 0;
+  }
+
   let sent = 0;
 
-  const stale: string[] =
-    [];
+  const stale:
+    string[] = [];
 
   await Promise.all(
-    (
-      subscriptions ??
-      []
-    ).map(
+    subscriptions.map(
       async (row) => {
+        const attemptAt =
+          new Date()
+            .toISOString();
+
         const subscription = {
           endpoint:
             row.endpoint,
@@ -134,25 +240,84 @@ export async function sendPushToUsers(
               vapid,
             );
 
-          const response =
-            await fetch(
-              row.endpoint,
-              {
-                method:
-                  request.method,
+          const controller =
+            new AbortController();
 
-                headers:
-                  request.headers as unknown as HeadersInit,
-
-                body:
-                  request.body as BodyInit,
+          const timeout =
+            setTimeout(
+              () => {
+                controller.abort();
               },
+
+              PUSH_FETCH_TIMEOUT_MS,
             );
+
+          let response:
+            Response;
+
+          try {
+            response =
+              await fetch(
+                row.endpoint,
+                {
+                  method:
+                    request.method,
+
+                  headers:
+                    request.headers as unknown as HeadersInit,
+
+                  body:
+                    request.body as BodyInit,
+
+                  signal:
+                    controller.signal,
+                },
+              );
+          } finally {
+            clearTimeout(
+              timeout,
+            );
+          }
 
           if (
             response.status === 404 ||
             response.status === 410
           ) {
+            let responseText =
+              "";
+
+            try {
+              responseText =
+                await response
+                  .text();
+            } catch {
+              // Ignore unreadable
+              // response bodies.
+            }
+
+            await recordPushHealth(
+              row.id,
+              {
+                last_attempt_at:
+                  attemptAt,
+
+                last_failure_at:
+                  attemptAt,
+
+                last_failure_status:
+                  response.status,
+
+                last_failure_message:
+                  (
+                    responseText ||
+                    "Push subscription is no longer valid"
+                  ).slice(
+                    0,
+                    500,
+                  ),
+              },
+            );
+
             stale.push(
               row.id,
             );
@@ -163,22 +328,93 @@ export async function sendPushToUsers(
           if (
             !response.ok
           ) {
+            let responseText =
+              "";
+
+            try {
+              responseText =
+                await response
+                  .text();
+            } catch {
+              // Ignore unreadable
+              // response bodies.
+            }
+
             console.error(
               "[push] Delivery failed",
               response.status,
-              await response.text(),
+              responseText,
+            );
+
+            await recordPushHealth(
+              row.id,
+              {
+                last_attempt_at:
+                  attemptAt,
+
+                last_failure_at:
+                  attemptAt,
+
+                last_failure_status:
+                  response.status,
+
+                last_failure_message:
+                  (
+                    responseText ||
+                    `Push provider returned ${response.status}`
+                  ).slice(
+                    0,
+                    500,
+                  ),
+              },
             );
 
             return;
           }
 
           sent += 1;
+
+          await recordPushHealth(
+            row.id,
+            {
+              last_attempt_at:
+                attemptAt,
+
+              last_success_at:
+                attemptAt,
+
+              last_failure_status:
+                null,
+
+              last_failure_message:
+                null,
+            },
+          );
         } catch (
           pushError
         ) {
           console.error(
             "[push] Delivery error",
             pushError,
+          );
+
+          await recordPushHealth(
+            row.id,
+            {
+              last_attempt_at:
+                attemptAt,
+
+              last_failure_at:
+                attemptAt,
+
+              last_failure_status:
+                null,
+
+              last_failure_message:
+                pushErrorMessage(
+                  pushError,
+                ),
+            },
           );
         }
       },
@@ -230,8 +466,12 @@ export async function audienceForMeeting(
       error,
     } =
       await supabaseAdmin
-        .from("team_members")
-        .select("user_id")
+        .from(
+          "team_members",
+        )
+        .select(
+          "user_id",
+        )
         .eq(
           "team_id",
           teamId,
@@ -248,8 +488,12 @@ export async function audienceForMeeting(
 
     return Array.from(
       new Set(
-        (data ?? []).map(
-          (row) => row.user_id,
+        (
+          data ??
+          []
+        ).map(
+          (row) =>
+            row.user_id,
         ),
       ),
     );
@@ -260,8 +504,12 @@ export async function audienceForMeeting(
     error,
   } =
     await supabaseAdmin
-      .from("profiles")
-      .select("id");
+      .from(
+        "profiles",
+      )
+      .select(
+        "id",
+      );
 
   if (error) {
     console.error(
@@ -271,7 +519,6 @@ export async function audienceForMeeting(
 
     return [];
   }
-
 
   return (
     data ??
@@ -373,8 +620,11 @@ export async function sendClockClosedPush(
 
   if (
     lastClosedPush !== null &&
-    Number.isFinite(lastClosedPush) &&
-    Date.now() - lastClosedPush <
+    Number.isFinite(
+      lastClosedPush,
+    ) &&
+    Date.now() -
+      lastClosedPush <
       CLOSED_PUSH_COOLDOWN_MS
   ) {
     return 0;
@@ -406,7 +656,8 @@ export async function sendClockClosedPush(
     }`;
 
   if (
-    totalMinutes >= 60
+    totalMinutes >=
+    60
   ) {
     const hours =
       Math.floor(
@@ -428,7 +679,9 @@ export async function sendClockClosedPush(
 
   const sent =
     await sendPushToUsers(
-      [userId],
+      [
+        userId,
+      ],
       {
         title:
           "Your clock is still running",
@@ -444,9 +697,12 @@ export async function sendClockClosedPush(
       },
     );
 
-  if (sent > 0) {
+  if (
+    sent > 0
+  ) {
     const {
-      error: updateError,
+      error:
+        updateError,
     } =
       await supabaseAdmin
         .from(
@@ -454,7 +710,8 @@ export async function sendClockClosedPush(
         )
         .update({
           closed_notified_at:
-            new Date().toISOString(),
+            new Date()
+              .toISOString(),
         })
         .eq(
           "user_id",
@@ -618,7 +875,9 @@ export async function sendClockRunningReminder(
 
   const sent =
     await sendPushToUsers(
-      [userId],
+      [
+        userId,
+      ],
       {
         title:
           "Your clock is still running",
@@ -793,7 +1052,8 @@ export async function runReminderSweep() {
 
     const [
       {
-        data: rsvps,
+        data:
+          rsvps,
       },
 
       {
