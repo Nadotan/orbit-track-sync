@@ -19,7 +19,6 @@ import {
   CheckCircle2,
   ClipboardList,
   Copy,
-  Flag,
   FolderKanban,
   FolderPlus,
   Loader2,
@@ -938,7 +937,7 @@ function TasksPage() {
     try {
       const result = await syncSheets();
       toast.success(
-        `Google Sheets synced — ${result.projects} projects, ${result.tasks} tasks`,
+        `Google Sheets synced — ${result.projects} projects, ${result.tasks} tasks, ${result.updates} updates`,
       );
     } catch (error) {
       toast.error(
@@ -1092,7 +1091,7 @@ function TasksPage() {
             No projects yet. Tasks can still exist without a project.
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {workspace.projects.map((project) => {
               const projectTasks = workspace.tasks.filter(
                 (task) => task.projectId === project.id,
@@ -1110,77 +1109,51 @@ function TasksPage() {
                 <button
                   key={project.id}
                   type="button"
-                  className="surface-card rounded-2xl border border-border p-4 text-left transition-colors hover:bg-muted/30"
+                  className="surface-card rounded-xl border border-border px-3.5 py-3 text-left transition-colors hover:bg-muted/30"
                   onClick={() => setSelectedProjectId(project.id)}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate font-medium">{project.name}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {project.teamName}
-                      </p>
+                      <p className="truncate text-sm font-semibold">{project.name}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1">
+                          <UserRound className="size-3" />
+                          {project.ownerName}
+                        </span>
+                        <span className={cn("inline-flex items-center gap-1", deadline.className)}>
+                          <CalendarClock className="size-3" />
+                          {deadline.text}
+                        </span>
+                        <span>
+                          {doneCount}/{projectTasks.length} subtasks
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1">
                       <Badge
                         variant="outline"
-                        className={cn("rounded-full", statusClass(project.status))}
-                      >
-                        {project.status}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={cn("rounded-full", priorityClass(project.priority))}
+                        className={cn("rounded-full px-2 py-0 text-[10px]", priorityClass(project.priority))}
                       >
                         {project.priority}
                       </Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn("rounded-full px-2 py-0 text-[10px]", statusClass(project.status))}
+                      >
+                        {project.status}
+                      </Badge>
                     </div>
                   </div>
 
-                  {project.description && (
-                    <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                      {project.description}
-                    </p>
-                  )}
-
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-xl bg-muted/50 p-2.5">
-                      <p className="text-muted-foreground">Owner</p>
-                      <p className="mt-1 truncate font-medium">{project.ownerName}</p>
-                    </div>
-                    <div className="rounded-xl bg-muted/50 p-2.5">
-                      <p className="text-muted-foreground">Deadline</p>
-                      <p className={cn("mt-1 truncate", deadline.className)}>
-                        {deadline.text}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        {doneCount}/{projectTasks.length} subtasks done
-                      </span>
-                      <span>{progress}%</span>
-                    </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+                  {projectTasks.length > 0 && (
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary transition-[width]"
                         style={{ width: `${progress}%` }}
                       />
                     </div>
-                  </div>
-
-                  <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <MessageSquareText className="size-3.5" />
-                      {project.updates.length} updates
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <ClipboardList className="size-3.5" />
-                      {projectTasks.length} subtasks
-                    </span>
-                  </div>
+                  )}
                 </button>
               );
             })}
@@ -1813,7 +1786,7 @@ function TaskList({
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-2">
       {tasks.map((task) => (
         <TaskCard key={task.id} task={task} onClick={() => onOpen(task.id)} />
       ))}
@@ -1823,7 +1796,6 @@ function TaskList({
 
 function TaskCard({ task, onClick }: { task: TaskItem; onClick: () => void }) {
   const deadline = deadlineInfo(task.deadline, task.status);
-  const totalLogged = loggedMs(task.updates);
 
   return (
     <Card
@@ -1838,103 +1810,54 @@ function TaskCard({ task, onClick }: { task: TaskItem; onClick: () => void }) {
         }
       }}
     >
-      <CardContent className="p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="break-words font-semibold">{task.title}</h2>
-              <Badge
-                variant="outline"
-                className={cn("rounded-full", priorityClass(task.priority))}
-              >
-                <Flag className="mr-1 size-3" />
-                {task.priority}
-              </Badge>
-            </div>
+      <CardContent className="px-3.5 py-3 sm:px-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="break-words text-sm font-semibold sm:text-base">
+              {task.title}
+            </h2>
 
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span>{task.teamName}</span>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground sm:text-xs">
+              <span className="inline-flex items-center gap-1">
+                <UserRound className="size-3" />
+                {task.ownerName}
+              </span>
+
+              <span className={cn("inline-flex items-center gap-1", deadline.className)}>
+                <CalendarClock className="size-3" />
+                {deadline.text}
+              </span>
+
               {task.projectName && (
-                <span className="inline-flex items-center gap-1">
-                  <FolderKanban className="size-3.5" />
+                <span className="inline-flex max-w-[14rem] items-center gap-1 truncate">
+                  <FolderKanban className="size-3" />
                   {task.projectName}
+                </span>
+              )}
+
+              {task.assignees.length > 1 && (
+                <span className="inline-flex items-center gap-1">
+                  <Users className="size-3" />
+                  {task.assignees.length} assigned
                 </span>
               )}
             </div>
           </div>
 
-          <div className="shrink-0 text-right">
+          <div className="flex shrink-0 flex-wrap justify-end gap-1">
             <Badge
               variant="outline"
-              className={cn("rounded-full", statusClass(task.status))}
+              className={cn("rounded-full px-2 py-0 text-[10px]", priorityClass(task.priority))}
+            >
+              {task.priority}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={cn("rounded-full px-2 py-0 text-[10px]", statusClass(task.status))}
             >
               {task.status}
             </Badge>
-            <p className={cn("mt-2 whitespace-nowrap text-xs", deadline.className)}>
-              {deadline.text}
-            </p>
           </div>
-        </div>
-
-        {task.description && (
-          <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-            {task.description}
-          </p>
-        )}
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl bg-muted/45 p-2.5">
-            <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <UserRound className="size-3" />
-              Owner
-            </p>
-            <p className="mt-1 truncate text-sm font-medium">{task.ownerName}</p>
-          </div>
-
-          <div className="rounded-xl bg-muted/45 p-2.5">
-            <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <CalendarClock className="size-3" />
-              Deadline
-            </p>
-            <p className={cn("mt-1 truncate text-sm", deadline.className)}>
-              {format(parseISO(task.deadline), "MMM d, yyyy")}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-muted/45 p-2.5">
-            <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <MessageSquareText className="size-3" />
-              Updates
-            </p>
-            <p className="mt-1 text-sm font-medium">{task.updates.length}</p>
-          </div>
-
-          <div className="rounded-xl bg-muted/45 p-2.5">
-            <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <Timer className="size-3" />
-              Logged
-            </p>
-            <p className="mt-1 text-sm font-medium">
-              {totalLogged > 0 ? formatHours(totalLogged) : "—"}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
-          <Users className="size-4 shrink-0 text-muted-foreground" />
-          {task.assignees.slice(0, 4).map((assignee) => (
-            <Badge key={assignee.id} variant="secondary" className="rounded-full">
-              {assignee.name}
-            </Badge>
-          ))}
-          {task.assignees.length > 4 && (
-            <Badge variant="outline" className="rounded-full">
-              +{task.assignees.length - 4}
-            </Badge>
-          )}
-          {task.status === "Done" && (
-            <CheckCircle2 className="ml-auto size-4 text-success" />
-          )}
         </div>
       </CardContent>
     </Card>

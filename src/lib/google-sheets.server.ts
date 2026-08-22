@@ -3,25 +3,63 @@ import {
 } from "@/integrations/supabase/client.server";
 
 interface GoogleSheetsProject {
+  id: string;
+  type: "PROJECT";
   name: string;
+  description: string;
   team: string;
-  createdBy: string;
+  owner: string;
+  priority: string;
+  status: string;
+  deadline: string;
+  progressPercent: number;
+  completedSubtasks: number;
+  subtaskCount: number;
+  updateCount: number;
+  latestUpdate: string;
+  latestUpdateAt: string;
+  blockedReason: string;
   archived: boolean;
+  deleted: boolean;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
 
 interface GoogleSheetsTask {
+  id: string;
+  type: "SUBTASK" | "TASK";
   project: string;
   title: string;
+  description: string;
   team: string;
   owner: string;
   assignees: string;
   priority: string;
   status: string;
   deadline: string;
+  loggedHours: number;
+  updateCount: number;
+  latestUpdate: string;
+  latestUpdateAt: string;
   blockedReason: string;
   archived: boolean;
+  deleted: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GoogleSheetsUpdate {
+  id: string;
+  type: "PROJECT" | "SUBTASK" | "TASK";
+  project: string;
+  workItem: string;
+  source: "Manual" | "Clock";
+  author: string;
+  body: string;
+  loggedHours: number;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -30,6 +68,7 @@ interface GoogleSheetsResponse {
   error?: string;
   projects?: number;
   tasks?: number;
+  updates?: number;
   syncedAt?: string;
 }
 
@@ -37,7 +76,11 @@ export interface GoogleSheetsSyncResult {
   ok: true;
   projects: number;
   tasks: number;
+  updates: number;
 }
+
+const GOOGLE_SHEETS_TIMEOUT_MS =
+  10 * 1000;
 
 function uniqueStrings(
   values: string[],
@@ -76,6 +119,61 @@ export function googleSheetsConfigured() {
   return Boolean(
     url &&
       secret,
+  );
+}
+
+function latestByCreatedAt(
+  updates: any[],
+) {
+  if (
+    updates.length ===
+    0
+  ) {
+    return null;
+  }
+
+  return updates.reduce(
+    (
+      latest,
+      update,
+    ) =>
+      new Date(
+        update.created_at,
+      ).getTime() >
+      new Date(
+        latest.created_at,
+      ).getTime()
+        ? update
+        : latest,
+  );
+}
+
+function loggedHoursForUpdates(
+  updates: any[],
+) {
+  const durationMs =
+    updates.reduce(
+      (
+        total,
+        update,
+      ) =>
+        total +
+        (
+          Number(
+            update.duration_ms,
+          ) ||
+          0
+        ),
+      0,
+    );
+
+  return Number(
+    (
+      durationMs /
+      3_600_000
+    ).toFixed(
+      2,
+    ),
   );
 }
 
@@ -138,6 +236,13 @@ export async function syncGoogleSheetsSnapshot():
       error:
         assignmentsError,
     },
+
+    {
+      data:
+        updates,
+      error:
+        updatesError,
+    },
   ] =
     await Promise.all([
       admin
@@ -157,31 +262,26 @@ export async function syncGoogleSheetsSnapshot():
         ),
 
       /*
-       * Do NOT filter archived/deleted projects here.
-       * Google Sheets is the historical snapshot too.
+       * Never filter archived/deleted work items here.
+       * Google Sheets doubles as the historical record.
        */
       admin
         .from(
           "projects",
         )
         .select(
-          "id, name, team_id, created_by, archived_at, deleted_at, created_at, updated_at",
+          "id, name, description, team_id, owner_id, priority, status, deadline, blocked_reason, created_by, archived_at, deleted_at, created_at, updated_at",
         )
         .order(
           "name",
         ),
 
-      /*
-       * Do NOT filter archived/deleted tasks here.
-       * A task removed from the live POM workspace must
-       * remain in Google Sheets as a historical record.
-       */
       admin
         .from(
           "tasks",
         )
         .select(
-          "id, title, team_id, owner_id, project_id, priority, status, deadline, blocked_reason, archived_at, deleted_at, updated_at",
+          "id, title, description, team_id, owner_id, project_id, priority, status, deadline, blocked_reason, created_by, archived_at, deleted_at, created_at, updated_at",
         )
         .order(
           "deadline",
@@ -198,6 +298,21 @@ export async function syncGoogleSheetsSnapshot():
         .select(
           "task_id, user_id",
         ),
+
+      admin
+        .from(
+          "work_updates",
+        )
+        .select(
+          "id, task_id, project_id, author_id, body, source, duration_ms, created_at, updated_at",
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          },
+        ),
     ]);
 
   if (
@@ -205,7 +320,8 @@ export async function syncGoogleSheetsSnapshot():
     teamsError ||
     projectsError ||
     tasksError ||
-    assignmentsError
+    assignmentsError ||
+    updatesError
   ) {
     throw new Error(
       "Unable to prepare Google Sheets data.",
@@ -253,7 +369,7 @@ export async function syncGoogleSheetsSnapshot():
   const projectMap =
     new Map<
       string,
-      string
+      any
     >(
       (
         projects ??
@@ -264,7 +380,26 @@ export async function syncGoogleSheetsSnapshot():
             any,
         ) => [
           project.id,
-          project.name,
+          project,
+        ],
+      ),
+    );
+
+  const taskMap =
+    new Map<
+      string,
+      any
+    >(
+      (
+        tasks ??
+        []
+      ).map(
+        (
+          task:
+            any,
+        ) => [
+          task.id,
+          task,
         ],
       ),
     );
@@ -296,6 +431,62 @@ export async function syncGoogleSheetsSnapshot():
     );
   }
 
+  const taskUpdatesMap =
+    new Map<
+      string,
+      any[]
+    >();
+
+  const projectUpdatesMap =
+    new Map<
+      string,
+      any[]
+    >();
+
+  for (
+    const update of
+    updates ??
+    []
+  ) {
+    if (
+      update.task_id
+    ) {
+      const current =
+        taskUpdatesMap.get(
+          update.task_id,
+        ) ??
+        [];
+
+      current.push(
+        update,
+      );
+
+      taskUpdatesMap.set(
+        update.task_id,
+        current,
+      );
+    }
+
+    if (
+      update.project_id
+    ) {
+      const current =
+        projectUpdatesMap.get(
+          update.project_id,
+        ) ??
+        [];
+
+      current.push(
+        update,
+      );
+
+      projectUpdatesMap.set(
+        update.project_id,
+        current,
+      );
+    }
+  }
+
   const sheetProjects:
     GoogleSheetsProject[] =
     (
@@ -305,36 +496,140 @@ export async function syncGoogleSheetsSnapshot():
       (
         project:
           any,
-      ) => ({
-        name:
-          project.name,
+      ) => {
+        const projectTasks =
+          (
+            tasks ??
+            []
+          ).filter(
+            (
+              task:
+                any,
+            ) =>
+              task.project_id ===
+                project.id &&
+              !task.archived_at &&
+              !task.deleted_at,
+          );
 
-        team:
-          project.team_id
-            ? teamMap.get(
-                project.team_id,
-              ) ??
-              "Unknown team"
-            : "General",
+        const completedSubtasks =
+          projectTasks.filter(
+            (
+              task:
+                any,
+            ) =>
+              task.status ===
+              "Done",
+          ).length;
 
-        createdBy:
-          profileMap.get(
-            project.created_by,
+        const progressPercent =
+          projectTasks.length ===
+          0
+            ? 0
+            : Math.round(
+                (
+                  completedSubtasks /
+                  projectTasks.length
+                ) *
+                  100,
+              );
+
+        const projectUpdates =
+          projectUpdatesMap.get(
+            project.id,
           ) ??
-          "Unknown member",
+          [];
 
-        archived:
-          Boolean(
-            project.archived_at ||
+        const latest =
+          latestByCreatedAt(
+            projectUpdates,
+          );
+
+        return {
+          id:
+            project.id,
+
+          type:
+            "PROJECT",
+
+          name:
+            project.name,
+
+          description:
+            project.description ??
+            "",
+
+          team:
+            project.team_id
+              ? teamMap.get(
+                  project.team_id,
+                ) ??
+                "Unknown team"
+              : "General",
+
+          owner:
+            profileMap.get(
+              project.owner_id,
+            ) ??
+            "Unknown member",
+
+          priority:
+            project.priority,
+
+          status:
+            project.deleted_at
+              ? "Deleted"
+              : project.status,
+
+          deadline:
+            project.deadline ??
+            "",
+
+          progressPercent,
+
+          completedSubtasks,
+
+          subtaskCount:
+            projectTasks.length,
+
+          updateCount:
+            projectUpdates.length,
+
+          latestUpdate:
+            latest?.body ??
+            "",
+
+          latestUpdateAt:
+            latest?.created_at ??
+            "",
+
+          blockedReason:
+            project.blocked_reason ??
+            "",
+
+          archived:
+            Boolean(
+              project.archived_at,
+            ),
+
+          deleted:
+            Boolean(
               project.deleted_at,
-          ),
+            ),
 
-        createdAt:
-          project.created_at,
+          createdBy:
+            profileMap.get(
+              project.created_by,
+            ) ??
+            "Unknown member",
 
-        updatedAt:
-          project.updated_at,
-      }),
+          createdAt:
+            project.created_at,
+
+          updatedAt:
+            project.updated_at,
+        };
+      },
     );
 
   const sheetTasks:
@@ -376,17 +671,43 @@ export async function syncGoogleSheetsSnapshot():
                 ),
             );
 
+        const taskUpdates =
+          taskUpdatesMap.get(
+            task.id,
+          ) ??
+          [];
+
+        const latest =
+          latestByCreatedAt(
+            taskUpdates,
+          );
+
+        const project =
+          task.project_id
+            ? projectMap.get(
+                task.project_id,
+              )
+            : null;
+
         return {
-          project:
+          id:
+            task.id,
+
+          type:
             task.project_id
-              ? projectMap.get(
-                  task.project_id,
-                ) ??
-                "Unknown project"
-              : "",
+              ? "SUBTASK"
+              : "TASK",
+
+          project:
+            project?.name ??
+            "",
 
           title:
             task.title,
+
+          description:
+            task.description ??
+            "",
 
           team:
             task.team_id
@@ -410,12 +731,6 @@ export async function syncGoogleSheetsSnapshot():
           priority:
             task.priority,
 
-          /*
-           * Use the existing Status column so the sheet
-           * clearly shows that a soft-deleted task was
-           * deleted, without requiring an Apps Script
-           * column change.
-           */
           status:
             task.deleted_at
               ? "Deleted"
@@ -424,15 +739,50 @@ export async function syncGoogleSheetsSnapshot():
           deadline:
             task.deadline,
 
+          loggedHours:
+            loggedHoursForUpdates(
+              taskUpdates.filter(
+                (
+                  update,
+                ) =>
+                  update.source ===
+                  "clock",
+              ),
+            ),
+
+          updateCount:
+            taskUpdates.length,
+
+          latestUpdate:
+            latest?.body ??
+            "",
+
+          latestUpdateAt:
+            latest?.created_at ??
+            "",
+
           blockedReason:
             task.blocked_reason ??
             "",
 
           archived:
             Boolean(
-              task.archived_at ||
-                task.deleted_at,
+              task.archived_at,
             ),
+
+          deleted:
+            Boolean(
+              task.deleted_at,
+            ),
+
+          createdBy:
+            profileMap.get(
+              task.created_by,
+            ) ??
+            "Unknown member",
+
+          createdAt:
+            task.created_at,
 
           updatedAt:
             task.updated_at,
@@ -440,34 +790,153 @@ export async function syncGoogleSheetsSnapshot():
       },
     );
 
-  const response =
-    await fetch(
-      url,
-      {
-        method:
-          "POST",
+  const sheetUpdates:
+    GoogleSheetsUpdate[] =
+    (
+      updates ??
+      []
+    ).map(
+      (
+        update:
+          any,
+      ) => {
+        const task =
+          update.task_id
+            ? taskMap.get(
+                update.task_id,
+              )
+            : null;
 
-        headers: {
-          "Content-Type":
-            "application/json",
-        },
+        const project =
+          update.project_id
+            ? projectMap.get(
+                update.project_id,
+              )
+            : task?.project_id
+              ? projectMap.get(
+                  task.project_id,
+                )
+              : null;
 
-        body:
-          JSON.stringify({
-            secret,
+        const type:
+          GoogleSheetsUpdate["type"] =
+          update.project_id
+            ? "PROJECT"
+            : task?.project_id
+              ? "SUBTASK"
+              : "TASK";
 
-            projects:
-              sheetProjects,
+        return {
+          id:
+            update.id,
 
-            tasks:
-              sheetTasks,
+          type,
 
-            syncedAt:
-              new Date()
-                .toISOString(),
-          }),
+          project:
+            project?.name ??
+            "",
+
+          workItem:
+            update.project_id
+              ? project?.name ??
+                "Unknown project"
+              : task?.title ??
+                "Unknown task",
+
+          source:
+            update.source ===
+            "clock"
+              ? "Clock"
+              : "Manual",
+
+          author:
+            update.author_id
+              ? profileMap.get(
+                  update.author_id,
+                ) ??
+                "Unknown member"
+              : "Unknown member",
+
+          body:
+            update.body,
+
+          loggedHours:
+            update.duration_ms
+              ? Number(
+                  (
+                    Number(
+                      update.duration_ms,
+                    ) /
+                    3_600_000
+                  ).toFixed(
+                    2,
+                  ),
+                )
+              : 0,
+
+          createdAt:
+            update.created_at,
+
+          updatedAt:
+            update.updated_at,
+        };
       },
     );
+
+  const controller =
+    new AbortController();
+
+  const timeout =
+    setTimeout(
+      () => {
+        controller.abort();
+      },
+      GOOGLE_SHEETS_TIMEOUT_MS,
+    );
+
+  let response:
+    Response;
+
+  try {
+    response =
+      await fetch(
+        url,
+        {
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body:
+            JSON.stringify({
+              secret,
+
+              projects:
+                sheetProjects,
+
+              tasks:
+                sheetTasks,
+
+              updates:
+                sheetUpdates,
+
+              syncedAt:
+                new Date()
+                  .toISOString(),
+            }),
+
+          signal:
+            controller.signal,
+        },
+      );
+  } finally {
+    clearTimeout(
+      timeout,
+    );
+  }
 
   if (
     !response.ok
@@ -508,6 +977,9 @@ export async function syncGoogleSheetsSnapshot():
 
     tasks:
       sheetTasks.length,
+
+    updates:
+      sheetUpdates.length,
   };
 }
 
@@ -515,8 +987,10 @@ export async function syncGoogleSheetsSnapshot():
  * Automatic sync must never make a normal
  * POM task/project mutation fail.
  *
- * If Google is temporarily unavailable,
- * Admin can use the manual full-sync button later.
+ * Updates from Clock/manual notes are included in the
+ * next normal snapshot, but they do NOT trigger a new
+ * Google Sheets sync on their own. This keeps usage cheap.
+ * Admin can always use the manual Sync Sheets button.
  */
 export async function safeSyncGoogleSheetsSnapshot() {
   if (
