@@ -410,6 +410,7 @@ function smartSortTasks(tasks: TaskItem[]) {
 
     const deadlineDifference =
       parseISO(a.deadline).getTime() - parseISO(b.deadline).getTime();
+
     if (deadlineDifference !== 0) return deadlineDifference;
 
     return a.title.localeCompare(b.title);
@@ -418,16 +419,69 @@ function smartSortTasks(tasks: TaskItem[]) {
 
 function sortProjectTasks(tasks: TaskItem[]) {
   const open = smartSortTasks(tasks.filter((task) => task.status !== "Done"));
+
   const done = [...tasks]
     .filter((task) => task.status === "Done")
     .sort((a, b) => {
       const deadlineDifference =
         parseISO(a.deadline).getTime() - parseISO(b.deadline).getTime();
+
       if (deadlineDifference !== 0) return deadlineDifference;
+
       return a.title.localeCompare(b.title);
     });
 
   return [...open, ...done];
+}
+
+function LinkifiedText({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
+  const parts = text.split(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi);
+
+  return (
+    <span
+      className={cn(
+        "whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+        className,
+      )}
+    >
+      {parts.map((part, index) => {
+        if (!/^(https?:\/\/|www\.)/i.test(part)) {
+          return <span key={`${index}-${part.slice(0, 12)}`}>{part}</span>;
+        }
+
+        let url = part;
+        let suffix = "";
+
+        while (url && /[.,!?;:)\]]$/.test(url)) {
+          suffix = url.slice(-1) + suffix;
+          url = url.slice(0, -1);
+        }
+
+        const href = /^www\./i.test(url) ? `https://${url}` : url;
+
+        return (
+          <span key={`${index}-${part.slice(0, 12)}`}>
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-medium text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary [overflow-wrap:anywhere]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {url}
+            </a>
+            {suffix}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 function roleLabel(role: TaskRole) {
@@ -465,23 +519,29 @@ function TasksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [projectEditOpen, setProjectEditOpen] = useState(false);
+  const [taskEditOpen, setTaskEditOpen] = useState(false);
   const [teamLeadsOpen, setTeamLeadsOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const [createForm, setCreateForm] = useState<TaskFormValue>(
     defaultTaskForm("user", [], ""),
   );
+
   const [editForm, setEditForm] = useState<TaskFormValue | null>(null);
+
   const [projectForm, setProjectForm] = useState<ProjectFormValue>(
     defaultProjectForm("user", [], ""),
   );
+
   const [projectEditForm, setProjectEditForm] =
     useState<ProjectFormValue | null>(null);
 
   const [blockedPrompt, setBlockedPrompt] = useState<BlockedPrompt | null>(null);
   const [blockedReasonDraft, setBlockedReasonDraft] = useState("");
+
   const [pendingProjectCompletion, setPendingProjectCompletion] =
     useState<PendingProjectCompletion | null>(null);
+
   const [leadBusyId, setLeadBusyId] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
@@ -492,6 +552,7 @@ function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
+
   const [deadlineFilter, setDeadlineFilter] =
     useState<DeadlineFilter>("all");
 
@@ -521,6 +582,7 @@ function TasksPage() {
         workspace.currentUserId,
       ),
     );
+
     setProjectForm(
       defaultProjectForm(
         workspace.role,
@@ -536,11 +598,13 @@ function TasksPage() {
 
   const selectedTask =
     workspace?.tasks.find((task) => task.id === selectedTaskId) ?? null;
+
   const selectedProject =
     workspace?.projects.find((project) => project.id === projectPageId) ?? null;
 
   useEffect(() => {
     setEditForm(selectedTask ? taskToForm(selectedTask) : null);
+    setTaskEditOpen(false);
   }, [selectedTask?.id, selectedTask?.updatedAt]);
 
   useEffect(() => {
@@ -576,6 +640,7 @@ function TasksPage() {
   );
 
   const allTasks = openTasks;
+
   const doneTasks = useMemo(
     () => (workspace?.tasks ?? []).filter((task) => task.status === "Done"),
     [workspace],
@@ -588,9 +653,16 @@ function TasksPage() {
 
     for (const task of openTasks) {
       const days = deadlineDays(task.deadline);
-      if (days < 0) overdue += 1;
-      else if (days <= 7) dueSoon += 1;
-      if (task.status === "Blocked") blocked += 1;
+
+      if (days < 0) {
+        overdue += 1;
+      } else if (days <= 7) {
+        dueSoon += 1;
+      }
+
+      if (task.status === "Blocked") {
+        blocked += 1;
+      }
     }
 
     return {
@@ -605,6 +677,7 @@ function TasksPage() {
     if (tab === "my") return myTasks;
     if (tab === "team") return teamTasks;
     if (tab === "done") return doneTasks;
+
     return allTasks;
   }, [tab, myTasks, teamTasks, allTasks, doneTasks]);
 
@@ -625,12 +698,16 @@ function TasksPage() {
           .join(" ")
           .toLowerCase();
 
-        if (!haystack.includes(query)) return false;
+        if (!haystack.includes(query)) {
+          return false;
+        }
       }
 
       if (teamFilter !== "all") {
         if (teamFilter === "general") {
-          if (task.teamId !== null) return false;
+          if (task.teamId !== null) {
+            return false;
+          }
         } else if (task.teamId !== teamFilter) {
           return false;
         }
@@ -638,16 +715,26 @@ function TasksPage() {
 
       if (projectFilter !== "all") {
         if (projectFilter === "none") {
-          if (task.projectId !== null) return false;
+          if (task.projectId !== null) {
+            return false;
+          }
         } else if (task.projectId !== projectFilter) {
           return false;
         }
       }
 
-      if (statusFilter !== "all" && task.status !== statusFilter) return false;
-      if (priorityFilter !== "all" && task.priority !== priorityFilter)
+      if (statusFilter !== "all" && task.status !== statusFilter) {
         return false;
-      if (ownerFilter !== "all" && task.ownerId !== ownerFilter) return false;
+      }
+
+      if (priorityFilter !== "all" && task.priority !== priorityFilter) {
+        return false;
+      }
+
+      if (ownerFilter !== "all" && task.ownerId !== ownerFilter) {
+        return false;
+      }
+
       if (
         assigneeFilter !== "all" &&
         !task.assignees.some((assignee) => assignee.id === assigneeFilter)
@@ -657,6 +744,7 @@ function TasksPage() {
 
       if (deadlineFilter !== "all") {
         const days = deadlineDays(task.deadline);
+
         if (deadlineFilter === "overdue" && days >= 0) return false;
         if (deadlineFilter === "today" && days !== 0) return false;
         if (deadlineFilter === "soon" && (days < 0 || days > 7)) return false;
@@ -702,6 +790,7 @@ function TasksPage() {
 
   function openProject(projectId: string) {
     setProjectEditOpen(false);
+
     void navigate({
       search: (previous) => ({
         ...previous,
@@ -713,6 +802,7 @@ function TasksPage() {
   function closeProjectPage() {
     setSelectedTaskId(null);
     setProjectEditOpen(false);
+
     void navigate({
       search: (previous) => {
         const next = { ...previous };
@@ -744,7 +834,9 @@ function TasksPage() {
   const managerTeams =
     currentWorkspace.role === "admin"
       ? currentWorkspace.teams
-      : currentWorkspace.teams.filter((team) => currentWorkspace.teamIds.includes(team.id));
+      : currentWorkspace.teams.filter((team) =>
+          currentWorkspace.teamIds.includes(team.id),
+        );
 
   const canCreate =
     currentWorkspace.role === "admin" ||
@@ -752,11 +844,15 @@ function TasksPage() {
 
   const filteredProject =
     projectFilter !== "all" && projectFilter !== "none"
-      ? currentWorkspace.projects.find((project) => project.id === projectFilter) ?? null
+      ? currentWorkspace.projects.find(
+          (project) => project.id === projectFilter,
+        ) ?? null
       : null;
 
   const projectPageTasks = selectedProject
-    ? currentWorkspace.tasks.filter((task) => task.projectId === selectedProject.id)
+    ? currentWorkspace.tasks.filter(
+        (task) => task.projectId === selectedProject.id,
+      )
     : [];
 
   function incompleteProjectTaskCount(projectId: string) {
@@ -779,6 +875,7 @@ function TasksPage() {
     }
 
     const teamId = project.teamId ?? "general";
+
     const eligiblePeople =
       project.teamId === null
         ? currentWorkspace.people
@@ -786,13 +883,18 @@ function TasksPage() {
             person.teamIds.includes(project.teamId!),
           );
 
-    const ownerId = eligiblePeople.some((person) => person.id === project.ownerId)
+    const ownerId = eligiblePeople.some(
+      (person) => person.id === project.ownerId,
+    )
       ? project.ownerId
-      : eligiblePeople.some((person) => person.id === currentWorkspace.currentUserId)
+      : eligiblePeople.some(
+            (person) => person.id === currentWorkspace.currentUserId,
+          )
         ? currentWorkspace.currentUserId
         : eligiblePeople[0]?.id ?? "";
 
     const today = format(new Date(), "yyyy-MM-dd");
+
     const defaultDeadline =
       project.deadline && project.deadline >= today
         ? project.deadline
@@ -806,6 +908,7 @@ function TasksPage() {
       assigneeIds: ownerId ? [ownerId] : [],
       deadline: defaultDeadline,
     });
+
     setCreateOpen(true);
   }
 
@@ -817,6 +920,7 @@ function TasksPage() {
         currentWorkspace.currentUserId,
       ),
     );
+
     setCreateProjectOpen(true);
   }
 
@@ -825,24 +929,32 @@ function TasksPage() {
       toast.error("Task title is required.");
       return;
     }
+
     if (!createForm.deadline) {
       toast.error("Choose a deadline.");
       return;
     }
+
     if (!createForm.ownerId) {
       toast.error("Choose an owner.");
       return;
     }
+
     if (createForm.assigneeIds.length === 0) {
       toast.error("Assign at least one person.");
       return;
     }
-    if (createForm.status === "Blocked" && !createForm.blockedReason.trim()) {
+
+    if (
+      createForm.status === "Blocked" &&
+      !createForm.blockedReason.trim()
+    ) {
       toast.error("Add a reason for the blocked task.");
       return;
     }
 
     setSaving(true);
+
     try {
       await create({
         data: {
@@ -855,13 +967,15 @@ function TasksPage() {
           blockedReason: createForm.blockedReason,
           projectId:
             createForm.projectId === "none" ? null : createForm.projectId,
-          teamId: createForm.teamId === "general" ? null : createForm.teamId,
+          teamId:
+            createForm.teamId === "general" ? null : createForm.teamId,
           assigneeIds: createForm.assigneeIds,
         },
       });
 
       toast.success("Task created");
       setCreateOpen(false);
+
       await load();
     } catch (error) {
       toast.error(
@@ -877,20 +991,27 @@ function TasksPage() {
       toast.error("Project name is required.");
       return;
     }
+
     if (!projectForm.ownerId) {
       toast.error("Choose a project owner.");
       return;
     }
+
     if (!projectForm.teamId) {
       toast.error("Choose a project scope.");
       return;
     }
-    if (projectForm.status === "Blocked" && !projectForm.blockedReason.trim()) {
+
+    if (
+      projectForm.status === "Blocked" &&
+      !projectForm.blockedReason.trim()
+    ) {
       toast.error("Add a reason for the blocked project.");
       return;
     }
 
     setSaving(true);
+
     try {
       const result = await createNewProject({
         data: {
@@ -901,12 +1022,14 @@ function TasksPage() {
           priority: projectForm.priority,
           ownerId: projectForm.ownerId,
           blockedReason: projectForm.blockedReason,
-          teamId: projectForm.teamId === "general" ? null : projectForm.teamId,
+          teamId:
+            projectForm.teamId === "general" ? null : projectForm.teamId,
         },
       });
 
       toast.success("Project created");
       setCreateProjectOpen(false);
+
       await load();
       openProject(result.id);
     } catch (error) {
@@ -925,24 +1048,32 @@ function TasksPage() {
       toast.error("Task title is required.");
       return;
     }
+
     if (!editForm.deadline) {
       toast.error("Choose a deadline.");
       return;
     }
+
     if (!editForm.ownerId) {
       toast.error("Choose an owner.");
       return;
     }
+
     if (editForm.assigneeIds.length === 0) {
       toast.error("Assign at least one person.");
       return;
     }
-    if (editForm.status === "Blocked" && !editForm.blockedReason.trim()) {
+
+    if (
+      editForm.status === "Blocked" &&
+      !editForm.blockedReason.trim()
+    ) {
       toast.error("Add a reason for the blocked task.");
       return;
     }
 
     setSaving(true);
+
     try {
       await update({
         data: {
@@ -954,13 +1085,16 @@ function TasksPage() {
           priority: editForm.priority,
           ownerId: editForm.ownerId,
           blockedReason: editForm.blockedReason,
-          projectId: editForm.projectId === "none" ? null : editForm.projectId,
-          teamId: editForm.teamId === "general" ? null : editForm.teamId,
+          projectId:
+            editForm.projectId === "none" ? null : editForm.projectId,
+          teamId:
+            editForm.teamId === "general" ? null : editForm.teamId,
           assigneeIds: editForm.assigneeIds,
         },
       });
 
       toast.success("Task updated");
+
       await load();
     } catch (error) {
       toast.error(
@@ -974,12 +1108,16 @@ function TasksPage() {
   async function handleStatusUpdate() {
     if (!selectedTask || !editForm) return;
 
-    if (editForm.status === "Blocked" && !editForm.blockedReason.trim()) {
+    if (
+      editForm.status === "Blocked" &&
+      !editForm.blockedReason.trim()
+    ) {
       toast.error("Add a reason for the blocked task.");
       return;
     }
 
     setSaving(true);
+
     try {
       await updateStatus({
         data: {
@@ -989,7 +1127,12 @@ function TasksPage() {
         },
       });
 
-      toast.success(editForm.status === "Done" ? "Task completed" : "Status updated");
+      toast.success(
+        editForm.status === "Done"
+          ? "Task completed"
+          : "Status updated",
+      );
+
       await load();
     } catch (error) {
       toast.error(
@@ -1006,6 +1149,7 @@ function TasksPage() {
     blockedReason = "",
   ) {
     const key = `task:${task.id}:status`;
+
     setQuickBusyKey(key);
 
     try {
@@ -1016,7 +1160,13 @@ function TasksPage() {
           blockedReason,
         },
       });
-      toast.success(status === "Done" ? "Task completed" : "Status updated");
+
+      toast.success(
+        status === "Done"
+          ? "Task completed"
+          : "Status updated",
+      );
+
       await load();
     } catch (error) {
       toast.error(
@@ -1028,25 +1178,44 @@ function TasksPage() {
   }
 
   function handleQuickTaskStatus(task: TaskItem, status: TaskStatus) {
-    if (!task.canEditStatus || task.status === status) return;
+    if (!task.canEditStatus || task.status === status) {
+      return;
+    }
 
     if (status === "Blocked") {
       setBlockedReasonDraft("");
-      setBlockedPrompt({ kind: "task", id: task.id, title: task.title });
+
+      setBlockedPrompt({
+        kind: "task",
+        id: task.id,
+        title: task.title,
+      });
+
       return;
     }
 
     void performQuickTaskStatus(task, status);
   }
 
-  async function handleQuickTaskPriority(task: TaskItem, priority: TaskPriority) {
-    if (!task.canEditDetails || task.priority === priority) return;
+  async function handleQuickTaskPriority(
+    task: TaskItem,
+    priority: TaskPriority,
+  ) {
+    if (!task.canEditDetails || task.priority === priority) {
+      return;
+    }
 
     const key = `task:${task.id}:priority`;
+
     setQuickBusyKey(key);
+
     try {
-      await update({ data: taskUpdateData(task, { priority }) });
+      await update({
+        data: taskUpdateData(task, { priority }),
+      });
+
       toast.success("Priority updated");
+
       await load();
     } catch (error) {
       toast.error(
@@ -1057,19 +1226,35 @@ function TasksPage() {
     }
   }
 
-  async function handleQuickTaskDeadline(task: TaskItem, deadline: string) {
-    if (!task.canEditDetails || !deadline || task.deadline === deadline) return;
+  async function handleQuickTaskDeadline(
+    task: TaskItem,
+    deadline: string,
+  ) {
+    if (
+      !task.canEditDetails ||
+      !deadline ||
+      task.deadline === deadline
+    ) {
+      return;
+    }
 
     const key = `task:${task.id}:deadline`;
+
     setQuickBusyKey(key);
+
     try {
-      await update({ data: taskUpdateData(task, { deadline }) });
+      await update({
+        data: taskUpdateData(task, { deadline }),
+      });
+
       toast.success("Deadline updated");
+
       await load();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not update deadline.",
       );
+
       throw error;
     } finally {
       setQuickBusyKey(null);
@@ -1078,13 +1263,23 @@ function TasksPage() {
 
   async function handleArchive() {
     if (!selectedTask) return;
-    if (!window.confirm(`Archive "${selectedTask.title}"?`)) return;
+
+    if (!window.confirm(`Archive "${selectedTask.title}"?`)) {
+      return;
+    }
 
     setSaving(true);
+
     try {
-      await archive({ data: { taskId: selectedTask.id } });
+      await archive({
+        data: {
+          taskId: selectedTask.id,
+        },
+      });
+
       toast.success("Task archived");
       setSelectedTaskId(null);
+
       await load();
     } catch (error) {
       toast.error(
@@ -1099,10 +1294,17 @@ function TasksPage() {
     if (!selectedTask) return;
 
     setSaving(true);
+
     try {
-      await duplicate({ data: { taskId: selectedTask.id } });
+      await duplicate({
+        data: {
+          taskId: selectedTask.id,
+        },
+      });
+
       toast.success("Task duplicated");
       setSelectedTaskId(null);
+
       await load();
     } catch (error) {
       toast.error(
@@ -1115,6 +1317,7 @@ function TasksPage() {
 
   async function handleDelete() {
     if (!selectedTask) return;
+
     if (
       !window.confirm(
         `Delete "${selectedTask.title}" from POM? It will stay in Google Sheets as a historical Deleted task.`,
@@ -1124,10 +1327,20 @@ function TasksPage() {
     }
 
     setSaving(true);
+
     try {
-      await remove({ data: { taskId: selectedTask.id } });
-      toast.success("Task deleted from POM and kept in Google Sheets");
+      await remove({
+        data: {
+          taskId: selectedTask.id,
+        },
+      });
+
+      toast.success(
+        "Task deleted from POM and kept in Google Sheets",
+      );
+
       setSelectedTaskId(null);
+
       await load();
     } catch (error) {
       toast.error(
@@ -1142,6 +1355,7 @@ function TasksPage() {
     if (!selectedProject || !projectEditForm) return;
 
     setSaving(true);
+
     try {
       await saveProject({
         data: {
@@ -1154,11 +1368,14 @@ function TasksPage() {
           ownerId: projectEditForm.ownerId,
           blockedReason: projectEditForm.blockedReason,
           teamId:
-            projectEditForm.teamId === "general" ? null : projectEditForm.teamId,
+            projectEditForm.teamId === "general"
+              ? null
+              : projectEditForm.teamId,
         },
       });
 
       toast.success("Project updated");
+
       await load();
     } catch (error) {
       toast.error(
@@ -1176,10 +1393,12 @@ function TasksPage() {
       toast.error("Project name is required.");
       return;
     }
+
     if (!projectEditForm.ownerId) {
       toast.error("Choose a project owner.");
       return;
     }
+
     if (
       projectEditForm.status === "Blocked" &&
       !projectEditForm.blockedReason.trim()
@@ -1193,7 +1412,11 @@ function TasksPage() {
       selectedProject.status !== "Done" &&
       incompleteProjectTaskCount(selectedProject.id) > 0
     ) {
-      setPendingProjectCompletion({ mode: "full", projectId: selectedProject.id });
+      setPendingProjectCompletion({
+        mode: "full",
+        projectId: selectedProject.id,
+      });
+
       return;
     }
 
@@ -1204,6 +1427,7 @@ function TasksPage() {
     if (!selectedProject || !projectEditForm) return;
 
     setSaving(true);
+
     try {
       await saveProjectStatus({
         data: {
@@ -1212,7 +1436,9 @@ function TasksPage() {
           blockedReason: projectEditForm.blockedReason,
         },
       });
+
       toast.success("Project status updated");
+
       await load();
     } catch (error) {
       toast.error(
@@ -1245,6 +1471,7 @@ function TasksPage() {
         mode: "details",
         projectId: selectedProject.id,
       });
+
       return;
     }
 
@@ -1257,6 +1484,7 @@ function TasksPage() {
     blockedReason = "",
   ) {
     const key = `project:${project.id}:status`;
+
     setQuickBusyKey(key);
 
     try {
@@ -1267,7 +1495,13 @@ function TasksPage() {
           blockedReason,
         },
       });
-      toast.success(status === "Done" ? "Project completed" : "Project status updated");
+
+      toast.success(
+        status === "Done"
+          ? "Project completed"
+          : "Project status updated",
+      );
+
       await load();
     } catch (error) {
       toast.error(
@@ -1280,12 +1514,26 @@ function TasksPage() {
     }
   }
 
-  function handleQuickProjectStatus(project: TaskProject, status: TaskStatus) {
-    if (!project.canEditStatus || project.status === status) return;
+  function handleQuickProjectStatus(
+    project: TaskProject,
+    status: TaskStatus,
+  ) {
+    if (
+      !project.canEditStatus ||
+      project.status === status
+    ) {
+      return;
+    }
 
     if (status === "Blocked") {
       setBlockedReasonDraft("");
-      setBlockedPrompt({ kind: "project", id: project.id, title: project.name });
+
+      setBlockedPrompt({
+        kind: "project",
+        id: project.id,
+        title: project.name,
+      });
+
       return;
     }
 
@@ -1294,7 +1542,11 @@ function TasksPage() {
       project.status !== "Done" &&
       incompleteProjectTaskCount(project.id) > 0
     ) {
-      setPendingProjectCompletion({ mode: "quick", projectId: project.id });
+      setPendingProjectCompletion({
+        mode: "quick",
+        projectId: project.id,
+      });
+
       return;
     }
 
@@ -1305,13 +1557,24 @@ function TasksPage() {
     project: TaskProject,
     priority: TaskPriority,
   ) {
-    if (!project.canEditDetails || project.priority === priority) return;
+    if (
+      !project.canEditDetails ||
+      project.priority === priority
+    ) {
+      return;
+    }
 
     const key = `project:${project.id}:priority`;
+
     setQuickBusyKey(key);
+
     try {
-      await saveProject({ data: projectUpdateData(project, { priority }) });
+      await saveProject({
+        data: projectUpdateData(project, { priority }),
+      });
+
       toast.success("Project priority updated");
+
       await load();
     } catch (error) {
       toast.error(
@@ -1328,14 +1591,25 @@ function TasksPage() {
     project: TaskProject,
     deadline: string,
   ) {
-    if (!project.canEditDetails) return;
-    if ((project.deadline ?? "") === deadline) return;
+    if (!project.canEditDetails) {
+      return;
+    }
+
+    if ((project.deadline ?? "") === deadline) {
+      return;
+    }
 
     const key = `project:${project.id}:deadline`;
+
     setQuickBusyKey(key);
+
     try {
-      await saveProject({ data: projectUpdateData(project, { deadline }) });
+      await saveProject({
+        data: projectUpdateData(project, { deadline }),
+      });
+
       toast.success("Project deadline updated");
+
       await load();
     } catch (error) {
       toast.error(
@@ -1343,6 +1617,7 @@ function TasksPage() {
           ? error.message
           : "Could not update project deadline.",
       );
+
       throw error;
     } finally {
       setQuickBusyKey(null);
@@ -1353,31 +1628,57 @@ function TasksPage() {
     if (!blockedPrompt) return;
 
     const reason = blockedReasonDraft.trim();
+
     if (!reason) {
-      toast.error("Add a reason before marking this item as Blocked.");
+      toast.error(
+        "Add a reason before marking this item as Blocked.",
+      );
+
       return;
     }
 
     const prompt = blockedPrompt;
+
     setBlockedPrompt(null);
 
     if (prompt.kind === "task") {
-      const task = currentWorkspace.tasks.find((item) => item.id === prompt.id);
-      if (task) await performQuickTaskStatus(task, "Blocked", reason);
+      const task = currentWorkspace.tasks.find(
+        (item) => item.id === prompt.id,
+      );
+
+      if (task) {
+        await performQuickTaskStatus(
+          task,
+          "Blocked",
+          reason,
+        );
+      }
+
       return;
     }
 
-    const project = currentWorkspace.projects.find((item) => item.id === prompt.id);
-    if (project) await performQuickProjectStatus(project, "Blocked", reason);
+    const project = currentWorkspace.projects.find(
+      (item) => item.id === prompt.id,
+    );
+
+    if (project) {
+      await performQuickProjectStatus(
+        project,
+        "Blocked",
+        reason,
+      );
+    }
   }
 
   async function confirmProjectCompletion() {
     if (!pendingProjectCompletion) return;
 
     const pending = pendingProjectCompletion;
+
     const project = currentWorkspace.projects.find(
       (item) => item.id === pending.projectId,
     );
+
     setPendingProjectCompletion(null);
 
     if (!project) return;
@@ -1397,14 +1698,24 @@ function TasksPage() {
 
   async function handleProjectArchive() {
     if (!selectedProject) return;
-    if (!window.confirm(`Archive "${selectedProject.name}"?`)) return;
+
+    if (!window.confirm(`Archive "${selectedProject.name}"?`)) {
+      return;
+    }
 
     setSaving(true);
+
     try {
-      await archiveExistingProject({ data: { projectId: selectedProject.id } });
+      await archiveExistingProject({
+        data: {
+          projectId: selectedProject.id,
+        },
+      });
+
       toast.success("Project archived");
       setProjectFilter("all");
       closeProjectPage();
+
       await load();
     } catch (error) {
       toast.error(
@@ -1417,6 +1728,7 @@ function TasksPage() {
 
   async function handleAddTaskUpdate(body: string) {
     if (!selectedTask) return;
+
     await addUpdate({
       data: {
         taskId: selectedTask.id,
@@ -1424,11 +1736,13 @@ function TasksPage() {
         body,
       },
     });
+
     await load();
   }
 
   async function handleAddProjectUpdate(body: string) {
     if (!selectedProject) return;
+
     await addUpdate({
       data: {
         taskId: null,
@@ -1436,41 +1750,68 @@ function TasksPage() {
         body,
       },
     });
+
     await load();
   }
 
   async function handleGoogleSheetsSync() {
-    if (currentWorkspace.role !== "admin" || syncingSheets) return;
+    if (
+      currentWorkspace.role !== "admin" ||
+      syncingSheets
+    ) {
+      return;
+    }
 
     setSyncingSheets(true);
+
     try {
       const result = await syncSheets();
+
       toast.success(
         `Google Sheets synced — ${result.projects} projects, ${result.tasks} tasks, ${result.updates} updates`,
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not sync Google Sheets.",
+        error instanceof Error
+          ? error.message
+          : "Could not sync Google Sheets.",
       );
     } finally {
       setSyncingSheets(false);
     }
   }
 
-  async function handleLeadChange(person: TaskPerson, enabled: boolean) {
-    if (enabled && person.teamIds.length === 0) {
-      toast.error("Assign this person to a team first.");
+  async function handleLeadChange(
+    person: TaskPerson,
+    enabled: boolean,
+  ) {
+    if (
+      enabled &&
+      person.teamIds.length === 0
+    ) {
+      toast.error(
+        "Assign this person to a team first.",
+      );
+
       return;
     }
 
     setLeadBusyId(person.id);
+
     try {
-      await changeTeamLead({ data: { userId: person.id, enabled } });
+      await changeTeamLead({
+        data: {
+          userId: person.id,
+          enabled,
+        },
+      });
+
       toast.success(
         enabled
           ? `${person.name} is now a Team Lead`
           : `${person.name} is now a User`,
       );
+
       await load();
     } catch (error) {
       toast.error(
@@ -1485,7 +1826,10 @@ function TasksPage() {
     busyKey: quickBusyKey,
     onStatusChange: handleQuickTaskStatus,
     onPriorityChange: (task, priority) =>
-      void handleQuickTaskPriority(task, priority),
+      void handleQuickTaskPriority(
+        task,
+        priority,
+      ),
     onDeadlineChange: handleQuickTaskDeadline,
   };
 
@@ -1493,13 +1837,19 @@ function TasksPage() {
     busyKey: quickBusyKey,
     onStatusChange: handleQuickProjectStatus,
     onPriorityChange: (project, priority) =>
-      void handleQuickProjectPriority(project, priority),
+      void handleQuickProjectPriority(
+        project,
+        priority,
+      ),
     onDeadlineChange: handleQuickProjectDeadline,
   };
 
-  const incompleteForConfirmation = pendingProjectCompletion
-    ? incompleteProjectTaskCount(pendingProjectCompletion.projectId)
-    : 0;
+  const incompleteForConfirmation =
+    pendingProjectCompletion
+      ? incompleteProjectTaskCount(
+          pendingProjectCompletion.projectId,
+        )
+      : 0;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 pb-28 md:pb-10">
@@ -1509,28 +1859,39 @@ function TasksPage() {
             project={selectedProject}
             tasks={projectPageTasks}
             onBack={closeProjectPage}
-            onEdit={() => setProjectEditOpen(true)}
+            onEdit={() =>
+              setProjectEditOpen(true)
+            }
             onOpenTask={setSelectedTaskId}
             onAddUpdate={handleAddProjectUpdate}
             taskActions={taskCardActions}
             projectActions={projectCardActions}
           />
         ) : (
-          <ProjectNotFound onBack={closeProjectPage} />
+          <ProjectNotFound
+            onBack={closeProjectPage}
+          />
         )
       ) : (
         <>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold sm:text-3xl">Tasks</h1>
-                <Badge variant="outline" className="rounded-full">
+                <h1 className="text-2xl font-semibold sm:text-3xl">
+                  Tasks
+                </h1>
+
+                <Badge
+                  variant="outline"
+                  className="rounded-full"
+                >
                   {roleLabel(currentWorkspace.role)}
                 </Badge>
               </div>
+
               <p className="mt-1 text-sm text-muted-foreground">
-                Projects and tasks in one currentWorkspace. Edit common fields directly
-                from their cards.
+                Projects and tasks in one workspace.
+                Edit common fields directly from their cards.
               </p>
             </div>
 
@@ -1540,18 +1901,28 @@ function TasksPage() {
                   type="button"
                   variant="outline"
                   disabled={syncingSheets}
-                  onClick={() => void handleGoogleSheetsSync()}
+                  onClick={() =>
+                    void handleGoogleSheetsSync()
+                  }
                 >
                   <RefreshCw
-                    className={cn("size-4", syncingSheets && "animate-spin")}
+                    className={cn(
+                      "size-4",
+                      syncingSheets && "animate-spin",
+                    )}
                   />
-                  {syncingSheets ? "Syncing…" : "Sync Sheets"}
+
+                  {syncingSheets
+                    ? "Syncing…"
+                    : "Sync Sheets"}
                 </Button>
 
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setTeamLeadsOpen(true)}
+                  onClick={() =>
+                    setTeamLeadsOpen(true)
+                  }
                 >
                   <ShieldCheck className="size-4" />
                   Team Leads
@@ -1560,23 +1931,38 @@ function TasksPage() {
             )}
           </div>
 
-          {currentWorkspace.role === "team_lead" && managerTeams.length === 0 && (
-            <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 text-sm">
-              <div className="flex gap-3">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
-                <p>You are a Team Lead, but you are not assigned to a team yet.</p>
+          {currentWorkspace.role ===
+            "team_lead" &&
+            managerTeams.length === 0 && (
+              <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 text-sm">
+                <div className="flex gap-3">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+
+                  <p>
+                    You are a Team Lead, but you are
+                    not assigned to a team yet.
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <SummaryCard label="Open" value={summary.open} />
-            <SummaryCard label="Due Soon" value={summary.dueSoon} />
+            <SummaryCard
+              label="Open"
+              value={summary.open}
+            />
+
+            <SummaryCard
+              label="Due Soon"
+              value={summary.dueSoon}
+            />
+
             <SummaryCard
               label="Overdue"
               value={summary.overdue}
               danger={summary.overdue > 0}
             />
+
             <SummaryCard
               label="Blocked"
               value={summary.blocked}
@@ -1590,28 +1976,37 @@ function TasksPage() {
                 <FolderKanban className="size-4 text-primary" />
                 Projects
               </h2>
+
               <p className="mt-1 text-xs text-muted-foreground">
-                Open a project for its overview, tasks and project updates.
+                Open a project for its overview, tasks
+                and project updates.
               </p>
             </div>
 
-            {currentWorkspace.projects.length === 0 ? (
+            {currentWorkspace.projects.length ===
+            0 ? (
               <div className="rounded-2xl border border-dashed border-border p-5 text-sm text-muted-foreground">
-                No projects yet. Tasks can still exist without a project.
+                No projects yet. Tasks can still exist
+                without a project.
               </div>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {currentWorkspace.projects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    tasks={currentWorkspace.tasks.filter(
-                      (task) => task.projectId === project.id,
-                    )}
-                    onOpen={() => openProject(project.id)}
-                    actions={projectCardActions}
-                  />
-                ))}
+                {currentWorkspace.projects.map(
+                  (project) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      tasks={currentWorkspace.tasks.filter(
+                        (task) =>
+                          task.projectId === project.id,
+                      )}
+                      onOpen={() =>
+                        openProject(project.id)
+                      }
+                      actions={projectCardActions}
+                    />
+                  ),
+                )}
               </div>
             )}
           </section>
@@ -1620,21 +2015,29 @@ function TasksPage() {
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+
                 <Input
                   className="pl-9"
                   placeholder="Search tasks and updates…"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) =>
+                    setSearch(event.target.value)
+                  }
                 />
               </div>
 
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setFiltersOpen((current) => !current)}
+                onClick={() =>
+                  setFiltersOpen(
+                    (current) => !current,
+                  )
+                }
               >
                 <SlidersHorizontal className="size-4" />
                 Filters
+
                 {activeFilterCount > 0 && (
                   <Badge
                     variant="secondary"
@@ -1645,8 +2048,13 @@ function TasksPage() {
                 )}
               </Button>
 
-              {(activeFilterCount > 0 || search) && (
-                <Button type="button" variant="ghost" onClick={clearFilters}>
+              {(activeFilterCount > 0 ||
+                search) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={clearFilters}
+                >
                   Clear
                 </Button>
               )}
@@ -1659,12 +2067,20 @@ function TasksPage() {
                   value={teamFilter}
                   onChange={setTeamFilter}
                   items={[
-                    { value: "all", label: "All teams" },
-                    { value: "general", label: "General" },
-                    ...currentWorkspace.teams.map((team) => ({
-                      value: team.id,
-                      label: team.name,
-                    })),
+                    {
+                      value: "all",
+                      label: "All teams",
+                    },
+                    {
+                      value: "general",
+                      label: "General",
+                    },
+                    ...currentWorkspace.teams.map(
+                      (team) => ({
+                        value: team.id,
+                        label: team.name,
+                      }),
+                    ),
                   ]}
                 />
 
@@ -1673,12 +2089,20 @@ function TasksPage() {
                   value={projectFilter}
                   onChange={setProjectFilter}
                   items={[
-                    { value: "all", label: "All projects" },
-                    { value: "none", label: "No project" },
-                    ...currentWorkspace.projects.map((project) => ({
-                      value: project.id,
-                      label: project.name,
-                    })),
+                    {
+                      value: "all",
+                      label: "All projects",
+                    },
+                    {
+                      value: "none",
+                      label: "No project",
+                    },
+                    ...currentWorkspace.projects.map(
+                      (project) => ({
+                        value: project.id,
+                        label: project.name,
+                      }),
+                    ),
                   ]}
                 />
 
@@ -1687,8 +2111,14 @@ function TasksPage() {
                   value={statusFilter}
                   onChange={setStatusFilter}
                   items={[
-                    { value: "all", label: "All statuses" },
-                    ...STATUSES.map((status) => ({ value: status, label: status })),
+                    {
+                      value: "all",
+                      label: "All statuses",
+                    },
+                    ...STATUSES.map((status) => ({
+                      value: status,
+                      label: status,
+                    })),
                   ]}
                 />
 
@@ -1697,7 +2127,10 @@ function TasksPage() {
                   value={priorityFilter}
                   onChange={setPriorityFilter}
                   items={[
-                    { value: "all", label: "All priorities" },
+                    {
+                      value: "all",
+                      label: "All priorities",
+                    },
                     ...PRIORITIES.map((priority) => ({
                       value: priority,
                       label: priority,
@@ -1710,11 +2143,16 @@ function TasksPage() {
                   value={ownerFilter}
                   onChange={setOwnerFilter}
                   items={[
-                    { value: "all", label: "All owners" },
-                    ...currentWorkspace.people.map((person) => ({
-                      value: person.id,
-                      label: person.name,
-                    })),
+                    {
+                      value: "all",
+                      label: "All owners",
+                    },
+                    ...currentWorkspace.people.map(
+                      (person) => ({
+                        value: person.id,
+                        label: person.name,
+                      }),
+                    ),
                   ]}
                 />
 
@@ -1723,11 +2161,16 @@ function TasksPage() {
                   value={assigneeFilter}
                   onChange={setAssigneeFilter}
                   items={[
-                    { value: "all", label: "All assignees" },
-                    ...currentWorkspace.people.map((person) => ({
-                      value: person.id,
-                      label: person.name,
-                    })),
+                    {
+                      value: "all",
+                      label: "All assignees",
+                    },
+                    ...currentWorkspace.people.map(
+                      (person) => ({
+                        value: person.id,
+                        label: person.name,
+                      }),
+                    ),
                   ]}
                 />
 
@@ -1735,42 +2178,71 @@ function TasksPage() {
                   label="Deadline"
                   value={deadlineFilter}
                   onChange={(value) =>
-                    setDeadlineFilter(value as DeadlineFilter)
+                    setDeadlineFilter(
+                      value as DeadlineFilter,
+                    )
                   }
                   items={[
-                    { value: "all", label: "Any deadline" },
-                    { value: "overdue", label: "Overdue" },
-                    { value: "today", label: "Due today" },
-                    { value: "soon", label: "Next 7 days" },
-                    { value: "later", label: "Later" },
+                    {
+                      value: "all",
+                      label: "Any deadline",
+                    },
+                    {
+                      value: "overdue",
+                      label: "Overdue",
+                    },
+                    {
+                      value: "today",
+                      label: "Due today",
+                    },
+                    {
+                      value: "soon",
+                      label: "Next 7 days",
+                    },
+                    {
+                      value: "later",
+                      label: "Later",
+                    },
                   ]}
                 />
               </div>
             )}
           </div>
 
-          <Tabs value={tab} onValueChange={(value) => setTab(value as TaskTab)}>
+          <Tabs
+            value={tab}
+            onValueChange={(value) =>
+              setTab(value as TaskTab)
+            }
+          >
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="my">
                 My Tasks
+
                 <span className="ml-1 hidden text-xs opacity-60 sm:inline">
                   {myTasks.length}
                 </span>
               </TabsTrigger>
+
               <TabsTrigger value="team">
                 Team Tasks
+
                 <span className="ml-1 hidden text-xs opacity-60 sm:inline">
                   {teamTasks.length}
                 </span>
               </TabsTrigger>
+
               <TabsTrigger value="all">
                 All Tasks
+
                 <span className="ml-1 hidden text-xs opacity-60 sm:inline">
                   {allTasks.length}
                 </span>
               </TabsTrigger>
+
               <TabsTrigger value="done">
                 Done
+
                 <span className="ml-1 hidden text-xs opacity-60 sm:inline">
                   {doneTasks.length}
                 </span>
@@ -1780,16 +2252,22 @@ function TasksPage() {
             {filteredProject && (
               <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Project</p>
+                  <p className="text-xs text-muted-foreground">
+                    Project
+                  </p>
+
                   <p className="truncate text-sm font-medium">
                     {filteredProject.name}
                   </p>
                 </div>
+
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => setProjectFilter("all")}
+                  onClick={() =>
+                    setProjectFilter("all")
+                  }
                 >
                   <X className="size-4" />
                   Show all
@@ -1797,8 +2275,19 @@ function TasksPage() {
               </div>
             )}
 
-            {(["my", "team", "all", "done"] as TaskTab[]).map((value) => (
-              <TabsContent key={value} value={value} className="mt-4">
+            {(
+              [
+                "my",
+                "team",
+                "all",
+                "done",
+              ] as TaskTab[]
+            ).map((value) => (
+              <TabsContent
+                key={value}
+                value={value}
+                className="mt-4"
+              >
                 <TaskList
                   tasks={filteredTasks}
                   emptyTitle={
@@ -1832,7 +2321,8 @@ function TasksPage() {
         <FloatingCreateMenu
           onNewTask={() =>
             openNewTask(
-              projectPageId && selectedProject?.canEditDetails
+              projectPageId &&
+                selectedProject?.canEditDetails
                 ? selectedProject
                 : undefined,
             )
@@ -1841,12 +2331,19 @@ function TasksPage() {
         />
       )}
 
-      <Dialog open={createProjectOpen} onOpenChange={setCreateProjectOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <Dialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+      >
+        <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-3xl p-4 sm:max-w-xl sm:rounded-3xl sm:p-6">
           <DialogHeader>
-            <DialogTitle>New Project</DialogTitle>
+            <DialogTitle>
+              New Project
+            </DialogTitle>
+
             <DialogDescription>
-              Create a project with the same core fields used by tasks.
+              Create a project with the same core fields
+              used by tasks.
             </DialogDescription>
           </DialogHeader>
 
@@ -1854,7 +2351,9 @@ function TasksPage() {
             value={projectForm}
             onChange={setProjectForm}
             role={currentWorkspace.role}
-            currentUserId={currentWorkspace.currentUserId}
+            currentUserId={
+              currentWorkspace.currentUserId
+            }
             teams={managerTeams}
             people={currentWorkspace.people}
           />
@@ -1864,32 +2363,48 @@ function TasksPage() {
               type="button"
               variant="outline"
               disabled={saving}
-              onClick={() => setCreateProjectOpen(false)}
+              onClick={() =>
+                setCreateProjectOpen(false)
+              }
             >
               Cancel
             </Button>
+
             <Button
               type="button"
               disabled={saving}
-              onClick={() => void handleCreateProject()}
+              onClick={() =>
+                void handleCreateProject()
+              }
             >
               {saving ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 <FolderPlus className="size-4" />
               )}
-              {saving ? "Creating…" : "Create Project"}
+
+              {saving
+                ? "Creating…"
+                : "Create Project"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <Dialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+      >
+        <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-3xl p-4 sm:max-w-xl sm:rounded-3xl sm:p-6">
           <DialogHeader>
-            <DialogTitle>New Task</DialogTitle>
+            <DialogTitle>
+              New Task
+            </DialogTitle>
+
             <DialogDescription>
-              Create a task. If you opened this from a project, that project and its scope are already selected.
+              Create a task. If you opened this from a
+              project, that project and its scope are
+              already selected.
             </DialogDescription>
           </DialogHeader>
 
@@ -1897,7 +2412,9 @@ function TasksPage() {
             value={createForm}
             onChange={setCreateForm}
             role={currentWorkspace.role}
-            currentUserId={currentWorkspace.currentUserId}
+            currentUserId={
+              currentWorkspace.currentUserId
+            }
             teams={managerTeams}
             projects={currentWorkspace.projects}
             people={currentWorkspace.people}
@@ -1908,63 +2425,139 @@ function TasksPage() {
               type="button"
               variant="outline"
               disabled={saving}
-              onClick={() => setCreateOpen(false)}
+              onClick={() =>
+                setCreateOpen(false)
+              }
             >
               Cancel
             </Button>
+
             <Button
               type="button"
               disabled={saving}
-              onClick={() => void handleCreate()}
+              onClick={() =>
+                void handleCreate()
+              }
             >
               {saving ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 <Plus className="size-4" />
               )}
-              {saving ? "Creating…" : "Create Task"}
+
+              {saving
+                ? "Creating…"
+                : "Create Task"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Sheet
+      <Dialog
         open={Boolean(selectedTask)}
         onOpenChange={(open) => {
-          if (!open) setSelectedTaskId(null);
+          if (!open) {
+            setSelectedTaskId(null);
+            setTaskEditOpen(false);
+          }
         }}
       >
-        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-3xl p-4 sm:max-w-2xl sm:rounded-3xl sm:p-6">
           {selectedTask && editForm && (
             <>
-              <SheetHeader>
-                <SheetTitle>{selectedTask.title}</SheetTitle>
-              </SheetHeader>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Task details, assignment and updates.
-              </p>
+              <DialogHeader className="pr-8 text-left">
+                <DialogTitle className="break-words text-left text-base leading-snug sm:text-lg">
+                  {selectedTask.title}
+                </DialogTitle>
 
-              <div className="space-y-6">
-                <TaskSummary task={selectedTask} />
+                <DialogDescription className="text-left">
+                  Task details, assignment and updates.
+                </DialogDescription>
+              </DialogHeader>
 
-                {selectedTask.canEditDetails ? (
-                  <>
+              <div className="mt-1 min-w-0 space-y-5">
+                <TaskSummary
+                  task={selectedTask}
+                />
+
+                {!taskEditOpen && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Review the task first. Open editing
+                      only when you need to change details.
+                    </p>
+
+                    {selectedTask.canEditDetails && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={() =>
+                          setTaskEditOpen(true)
+                        }
+                      >
+                        <Pencil className="size-3.5" />
+                        Edit details
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {taskEditOpen &&
+                selectedTask.canEditDetails ? (
+                  <div className="min-w-0 space-y-4 rounded-2xl border border-border p-3 sm:p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">
+                          Edit task
+                        </p>
+
+                        <p className="text-xs text-muted-foreground">
+                          Change the task details below.
+                        </p>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={() => {
+                          setEditForm(
+                            taskToForm(selectedTask),
+                          );
+                          setTaskEditOpen(false);
+                        }}
+                      >
+                        Cancel editing
+                      </Button>
+                    </div>
+
                     <TaskForm
                       value={editForm}
                       onChange={setEditForm}
                       role={currentWorkspace.role}
-                      currentUserId={currentWorkspace.currentUserId}
+                      currentUserId={
+                        currentWorkspace.currentUserId
+                      }
                       teams={managerTeams}
-                      projects={currentWorkspace.projects}
-                      people={currentWorkspace.people}
+                      projects={
+                        currentWorkspace.projects
+                      }
+                      people={
+                        currentWorkspace.people
+                      }
                     />
 
                     <div className="flex flex-col gap-2">
                       <Button
                         type="button"
-                        className="w-full"
+                        className="w-full rounded-xl"
                         disabled={saving}
-                        onClick={() => void handleFullUpdate()}
+                        onClick={() =>
+                          void handleFullUpdate()
+                        }
                       >
                         {saving ? (
                           <>
@@ -1980,51 +2573,78 @@ function TasksPage() {
                         <Button
                           type="button"
                           variant="outline"
+                          className="rounded-xl"
                           disabled={saving}
-                          onClick={() => void handleDuplicate()}
+                          onClick={() =>
+                            void handleDuplicate()
+                          }
                         >
                           <Copy className="size-4" />
                           Duplicate
                         </Button>
+
                         <Button
                           type="button"
                           variant="outline"
+                          className="rounded-xl"
                           disabled={saving}
-                          onClick={() => void handleArchive()}
+                          onClick={() =>
+                            void handleArchive()
+                          }
                         >
                           <Archive className="size-4" />
                           Archive
                         </Button>
                       </div>
 
-                      {currentWorkspace.role === "admin" && (
+                      {currentWorkspace.role ===
+                        "admin" && (
                         <Button
                           type="button"
                           variant="destructive"
+                          className="rounded-xl"
                           disabled={saving}
-                          onClick={() => void handleDelete()}
+                          onClick={() =>
+                            void handleDelete()
+                          }
                         >
                           <Trash2 className="size-4" />
                           Delete from POM
                         </Button>
                       )}
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <>
-                    <TaskReadOnlyDetails task={selectedTask} />
+                    <TaskReadOnlyDetails
+                      task={selectedTask}
+                    />
+
                     {selectedTask.canEditStatus && (
                       <StatusEditor
                         status={editForm.status}
-                        blockedReason={editForm.blockedReason}
-                        onChange={(status, blockedReason) =>
-                          setEditForm({ ...editForm, status, blockedReason })
+                        blockedReason={
+                          editForm.blockedReason
+                        }
+                        onChange={(
+                          status,
+                          blockedReason,
+                        ) =>
+                          setEditForm({
+                            ...editForm,
+                            status,
+                            blockedReason,
+                          })
                         }
                         saving={saving}
-                        onSave={() => void handleStatusUpdate()}
+                        onSave={() =>
+                          void handleStatusUpdate()
+                        }
                         disabled={
-                          editForm.status === selectedTask.status &&
-                          editForm.blockedReason === selectedTask.blockedReason
+                          editForm.status ===
+                            selectedTask.status &&
+                          editForm.blockedReason ===
+                            selectedTask.blockedReason
                         }
                         label="Task status"
                       />
@@ -2036,93 +2656,132 @@ function TasksPage() {
                   title="Updates"
                   description="Manual notes and work logged from The Clock are kept together here."
                   updates={selectedTask.updates}
-                  canAdd={selectedTask.canEditStatus}
+                  canAdd={
+                    selectedTask.canEditStatus
+                  }
                   onAdd={handleAddTaskUpdate}
                   emptyText="No task updates yet. Clock entries linked to this task will appear here automatically."
                 />
               </div>
             </>
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <Sheet
-        open={Boolean(selectedProject) && projectEditOpen}
+        open={
+          Boolean(selectedProject) &&
+          projectEditOpen
+        }
         onOpenChange={setProjectEditOpen}
       >
-        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
-          {selectedProject && projectEditForm && (
-            <>
-              <SheetHeader>
-                <SheetTitle>{selectedProject.name}</SheetTitle>
-              </SheetHeader>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Edit project details.
-              </p>
+        <SheetContent className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-x-hidden overflow-y-auto rounded-l-3xl p-4 sm:w-full sm:max-w-xl sm:p-6">
+          {selectedProject &&
+            projectEditForm && (
+              <>
+                <SheetHeader>
+                  <SheetTitle>
+                    {selectedProject.name}
+                  </SheetTitle>
+                </SheetHeader>
 
-              <div className="space-y-6">
-                <ProjectSummary project={selectedProject} tasks={projectPageTasks} />
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Edit project details.
+                </p>
 
-                {selectedProject.canEditDetails ? (
-                  <>
-                    <ProjectForm
-                      value={projectEditForm}
-                      onChange={setProjectEditForm}
-                      role={currentWorkspace.role}
-                      currentUserId={currentWorkspace.currentUserId}
-                      teams={managerTeams}
-                      people={currentWorkspace.people}
-                    />
+                <div className="space-y-6">
+                  <ProjectSummary
+                    project={selectedProject}
+                    tasks={projectPageTasks}
+                  />
 
-                    <div className="flex flex-col gap-2">
-                      <Button
-                        type="button"
-                        className="w-full"
-                        disabled={saving}
-                        onClick={() => void handleProjectUpdate()}
-                      >
-                        {saving ? "Saving…" : "Save Project Changes"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={saving}
-                        onClick={() => void handleProjectArchive()}
-                      >
-                        <Archive className="size-4" />
-                        Archive Project
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <ProjectReadOnlyDetails project={selectedProject} />
-                )}
+                  {selectedProject.canEditDetails ? (
+                    <>
+                      <ProjectForm
+                        value={projectEditForm}
+                        onChange={
+                          setProjectEditForm
+                        }
+                        role={
+                          currentWorkspace.role
+                        }
+                        currentUserId={
+                          currentWorkspace.currentUserId
+                        }
+                        teams={managerTeams}
+                        people={
+                          currentWorkspace.people
+                        }
+                      />
 
-                {!selectedProject.canEditDetails &&
-                  selectedProject.canEditStatus && (
-                    <StatusEditor
-                      status={projectEditForm.status}
-                      blockedReason={projectEditForm.blockedReason}
-                      onChange={(status, blockedReason) =>
-                        setProjectEditForm({
-                          ...projectEditForm,
-                          status,
-                          blockedReason,
-                        })
-                      }
-                      saving={saving}
-                      onSave={() => void handleProjectStatusUpdate()}
-                      disabled={
-                        projectEditForm.status === selectedProject.status &&
-                        projectEditForm.blockedReason ===
-                          selectedProject.blockedReason
-                      }
-                      label="Project status"
+                      <div className="flex flex-col gap-2">
+                        <Button
+                          type="button"
+                          className="w-full"
+                          disabled={saving}
+                          onClick={() =>
+                            void handleProjectUpdate()
+                          }
+                        >
+                          {saving
+                            ? "Saving…"
+                            : "Save Project Changes"}
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={saving}
+                          onClick={() =>
+                            void handleProjectArchive()
+                          }
+                        >
+                          <Archive className="size-4" />
+                          Archive Project
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <ProjectReadOnlyDetails
+                      project={selectedProject}
                     />
                   )}
-              </div>
-            </>
-          )}
+
+                  {!selectedProject.canEditDetails &&
+                    selectedProject.canEditStatus && (
+                      <StatusEditor
+                        status={
+                          projectEditForm.status
+                        }
+                        blockedReason={
+                          projectEditForm.blockedReason
+                        }
+                        onChange={(
+                          status,
+                          blockedReason,
+                        ) =>
+                          setProjectEditForm({
+                            ...projectEditForm,
+                            status,
+                            blockedReason,
+                          })
+                        }
+                        saving={saving}
+                        onSave={() =>
+                          void handleProjectStatusUpdate()
+                        }
+                        disabled={
+                          projectEditForm.status ===
+                            selectedProject.status &&
+                          projectEditForm.blockedReason ===
+                            selectedProject.blockedReason
+                        }
+                        label="Project status"
+                      />
+                    )}
+                </div>
+              </>
+            )}
         </SheetContent>
       </Sheet>
 
@@ -2137,7 +2796,10 @@ function TasksPage() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Mark as Blocked?</DialogTitle>
+            <DialogTitle>
+              Mark as Blocked?
+            </DialogTitle>
+
             <DialogDescription>
               {blockedPrompt
                 ? `Add a blocker for “${blockedPrompt.title}”.`
@@ -2146,7 +2808,10 @@ function TasksPage() {
           </DialogHeader>
 
           <div className="space-y-2">
-            <Label htmlFor="quick-blocked-reason">Why is this blocked?</Label>
+            <Label htmlFor="quick-blocked-reason">
+              Why is this blocked?
+            </Label>
+
             <Textarea
               id="quick-blocked-reason"
               rows={4}
@@ -2154,7 +2819,11 @@ function TasksPage() {
               className="resize-none rounded-2xl"
               placeholder="Waiting for supplier approval…"
               value={blockedReasonDraft}
-              onChange={(event) => setBlockedReasonDraft(event.target.value)}
+              onChange={(event) =>
+                setBlockedReasonDraft(
+                  event.target.value,
+                )
+              }
             />
           </div>
 
@@ -2162,14 +2831,22 @@ function TasksPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setBlockedPrompt(null)}
+              onClick={() =>
+                setBlockedPrompt(null)
+              }
             >
               Cancel
             </Button>
+
             <Button
               type="button"
-              disabled={!blockedReasonDraft.trim() || Boolean(quickBusyKey)}
-              onClick={() => void submitBlockedPrompt()}
+              disabled={
+                !blockedReasonDraft.trim() ||
+                Boolean(quickBusyKey)
+              }
+              onClick={() =>
+                void submitBlockedPrompt()
+              }
             >
               Mark Blocked
             </Button>
@@ -2178,26 +2855,48 @@ function TasksPage() {
       </Dialog>
 
       <AlertDialog
-        open={Boolean(pendingProjectCompletion)}
+        open={Boolean(
+          pendingProjectCompletion,
+        )}
         onOpenChange={(open) => {
-          if (!open) setPendingProjectCompletion(null);
+          if (!open) {
+            setPendingProjectCompletion(null);
+          }
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Complete project?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Complete project?
+            </AlertDialogTitle>
+
             <AlertDialogDescription>
               {incompleteForConfirmation} task
-              {incompleteForConfirmation === 1 ? " is" : "s are"} still incomplete.
+              {incompleteForConfirmation === 1
+                ? " is"
+                : "s are"}{" "}
+              still incomplete.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving || Boolean(quickBusyKey)}>
+            <AlertDialogCancel
+              disabled={
+                saving ||
+                Boolean(quickBusyKey)
+              }
+            >
               Cancel
             </AlertDialogCancel>
+
             <AlertDialogAction
-              disabled={saving || Boolean(quickBusyKey)}
-              onClick={() => void confirmProjectCompletion()}
+              disabled={
+                saving ||
+                Boolean(quickBusyKey)
+              }
+              onClick={() =>
+                void confirmProjectCompletion()
+              }
             >
               Mark Done
             </AlertDialogAction>
@@ -2205,32 +2904,44 @@ function TasksPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Sheet open={teamLeadsOpen} onOpenChange={setTeamLeadsOpen}>
+      <Sheet
+        open={teamLeadsOpen}
+        onOpenChange={setTeamLeadsOpen}
+      >
         <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
           <SheetHeader>
-            <SheetTitle>Team Leads</SheetTitle>
+            <SheetTitle>
+              Team Leads
+            </SheetTitle>
           </SheetHeader>
 
           <p className="mt-3 text-sm text-muted-foreground">
-            Team Leads can create and fully manage tasks and projects for their
-            own teams.
+            Team Leads can create and fully manage tasks
+            and projects for their own teams.
           </p>
 
           <div className="mt-6 space-y-2">
             {currentWorkspace.people
-              .filter((person) => person.role !== "admin")
+              .filter(
+                (person) =>
+                  person.role !== "admin",
+              )
               .map((person) => {
-                const checked = person.role === "team_lead";
+                const checked =
+                  person.role === "team_lead";
+
                 const disabled =
                   leadBusyId === person.id ||
-                  (!checked && person.teamIds.length === 0);
+                  (!checked &&
+                    person.teamIds.length === 0);
 
                 return (
                   <label
                     key={person.id}
                     className={cn(
                       "flex items-center gap-3 rounded-2xl border border-border p-4",
-                      !disabled && "cursor-pointer hover:bg-muted/40",
+                      !disabled &&
+                        "cursor-pointer hover:bg-muted/40",
                       disabled && "opacity-60",
                     )}
                   >
@@ -2238,27 +2949,37 @@ function TasksPage() {
                       checked={checked}
                       disabled={disabled}
                       onCheckedChange={(value) =>
-                        void handleLeadChange(person, value === true)
+                        void handleLeadChange(
+                          person,
+                          value === true,
+                        )
                       }
                     />
 
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{person.name}</p>
+                      <p className="truncate text-sm font-medium">
+                        {person.name}
+                      </p>
+
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {person.teamIds.length === 0
                           ? "Assign a team first"
                           : person.teamIds
                               .map(
                                 (teamId) =>
-                                  currentWorkspace.teams.find((team) => team.id === teamId)
-                                    ?.name,
+                                  currentWorkspace.teams.find(
+                                    (team) =>
+                                      team.id ===
+                                      teamId,
+                                  )?.name,
                               )
                               .filter(Boolean)
                               .join(", ")}
                       </p>
                     </div>
 
-                    {leadBusyId === person.id && (
+                    {leadBusyId ===
+                      person.id && (
                       <Loader2 className="size-4 animate-spin" />
                     )}
                   </label>
@@ -2273,27 +2994,66 @@ function TasksPage() {
 
 interface TaskCardActions {
   busyKey: string | null;
-  onStatusChange: (task: TaskItem, status: TaskStatus) => void;
-  onPriorityChange: (task: TaskItem, priority: TaskPriority) => void;
-  onDeadlineChange: (task: TaskItem, deadline: string) => Promise<void>;
+
+  onStatusChange: (
+    task: TaskItem,
+    status: TaskStatus,
+  ) => void;
+
+  onPriorityChange: (
+    task: TaskItem,
+    priority: TaskPriority,
+  ) => void;
+
+  onDeadlineChange: (
+    task: TaskItem,
+    deadline: string,
+  ) => Promise<void>;
 }
 
 interface ProjectCardActions {
   busyKey: string | null;
-  onStatusChange: (project: TaskProject, status: TaskStatus) => void;
-  onPriorityChange: (project: TaskProject, priority: TaskPriority) => void;
-  onDeadlineChange: (project: TaskProject, deadline: string) => Promise<void>;
+
+  onStatusChange: (
+    project: TaskProject,
+    status: TaskStatus,
+  ) => void;
+
+  onPriorityChange: (
+    project: TaskProject,
+    priority: TaskPriority,
+  ) => void;
+
+  onDeadlineChange: (
+    project: TaskProject,
+    deadline: string,
+  ) => Promise<void>;
 }
 
-function ProjectNotFound({ onBack }: { onBack: () => void }) {
+function ProjectNotFound({
+  onBack,
+}: {
+  onBack: () => void;
+}) {
   return (
     <div className="surface-card mx-auto max-w-lg rounded-2xl p-8 text-center">
       <AlertTriangle className="mx-auto size-8 text-warning" />
-      <p className="mt-3 font-medium">Project not available</p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        This project may have been archived, deleted, or is outside your scope.
+
+      <p className="mt-3 font-medium">
+        Project not available
       </p>
-      <Button type="button" variant="outline" className="mt-5" onClick={onBack}>
+
+      <p className="mt-1 text-sm text-muted-foreground">
+        This project may have been archived, deleted, or
+        is outside your scope.
+      </p>
+
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-5"
+        onClick={onBack}
+      >
         <ChevronLeft className="size-4" />
         Back to Tasks
       </Button>
@@ -2320,23 +3080,49 @@ function ProjectWorkspaceView({
   taskActions: TaskCardActions;
   projectActions: ProjectCardActions;
 }) {
-  const sortedTasks = useMemo(() => sortProjectTasks(tasks), [tasks]);
-  const done = tasks.filter((task) => task.status === "Done").length;
-  const blocked = tasks.filter((task) => task.status === "Blocked").length;
-  const overdue = tasks.filter(
-    (task) => task.status !== "Done" && deadlineDays(task.deadline) < 0,
+  const sortedTasks = useMemo(
+    () => sortProjectTasks(tasks),
+    [tasks],
+  );
+
+  const done = tasks.filter(
+    (task) => task.status === "Done",
   ).length;
+
+  const blocked = tasks.filter(
+    (task) => task.status === "Blocked",
+  ).length;
+
+  const overdue = tasks.filter(
+    (task) =>
+      task.status !== "Done" &&
+      deadlineDays(task.deadline) < 0,
+  ).length;
+
   const progress =
-    tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100);
-  const canOpenEditor = project.canEditDetails || project.canEditStatus;
+    tasks.length === 0
+      ? 0
+      : Math.round(
+          (done / tasks.length) * 100,
+        );
+
+  const canOpenEditor =
+    project.canEditDetails ||
+    project.canEditStatus;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
-        <button type="button" className="hover:text-foreground" onClick={onBack}>
+        <button
+          type="button"
+          className="hover:text-foreground"
+          onClick={onBack}
+        >
           Tasks
         </button>
+
         <ChevronRight className="size-4" />
+
         <span className="max-w-[18rem] truncate font-medium text-foreground">
           {project.name}
         </span>
@@ -2359,31 +3145,57 @@ function ProjectWorkspaceView({
             <h1 className="break-words text-2xl font-semibold sm:text-3xl">
               {project.name}
             </h1>
+
             <InlinePriorityEditor
               priority={project.priority}
-              canEdit={project.canEditDetails}
-              saving={projectActions.busyKey === `project:${project.id}:priority`}
+              canEdit={
+                project.canEditDetails
+              }
+              saving={
+                projectActions.busyKey ===
+                `project:${project.id}:priority`
+              }
               onChange={(priority) =>
-                projectActions.onPriorityChange(project, priority)
+                projectActions.onPriorityChange(
+                  project,
+                  priority,
+                )
               }
             />
+
             <InlineStatusEditor
               status={project.status}
-              canEdit={project.canEditStatus}
-              saving={projectActions.busyKey === `project:${project.id}:status`}
-              onChange={(status) => projectActions.onStatusChange(project, status)}
+              canEdit={
+                project.canEditStatus
+              }
+              saving={
+                projectActions.busyKey ===
+                `project:${project.id}:status`
+              }
+              onChange={(status) =>
+                projectActions.onStatusChange(
+                  project,
+                  status,
+                )
+              }
             />
           </div>
 
           {project.description && (
-            <p className="mt-2 max-w-3xl whitespace-pre-wrap text-sm text-muted-foreground">
-              {project.description}
+            <p className="mt-2 min-w-0 max-w-3xl text-sm text-muted-foreground">
+              <LinkifiedText
+                text={project.description}
+              />
             </p>
           )}
         </div>
 
         {canOpenEditor && (
-          <Button type="button" variant="outline" onClick={onEdit}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onEdit}
+          >
             <Pencil className="size-4" />
             Edit project
           </Button>
@@ -2395,51 +3207,89 @@ function ProjectWorkspaceView({
           <ProjectMeta
             label="Owner"
             value={project.ownerName}
-            icon={<UserRound className="size-4" />}
+            icon={
+              <UserRound className="size-4" />
+            }
           />
+
           <ProjectMeta
             label="Team"
             value={project.teamName}
-            icon={<Users className="size-4" />}
+            icon={
+              <Users className="size-4" />
+            }
           />
+
           <ProjectMeta
             label="Deadline"
             value={
               <InlineDeadlineEditor
-                deadline={project.deadline ?? ""}
+                deadline={
+                  project.deadline ?? ""
+                }
                 status={project.status}
                 optional
-                canEdit={project.canEditDetails}
+                canEdit={
+                  project.canEditDetails
+                }
                 saving={
-                  projectActions.busyKey === `project:${project.id}:deadline`
+                  projectActions.busyKey ===
+                  `project:${project.id}:deadline`
                 }
                 onChange={(deadline) =>
-                  projectActions.onDeadlineChange(project, deadline)
+                  projectActions.onDeadlineChange(
+                    project,
+                    deadline,
+                  )
                 }
               />
             }
-            icon={<CalendarClock className="size-4" />}
+            icon={
+              <CalendarClock className="size-4" />
+            }
           />
+
           <ProjectMeta
             label="Progress"
             value={`${done}/${tasks.length} done · ${progress}%`}
-            icon={<CheckCircle2 className="size-4" />}
+            icon={
+              <CheckCircle2 className="size-4" />
+            }
           />
         </div>
 
         <div className="mt-5 h-2 overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-primary transition-[width]"
-            style={{ width: `${progress}%` }}
+            style={{
+              width: `${progress}%`,
+            }}
           />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard label="Tasks" value={tasks.length} />
-        <SummaryCard label="Done" value={done} />
-        <SummaryCard label="Overdue" value={overdue} danger={overdue > 0} />
-        <SummaryCard label="Blocked" value={blocked} danger={blocked > 0} />
+        <SummaryCard
+          label="Tasks"
+          value={tasks.length}
+        />
+
+        <SummaryCard
+          label="Done"
+          value={done}
+        />
+
+        <SummaryCard
+          label="Overdue"
+          value={overdue}
+          danger={overdue > 0}
+        />
+
+        <SummaryCard
+          label="Blocked"
+          value={blocked}
+          danger={blocked > 0}
+        />
       </div>
 
       <section className="space-y-3">
@@ -2448,13 +3298,17 @@ function ProjectWorkspaceView({
             <ClipboardList className="size-4 text-primary" />
             Tasks
           </h2>
+
           <p className="mt-1 text-xs text-muted-foreground">
-            These are regular tasks linked to this project. Use the + button to add one.
+            These are regular tasks linked to this
+            project. Use the + button to add one.
           </p>
         </div>
 
-        <ProjectTasksTable
+        <TaskList
           tasks={sortedTasks}
+          emptyTitle="No tasks yet"
+          emptyText="Use the + button to create the first task in this project."
           onOpen={onOpenTask}
           actions={taskActions}
         />
@@ -2463,7 +3317,9 @@ function ProjectWorkspaceView({
       <ProjectActivityPanel
         project={project}
         tasks={tasks}
-        canAdd={project.canEditStatus}
+        canAdd={
+          project.canEditStatus
+        }
         onAdd={onAddUpdate}
       />
     </div>
@@ -2487,111 +3343,14 @@ function ProjectMeta({
         {icon}
         {label}
       </div>
-      <div className={cn("mt-1 font-medium", valueClassName)}>{value}</div>
-    </div>
-  );
-}
 
-function ProjectTasksTable({
-  tasks,
-  onOpen,
-  actions,
-}: {
-  tasks: TaskItem[];
-  onOpen: (id: string) => void;
-  actions: TaskCardActions;
-}) {
-  if (tasks.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border p-8 text-center">
-        <ClipboardList className="mx-auto size-7 text-muted-foreground" />
-        <p className="mt-3 text-sm font-medium">No tasks yet</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Use the + button to create the first task in this project.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">
-      <div className="hidden grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_8rem_7rem_12rem] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:grid">
-        <span>Task</span>
-        <span>Assignee</span>
-        <span>Status</span>
-        <span>Priority</span>
-        <span>Deadline</span>
-      </div>
-
-      <div className="divide-y divide-border">
-        {tasks.map((task) => {
-          const assignees = task.assignees
-            .map((assignee) => assignee.name)
-            .join(", ");
-
-          return (
-            <div
-              key={task.id}
-              role="button"
-              tabIndex={0}
-              className="grid cursor-pointer gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/30 md:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_8rem_7rem_12rem] md:items-center md:gap-3"
-              onClick={() => onOpen(task.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onOpen(task.id);
-                }
-              }}
-            >
-              <div className="min-w-0">
-                <p
-                  className={cn(
-                    "truncate text-sm font-medium",
-                    task.status === "Done" && "line-through opacity-70",
-                  )}
-                >
-                  {task.title}
-                </p>
-                {task.description && (
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground md:hidden">
-                    {task.description}
-                  </p>
-                )}
-              </div>
-
-              <div className="min-w-0 text-xs text-muted-foreground">
-                <span className="md:hidden">Assignee: </span>
-                <span className="truncate">{assignees || task.ownerName}</span>
-              </div>
-
-              <div>
-                <InlineStatusEditor
-                  status={task.status}
-                  canEdit={task.canEditStatus}
-                  saving={actions.busyKey === `task:${task.id}:status`}
-                  onChange={(status) => actions.onStatusChange(task, status)}
-                />
-              </div>
-
-              <div>
-                <InlinePriorityEditor
-                  priority={task.priority}
-                  canEdit={task.canEditDetails}
-                  saving={actions.busyKey === `task:${task.id}:priority`}
-                  onChange={(priority) => actions.onPriorityChange(task, priority)}
-                />
-              </div>
-
-              <InlineDeadlineEditor
-                deadline={task.deadline}
-                status={task.status}
-                canEdit={task.canEditDetails}
-                saving={actions.busyKey === `task:${task.id}:deadline`}
-                onChange={(deadline) => actions.onDeadlineChange(task, deadline)}
-              />
-            </div>
-          );
-        })}
+      <div
+        className={cn(
+          "mt-1 font-medium",
+          valueClassName,
+        )}
+      >
+        {value}
       </div>
     </div>
   );
@@ -2611,32 +3370,60 @@ function ProjectActivityPanel({
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const activity = useMemo<ProjectActivityItem[]>(() => {
-    const items: ProjectActivityItem[] = [
-      ...project.updates.map((update) => ({ ...update, context: "Project" })),
-      ...tasks.flatMap((task) =>
-        task.updates.map((update) => ({ ...update, context: task.title })),
-      ),
-    ];
+  const activity =
+    useMemo<ProjectActivityItem[]>(
+      () => {
+        const items: ProjectActivityItem[] = [
+          ...project.updates.map(
+            (update) => ({
+              ...update,
+              context: "Project",
+            }),
+          ),
+          ...tasks.flatMap((task) =>
+            task.updates.map(
+              (update) => ({
+                ...update,
+                context: task.title,
+              }),
+            ),
+          ),
+        ];
 
-    return items.sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        return items.sort(
+          (a, b) =>
+            new Date(
+              b.createdAt,
+            ).getTime() -
+            new Date(
+              a.createdAt,
+            ).getTime(),
+        );
+      },
+      [project.updates, tasks],
     );
-  }, [project.updates, tasks]);
 
   async function submit() {
     const body = text.trim();
-    if (!body || saving) return;
+
+    if (!body || saving) {
+      return;
+    }
 
     setSaving(true);
+
     try {
       await onAdd(body);
       setText("");
-      toast.success("Project update added");
+
+      toast.success(
+        "Project update added",
+      );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not add update.",
+        error instanceof Error
+          ? error.message
+          : "Could not add update.",
       );
     } finally {
       setSaving(false);
@@ -2650,8 +3437,10 @@ function ProjectActivityPanel({
           <MessageSquareText className="size-4 text-primary" />
           Activity & updates
         </h2>
+
         <p className="mt-1 text-xs text-muted-foreground">
-          Project notes plus updates and clock entries from its tasks.
+          Project notes plus updates and clock entries
+          from its tasks.
         </p>
       </div>
 
@@ -2663,16 +3452,25 @@ function ProjectActivityPanel({
             className="resize-none rounded-xl"
             placeholder="Add project progress, a decision, a blocker or a handoff…"
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) =>
+              setText(event.target.value)
+            }
           />
+
           <div className="mt-2 flex justify-end">
             <Button
               type="button"
               size="sm"
-              disabled={!text.trim() || saving}
-              onClick={() => void submit()}
+              disabled={
+                !text.trim() || saving
+              }
+              onClick={() =>
+                void submit()
+              }
             >
-              {saving ? "Adding…" : "Add project update"}
+              {saving
+                ? "Adding…"
+                : "Add project update"}
             </Button>
           </div>
         </div>
@@ -2693,22 +3491,44 @@ function ProjectActivityPanel({
                 <span className="font-medium text-foreground">
                   {update.authorName}
                 </span>
-                <Badge variant="secondary" className="rounded-full text-[10px]">
+
+                <Badge
+                  variant="secondary"
+                  className="rounded-full text-[10px]"
+                >
                   {update.context}
                 </Badge>
+
                 <span>·</span>
-                <span>{formatDateTime(update.createdAt)}</span>
-                {update.source === "clock" && (
-                  <Badge variant="secondary" className="rounded-full text-[10px]">
+
+                <span>
+                  {formatDateTime(
+                    update.createdAt,
+                  )}
+                </span>
+
+                {update.source ===
+                  "clock" && (
+                  <Badge
+                    variant="secondary"
+                    className="rounded-full text-[10px]"
+                  >
                     <Timer className="mr-1 size-3" />
                     Clock
                     {update.durationMs
-                      ? ` · ${formatHours(update.durationMs)}`
+                      ? ` · ${formatHours(
+                          update.durationMs,
+                        )}`
                       : ""}
                   </Badge>
                 )}
               </div>
-              <p className="mt-2 whitespace-pre-wrap text-sm">{update.body}</p>
+
+              <p className="mt-2 min-w-0 text-sm">
+                <LinkifiedText
+                  text={update.body}
+                />
+              </p>
             </div>
           ))}
         </div>
@@ -2730,28 +3550,51 @@ function ProjectCard({
   actions: ProjectCardActions;
   overview?: boolean;
 }) {
-  const doneCount = tasks.filter((task) => task.status === "Done").length;
+  const doneCount = tasks.filter(
+    (task) => task.status === "Done",
+  ).length;
+
   const progress =
-    tasks.length === 0 ? 0 : Math.round((doneCount / tasks.length) * 100);
+    tasks.length === 0
+      ? 0
+      : Math.round(
+          (doneCount / tasks.length) *
+            100,
+        );
+
   return (
     <Card
-      role={onOpen ? "button" : undefined}
-      tabIndex={onOpen ? 0 : undefined}
+      role={
+        onOpen ? "button" : undefined
+      }
+      tabIndex={
+        onOpen ? 0 : undefined
+      }
       className={cn(
         "surface-card transition-colors",
-        onOpen && "cursor-pointer hover:bg-muted/30",
+        onOpen &&
+          "cursor-pointer hover:bg-muted/30",
         overview && "rounded-2xl",
       )}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (!onOpen) return;
-        if (event.key === "Enter" || event.key === " ") {
+
+        if (
+          event.key === "Enter" ||
+          event.key === " "
+        ) {
           event.preventDefault();
           onOpen();
         }
       }}
     >
-      <CardContent className={cn("px-3.5 py-3 sm:px-4", overview && "sm:p-5")}>
+      <CardContent
+        className={cn(
+          "px-3.5 py-3 sm:px-4",
+          overview && "sm:p-5",
+        )}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             {!overview && (
@@ -2770,17 +3613,31 @@ function ProjectCard({
                 <UserRound className="size-3" />
                 {project.ownerName}
               </span>
+
               <span className="inline-flex items-center gap-1">
                 <Users className="size-3" />
                 {project.teamName}
               </span>
+
               <InlineDeadlineEditor
-                deadline={project.deadline ?? ""}
+                deadline={
+                  project.deadline ?? ""
+                }
                 status={project.status}
                 optional
-                canEdit={project.canEditDetails}
-                saving={actions.busyKey === `project:${project.id}:deadline`}
-                onChange={(value) => actions.onDeadlineChange(project, value)}
+                canEdit={
+                  project.canEditDetails
+                }
+                saving={
+                  actions.busyKey ===
+                  `project:${project.id}:deadline`
+                }
+                onChange={(value) =>
+                  actions.onDeadlineChange(
+                    project,
+                    value,
+                  )
+                }
               />
             </div>
           </div>
@@ -2788,26 +3645,49 @@ function ProjectCard({
           <div className="flex shrink-0 flex-wrap justify-end gap-1">
             <InlinePriorityEditor
               priority={project.priority}
-              canEdit={project.canEditDetails}
-              saving={actions.busyKey === `project:${project.id}:priority`}
-              onChange={(priority) => actions.onPriorityChange(project, priority)}
+              canEdit={
+                project.canEditDetails
+              }
+              saving={
+                actions.busyKey ===
+                `project:${project.id}:priority`
+              }
+              onChange={(priority) =>
+                actions.onPriorityChange(
+                  project,
+                  priority,
+                )
+              }
             />
+
             <InlineStatusEditor
               status={project.status}
-              canEdit={project.canEditStatus}
-              saving={actions.busyKey === `project:${project.id}:status`}
-              onChange={(status) => actions.onStatusChange(project, status)}
+              canEdit={
+                project.canEditStatus
+              }
+              saving={
+                actions.busyKey ===
+                `project:${project.id}:status`
+              }
+              onChange={(status) =>
+                actions.onStatusChange(
+                  project,
+                  status,
+                )
+              }
             />
           </div>
         </div>
 
         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           <CheckCircle2 className="size-3.5" />
+
           {tasks.length === 0 ? (
             <span>No tasks yet</span>
           ) : (
             <span>
-              {doneCount} / {tasks.length} completed · {progress}%
+              {doneCount} / {tasks.length} completed ·{" "}
+              {progress}%
             </span>
           )}
         </div>
@@ -2816,18 +3696,28 @@ function ProjectCard({
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-primary transition-[width]"
-              style={{ width: `${progress}%` }}
+              style={{
+                width: `${progress}%`,
+              }}
             />
           </div>
         )}
 
-        {overview && project.status === "Blocked" && project.blockedReason && (
-          <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
-            <p className="text-xs font-medium text-destructive">Blocked</p>
-            <p className="mt-1 text-sm">{project.blockedReason}</p>
-          </div>
-        )}
+        {overview &&
+          project.status === "Blocked" &&
+          project.blockedReason && (
+            <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+              <p className="text-xs font-medium text-destructive">
+                Blocked
+              </p>
 
+              <p className="mt-1 min-w-0 text-sm">
+                <LinkifiedText
+                  text={project.blockedReason}
+                />
+              </p>
+            </div>
+          )}
       </CardContent>
     </Card>
   );
@@ -2847,7 +3737,13 @@ function SummaryCard({
       <p className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className={cn("mt-1 text-2xl font-semibold", danger && "text-destructive")}>
+
+      <p
+        className={cn(
+          "mt-1 text-2xl font-semibold",
+          danger && "text-destructive",
+        )}
+      >
         {value}
       </p>
     </div>
@@ -2863,18 +3759,31 @@ function FilterSelect({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  items: { value: string; label: string }[];
+  items: {
+    value: string;
+    label: string;
+  }[];
 }) {
   return (
     <div className="space-y-2">
-      <Label className="text-xs">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
+      <Label className="text-xs">
+        {label}
+      </Label>
+
+      <Select
+        value={value}
+        onValueChange={onChange}
+      >
         <SelectTrigger>
           <SelectValue />
         </SelectTrigger>
+
         <SelectContent>
           {items.map((item) => (
-            <SelectItem key={item.value} value={item.value}>
+            <SelectItem
+              key={item.value}
+              value={item.value}
+            >
               {item.label}
             </SelectItem>
           ))}
@@ -2901,8 +3810,14 @@ function TaskList({
     return (
       <div className="surface-card py-12 text-center">
         <ClipboardList className="mx-auto size-8 text-muted-foreground" />
-        <p className="mt-3 font-medium">{emptyTitle}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{emptyText}</p>
+
+        <p className="mt-3 font-medium">
+          {emptyTitle}
+        </p>
+
+        <p className="mt-1 text-sm text-muted-foreground">
+          {emptyText}
+        </p>
       </div>
     );
   }
@@ -2913,7 +3828,9 @@ function TaskList({
         <TaskCard
           key={task.id}
           task={task}
-          onClick={() => onOpen(task.id)}
+          onClick={() =>
+            onOpen(task.id)
+          }
           actions={actions}
         />
       ))}
@@ -2934,22 +3851,26 @@ function TaskCard({
     <Card
       role="button"
       tabIndex={0}
-      className="surface-card cursor-pointer transition-colors hover:bg-muted/30"
+      className="surface-card min-w-0 cursor-pointer rounded-2xl transition-colors hover:bg-muted/30"
       onClick={onClick}
       onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
+        if (
+          event.key === "Enter" ||
+          event.key === " "
+        ) {
           event.preventDefault();
           onClick();
         }
       }}
     >
       <CardContent className="px-3.5 py-3 sm:px-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
           <div className="min-w-0 flex-1">
             <h3
               className={cn(
                 "break-words text-sm font-semibold sm:text-base",
-                task.status === "Done" && "opacity-70",
+                task.status === "Done" &&
+                  "opacity-70",
               )}
             >
               {task.title}
@@ -2964,9 +3885,19 @@ function TaskCard({
               <InlineDeadlineEditor
                 deadline={task.deadline}
                 status={task.status}
-                canEdit={task.canEditDetails}
-                saving={actions.busyKey === `task:${task.id}:deadline`}
-                onChange={(value) => actions.onDeadlineChange(task, value)}
+                canEdit={
+                  task.canEditDetails
+                }
+                saving={
+                  actions.busyKey ===
+                  `task:${task.id}:deadline`
+                }
+                onChange={(value) =>
+                  actions.onDeadlineChange(
+                    task,
+                    value,
+                  )
+                }
               />
 
               {task.projectName && (
@@ -2985,27 +3916,51 @@ function TaskCard({
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          <div className="flex flex-wrap gap-1 sm:shrink-0 sm:justify-end">
             <InlinePriorityEditor
               priority={task.priority}
-              canEdit={task.canEditDetails}
-              saving={actions.busyKey === `task:${task.id}:priority`}
-              onChange={(priority) => actions.onPriorityChange(task, priority)}
+              canEdit={
+                task.canEditDetails
+              }
+              saving={
+                actions.busyKey ===
+                `task:${task.id}:priority`
+              }
+              onChange={(priority) =>
+                actions.onPriorityChange(
+                  task,
+                  priority,
+                )
+              }
             />
+
             <InlineStatusEditor
               status={task.status}
-              canEdit={task.canEditStatus}
-              saving={actions.busyKey === `task:${task.id}:status`}
-              onChange={(status) => actions.onStatusChange(task, status)}
+              canEdit={
+                task.canEditStatus
+              }
+              saving={
+                actions.busyKey ===
+                `task:${task.id}:status`
+              }
+              onChange={(status) =>
+                actions.onStatusChange(
+                  task,
+                  status,
+                )
+              }
             />
           </div>
         </div>
 
-        {task.status === "Blocked" && task.blockedReason && (
-          <p className="mt-2 line-clamp-2 text-xs text-destructive">
-            {task.blockedReason}
-          </p>
-        )}
+        {task.status === "Blocked" &&
+          task.blockedReason && (
+            <p className="mt-2 line-clamp-2 min-w-0 text-xs text-destructive">
+              <LinkifiedText
+                text={task.blockedReason}
+              />
+            </p>
+          )}
       </CardContent>
     </Card>
   );
@@ -3026,13 +3981,18 @@ function InlineStatusEditor({
   status: TaskStatus;
   canEdit: boolean;
   saving: boolean;
-  onChange: (status: TaskStatus) => void;
+  onChange: (
+    status: TaskStatus,
+  ) => void;
 }) {
   if (!canEdit) {
     return (
       <Badge
         variant="outline"
-        className={cn("rounded-full px-2 py-0 text-[10px]", statusClass(status))}
+        className={cn(
+          "rounded-full px-2 py-0 text-[10px]",
+          statusClass(status),
+        )}
       >
         {status}
       </Badge>
@@ -3042,13 +4002,17 @@ function InlineStatusEditor({
   return (
     <div
       onClick={stopInteractiveEvent}
-      onPointerDown={stopInteractiveEvent}
+      onPointerDown={
+        stopInteractiveEvent
+      }
       onKeyDown={stopInteractiveEvent}
     >
       <Select
         value={status}
         disabled={saving}
-        onValueChange={(value) => onChange(value as TaskStatus)}
+        onValueChange={(value) =>
+          onChange(value as TaskStatus)
+        }
       >
         <SelectTrigger
           aria-label="Change status"
@@ -3057,11 +4021,19 @@ function InlineStatusEditor({
             statusClass(status),
           )}
         >
-          {saving ? <Loader2 className="size-3 animate-spin" /> : <SelectValue />}
+          {saving ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <SelectValue />
+          )}
         </SelectTrigger>
+
         <SelectContent>
           {STATUSES.map((item) => (
-            <SelectItem key={item} value={item}>
+            <SelectItem
+              key={item}
+              value={item}
+            >
               {item}
             </SelectItem>
           ))}
@@ -3080,7 +4052,9 @@ function InlinePriorityEditor({
   priority: TaskPriority;
   canEdit: boolean;
   saving: boolean;
-  onChange: (priority: TaskPriority) => void;
+  onChange: (
+    priority: TaskPriority,
+  ) => void;
 }) {
   if (!canEdit) {
     return (
@@ -3099,13 +4073,19 @@ function InlinePriorityEditor({
   return (
     <div
       onClick={stopInteractiveEvent}
-      onPointerDown={stopInteractiveEvent}
+      onPointerDown={
+        stopInteractiveEvent
+      }
       onKeyDown={stopInteractiveEvent}
     >
       <Select
         value={priority}
         disabled={saving}
-        onValueChange={(value) => onChange(value as TaskPriority)}
+        onValueChange={(value) =>
+          onChange(
+            value as TaskPriority,
+          )
+        }
       >
         <SelectTrigger
           aria-label="Change priority"
@@ -3114,11 +4094,19 @@ function InlinePriorityEditor({
             priorityClass(priority),
           )}
         >
-          {saving ? <Loader2 className="size-3 animate-spin" /> : <SelectValue />}
+          {saving ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <SelectValue />
+          )}
         </SelectTrigger>
+
         <SelectContent>
           {PRIORITIES.map((item) => (
-            <SelectItem key={item} value={item}>
+            <SelectItem
+              key={item}
+              value={item}
+            >
               {item}
             </SelectItem>
           ))}
@@ -3141,16 +4129,32 @@ function InlineDeadlineEditor({
   canEdit: boolean;
   saving: boolean;
   optional?: boolean;
-  onChange: (deadline: string) => Promise<void>;
+  onChange: (
+    deadline: string,
+  ) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] =
+    useState(false);
+
   const info = deadline
-    ? deadlineInfo(deadline, status)
-    : { text: "No deadline", className: "text-muted-foreground" };
+    ? deadlineInfo(
+        deadline,
+        status,
+      )
+    : {
+        text: "No deadline",
+        className:
+          "text-muted-foreground",
+      };
 
   if (!canEdit) {
     return (
-      <span className={cn("inline-flex items-center gap-1", info.className)}>
+      <span
+        className={cn(
+          "inline-flex items-center gap-1",
+          info.className,
+        )}
+      >
         <CalendarClock className="size-3" />
         {info.text}
       </span>
@@ -3160,10 +4164,15 @@ function InlineDeadlineEditor({
   return (
     <div
       onClick={stopInteractiveEvent}
-      onPointerDown={stopInteractiveEvent}
+      onPointerDown={
+        stopInteractiveEvent
+      }
       onKeyDown={stopInteractiveEvent}
     >
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={setOpen}
+      >
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -3178,28 +4187,47 @@ function InlineDeadlineEditor({
             ) : (
               <CalendarClock className="size-3" />
             )}
+
             {info.text}
           </button>
         </PopoverTrigger>
+
         <PopoverContent
           align="start"
           className="w-64"
-          onClick={stopInteractiveEvent}
-          onPointerDown={stopInteractiveEvent}
+          onClick={
+            stopInteractiveEvent
+          }
+          onPointerDown={
+            stopInteractiveEvent
+          }
         >
           <div className="space-y-2">
-            <Label className="text-xs">Deadline</Label>
+            <Label className="text-xs">
+              Deadline
+            </Label>
+
             <Input
               type="date"
               value={deadline}
               onChange={(event) => {
-                const value = event.target.value;
-                if (!optional && !value) return;
+                const value =
+                  event.target.value;
+
+                if (!optional && !value) {
+                  return;
+                }
+
                 void onChange(value)
-                  .then(() => setOpen(false))
-                  .catch(() => undefined);
+                  .then(() =>
+                    setOpen(false),
+                  )
+                  .catch(
+                    () => undefined,
+                  );
               }}
             />
+
             {optional && deadline && (
               <Button
                 type="button"
@@ -3208,8 +4236,12 @@ function InlineDeadlineEditor({
                 className="w-full"
                 onClick={() =>
                   void onChange("")
-                    .then(() => setOpen(false))
-                    .catch(() => undefined)
+                    .then(() =>
+                      setOpen(false),
+                    )
+                    .catch(
+                      () => undefined,
+                    )
                 }
               >
                 Remove deadline
@@ -3242,12 +4274,22 @@ function FloatingCreateMenu({
             <Plus className="size-6" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="mb-2 w-48">
-          <DropdownMenuItem onSelect={onNewTask}>
+
+        <DropdownMenuContent
+          align="end"
+          side="top"
+          className="mb-2 w-48"
+        >
+          <DropdownMenuItem
+            onSelect={onNewTask}
+          >
             <Plus className="size-4" />
             New Task
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onNewProject}>
+
+          <DropdownMenuItem
+            onSelect={onNewProject}
+          >
             <FolderPlus className="size-4" />
             New Project
           </DropdownMenuItem>
@@ -3257,8 +4299,15 @@ function FloatingCreateMenu({
   );
 }
 
-function TaskSummary({ task }: { task: TaskItem }) {
-  const deadline = deadlineInfo(task.deadline, task.status);
+function TaskSummary({
+  task,
+}: {
+  task: TaskItem;
+}) {
+  const deadline = deadlineInfo(
+    task.deadline,
+    task.status,
+  );
 
   return (
     <div className="rounded-2xl bg-muted/50 p-4">
@@ -3267,18 +4316,29 @@ function TaskSummary({ task }: { task: TaskItem }) {
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
             Scope
           </p>
-          <p className="mt-1 text-sm font-medium">{task.teamName}</p>
+
+          <p className="mt-1 text-sm font-medium">
+            {task.teamName}
+          </p>
         </div>
+
         <div className="flex flex-wrap justify-end gap-2">
           <Badge
             variant="outline"
-            className={cn("rounded-full", priorityClass(task.priority))}
+            className={cn(
+              "rounded-full",
+              priorityClass(task.priority),
+            )}
           >
             {task.priority}
           </Badge>
+
           <Badge
             variant="outline"
-            className={cn("rounded-full", statusClass(task.status))}
+            className={cn(
+              "rounded-full",
+              statusClass(task.status),
+            )}
           >
             {task.status}
           </Badge>
@@ -3287,27 +4347,47 @@ function TaskSummary({ task }: { task: TaskItem }) {
 
       <div className="mt-4 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
         <p>
-          Owner: <span className="font-medium text-foreground">{task.ownerName}</span>
+          Owner:{" "}
+          <span className="font-medium text-foreground">
+            {task.ownerName}
+          </span>
         </p>
+
         {task.projectName && (
           <p>
             Project:{" "}
-            <span className="font-medium text-foreground">{task.projectName}</span>
+            <span className="font-medium text-foreground">
+              {task.projectName}
+            </span>
           </p>
         )}
-        <p className={deadline.className}>Deadline: {deadline.text}</p>
+
+        <p className={deadline.className}>
+          Deadline: {deadline.text}
+        </p>
+
         <p>
           Created by{" "}
-          <span className="font-medium text-foreground">{task.createdByName}</span>
+          <span className="font-medium text-foreground">
+            {task.createdByName}
+          </span>
         </p>
       </div>
 
-      {task.status === "Blocked" && task.blockedReason && (
-        <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
-          <p className="text-xs font-medium text-destructive">Blocked</p>
-          <p className="mt-1 text-sm">{task.blockedReason}</p>
-        </div>
-      )}
+      {task.status === "Blocked" &&
+        task.blockedReason && (
+          <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+            <p className="text-xs font-medium text-destructive">
+              Blocked
+            </p>
+
+            <p className="mt-1 min-w-0 text-sm">
+              <LinkifiedText
+                text={task.blockedReason}
+              />
+            </p>
+          </div>
+        )}
     </div>
   );
 }
@@ -3319,9 +4399,23 @@ function ProjectSummary({
   project: TaskProject;
   tasks: TaskItem[];
 }) {
-  const done = tasks.filter((task) => task.status === "Done").length;
-  const progress = tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100);
-  const deadline = optionalDeadlineInfo(project.deadline, project.status);
+  const done = tasks.filter(
+    (task) => task.status === "Done",
+  ).length;
+
+  const progress =
+    tasks.length === 0
+      ? 0
+      : Math.round(
+          (done / tasks.length) *
+            100,
+        );
+
+  const deadline =
+    optionalDeadlineInfo(
+      project.deadline,
+      project.status,
+    );
 
   return (
     <div className="rounded-2xl bg-muted/50 p-4">
@@ -3330,18 +4424,31 @@ function ProjectSummary({
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
             Scope
           </p>
-          <p className="mt-1 text-sm font-medium">{project.teamName}</p>
+
+          <p className="mt-1 text-sm font-medium">
+            {project.teamName}
+          </p>
         </div>
+
         <div className="flex flex-wrap justify-end gap-2">
           <Badge
             variant="outline"
-            className={cn("rounded-full", priorityClass(project.priority))}
+            className={cn(
+              "rounded-full",
+              priorityClass(
+                project.priority,
+              ),
+            )}
           >
             {project.priority}
           </Badge>
+
           <Badge
             variant="outline"
-            className={cn("rounded-full", statusClass(project.status))}
+            className={cn(
+              "rounded-full",
+              statusClass(project.status),
+            )}
           >
             {project.status}
           </Badge>
@@ -3351,9 +4458,15 @@ function ProjectSummary({
       <div className="mt-4 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
         <p>
           Owner:{" "}
-          <span className="font-medium text-foreground">{project.ownerName}</span>
+          <span className="font-medium text-foreground">
+            {project.ownerName}
+          </span>
         </p>
-        <p className={deadline.className}>Deadline: {deadline.text}</p>
+
+        <p className={deadline.className}>
+          Deadline: {deadline.text}
+        </p>
+
         <p>
           Progress:{" "}
           <span className="font-medium text-foreground">
@@ -3362,6 +4475,7 @@ function ProjectSummary({
               : `${done} / ${tasks.length} completed · ${progress}%`}
           </span>
         </p>
+
         <p>
           Created by{" "}
           <span className="font-medium text-foreground">
@@ -3374,71 +4488,123 @@ function ProjectSummary({
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-background">
           <div
             className="h-full rounded-full bg-primary"
-            style={{ width: `${progress}%` }}
+            style={{
+              width: `${progress}%`,
+            }}
           />
         </div>
       )}
 
-      {project.status === "Blocked" && project.blockedReason && (
-        <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
-          <p className="text-xs font-medium text-destructive">Blocked</p>
-          <p className="mt-1 text-sm">{project.blockedReason}</p>
-        </div>
-      )}
+      {project.status === "Blocked" &&
+        project.blockedReason && (
+          <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+            <p className="text-xs font-medium text-destructive">
+              Blocked
+            </p>
+
+            <p className="mt-1 min-w-0 text-sm">
+              <LinkifiedText
+                text={project.blockedReason}
+              />
+            </p>
+          </div>
+        )}
     </div>
   );
 }
 
-function TaskReadOnlyDetails({ task }: { task: TaskItem }) {
+function TaskReadOnlyDetails({
+  task,
+}: {
+  task: TaskItem;
+}) {
   return (
     <div className="space-y-4">
       {task.description && (
         <div>
-          <Label>Description</Label>
-          <p className="mt-2 whitespace-pre-wrap rounded-2xl bg-muted/50 p-4 text-sm">
-            {task.description}
-          </p>
+          <Label>
+            Description
+          </Label>
+
+          <div className="mt-2 min-w-0 rounded-2xl bg-muted/50 p-3 text-sm sm:p-4">
+            <LinkifiedText
+              text={task.description}
+            />
+          </div>
         </div>
       )}
 
       <div>
-        <Label>Assigned to</Label>
+        <Label>
+          Assigned to
+        </Label>
+
         <div className="mt-2 flex flex-wrap gap-2">
-          {task.assignees.map((assignee) => (
-            <Badge key={assignee.id} variant="secondary">
-              {assignee.name}
-            </Badge>
-          ))}
+          {task.assignees.map(
+            (assignee) => (
+              <Badge
+                key={assignee.id}
+                variant="secondary"
+              >
+                {assignee.name}
+              </Badge>
+            ),
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function ProjectReadOnlyDetails({ project }: { project: TaskProject }) {
-  const deadline = optionalDeadlineInfo(project.deadline, project.status);
+function ProjectReadOnlyDetails({
+  project,
+}: {
+  project: TaskProject;
+}) {
+  const deadline =
+    optionalDeadlineInfo(
+      project.deadline,
+      project.status,
+    );
 
   return (
     <div className="space-y-4">
       {project.description && (
         <div>
-          <Label>Description</Label>
-          <p className="mt-2 whitespace-pre-wrap rounded-2xl bg-muted/50 p-4 text-sm">
-            {project.description}
-          </p>
+          <Label>
+            Description
+          </Label>
+
+          <div className="mt-2 min-w-0 rounded-2xl bg-muted/50 p-3 text-sm sm:p-4">
+            <LinkifiedText
+              text={project.description}
+            />
+          </div>
         </div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <Label>Owner</Label>
+          <Label>
+            Owner
+          </Label>
+
           <p className="mt-2 rounded-2xl bg-muted/50 p-3 text-sm">
             {project.ownerName}
           </p>
         </div>
+
         <div>
-          <Label>Deadline</Label>
-          <p className={cn("mt-2 rounded-2xl bg-muted/50 p-3 text-sm", deadline.className)}>
+          <Label>
+            Deadline
+          </Label>
+
+          <p
+            className={cn(
+              "mt-2 rounded-2xl bg-muted/50 p-3 text-sm",
+              deadline.className,
+            )}
+          >
             {deadline.text}
           </p>
         </div>
@@ -3458,7 +4624,10 @@ function StatusEditor({
 }: {
   status: TaskStatus;
   blockedReason: string;
-  onChange: (status: TaskStatus, blockedReason: string) => void;
+  onChange: (
+    status: TaskStatus,
+    blockedReason: string,
+  ) => void;
   saving: boolean;
   onSave: () => void;
   disabled: boolean;
@@ -3466,23 +4635,34 @@ function StatusEditor({
 }) {
   return (
     <div className="space-y-3 border-t border-border pt-5">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+      </Label>
+
       <Select
         value={status}
         onValueChange={(value) => {
-          const nextStatus = value as TaskStatus;
+          const nextStatus =
+            value as TaskStatus;
+
           onChange(
             nextStatus,
-            nextStatus === "Blocked" ? blockedReason : "",
+            nextStatus === "Blocked"
+              ? blockedReason
+              : "",
           );
         }}
       >
         <SelectTrigger>
           <SelectValue />
         </SelectTrigger>
+
         <SelectContent>
           {STATUSES.map((item) => (
-            <SelectItem key={item} value={item}>
+            <SelectItem
+              key={item}
+              value={item}
+            >
               {item}
             </SelectItem>
           ))}
@@ -3491,14 +4671,22 @@ function StatusEditor({
 
       {status === "Blocked" && (
         <div className="space-y-2">
-          <Label>Why is this blocked?</Label>
+          <Label>
+            Why is this blocked?
+          </Label>
+
           <Textarea
             rows={3}
             maxLength={500}
             className="resize-none rounded-2xl"
             placeholder="Waiting for supplier approval…"
             value={blockedReason}
-            onChange={(event) => onChange(status, event.target.value)}
+            onChange={(event) =>
+              onChange(
+                status,
+                event.target.value,
+              )
+            }
           />
         </div>
       )}
@@ -3506,10 +4694,15 @@ function StatusEditor({
       <Button
         type="button"
         className="w-full"
-        disabled={saving || disabled}
+        disabled={
+          saving ||
+          disabled
+        }
         onClick={onSave}
       >
-        {saving ? "Saving…" : "Update Status"}
+        {saving
+          ? "Saving…"
+          : "Update Status"}
       </Button>
     </div>
   );
@@ -3537,16 +4730,25 @@ function WorkUpdatesPanel({
 
   async function submit() {
     const body = text.trim();
-    if (!body || saving) return;
+
+    if (!body || saving) {
+      return;
+    }
 
     setSaving(true);
+
     try {
       await onAdd(body);
       setText("");
-      toast.success("Update added");
+
+      toast.success(
+        "Update added",
+      );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not add update.",
+        error instanceof Error
+          ? error.message
+          : "Could not add update.",
       );
     } finally {
       setSaving(false);
@@ -3557,15 +4759,21 @@ function WorkUpdatesPanel({
     <section
       className={cn(
         "space-y-4",
-        !standalone && "border-t border-border pt-5",
+        !standalone &&
+          "border-t border-border pt-5",
       )}
     >
       <div>
         <div className="flex items-center gap-2">
           <MessageSquareText className="size-4 text-primary" />
-          <Label>{title}</Label>
+          <Label>
+            {title}
+          </Label>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+
+        <p className="mt-1 text-xs text-muted-foreground">
+          {description}
+        </p>
       </div>
 
       {canAdd && (
@@ -3576,16 +4784,26 @@ function WorkUpdatesPanel({
             className="resize-none rounded-xl"
             placeholder="Add progress, a decision, a blocker or a handoff…"
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) =>
+              setText(event.target.value)
+            }
           />
+
           <div className="flex justify-end">
             <Button
               type="button"
               size="sm"
-              disabled={!text.trim() || saving}
-              onClick={() => void submit()}
+              disabled={
+                !text.trim() ||
+                saving
+              }
+              onClick={() =>
+                void submit()
+              }
             >
-              {saving ? "Adding…" : "Add update"}
+              {saving
+                ? "Adding…"
+                : "Add update"}
             </Button>
           </div>
         </div>
@@ -3598,22 +4816,45 @@ function WorkUpdatesPanel({
       ) : (
         <div className="space-y-2">
           {updates.map((entry) => (
-            <div key={entry.id} className="surface-card rounded-2xl p-3">
+            <div
+              key={entry.id}
+              className="surface-card rounded-2xl p-3"
+            >
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">
                   {entry.authorName}
                 </span>
+
                 <span>·</span>
-                <span>{formatDateTime(entry.createdAt)}</span>
-                {entry.source === "clock" && (
-                  <Badge variant="secondary" className="rounded-full text-[10px]">
+
+                <span>
+                  {formatDateTime(
+                    entry.createdAt,
+                  )}
+                </span>
+
+                {entry.source ===
+                  "clock" && (
+                  <Badge
+                    variant="secondary"
+                    className="rounded-full text-[10px]"
+                  >
                     <Timer className="mr-1 size-3" />
                     Clock
-                    {entry.durationMs ? ` · ${formatHours(entry.durationMs)}` : ""}
+                    {entry.durationMs
+                      ? ` · ${formatHours(
+                          entry.durationMs,
+                        )}`
+                      : ""}
                   </Badge>
                 )}
               </div>
-              <p className="mt-2 whitespace-pre-wrap text-sm">{entry.body}</p>
+
+              <p className="mt-2 min-w-0 text-sm">
+                <LinkifiedText
+                  text={entry.body}
+                />
+              </p>
             </div>
           ))}
         </div>
@@ -3632,77 +4873,136 @@ function TaskForm({
   people,
 }: {
   value: TaskFormValue;
-  onChange: (value: TaskFormValue) => void;
+  onChange: (
+    value: TaskFormValue,
+  ) => void;
   role: TaskRole;
   currentUserId: string;
-  teams: { id: string; name: string }[];
+  teams: {
+    id: string;
+    name: string;
+  }[];
   projects: TaskProject[];
   people: TaskPerson[];
 }) {
   const eligiblePeople =
     value.teamId === "general"
       ? people
-      : people.filter((person) => person.teamIds.includes(value.teamId));
+      : people.filter(
+          (person) =>
+            person.teamIds.includes(
+              value.teamId,
+            ),
+        );
 
-  const eligibleProjects = projects.filter((project) =>
-    value.teamId === "general"
-      ? project.teamId === null
-      : project.teamId === value.teamId,
-  );
+  const eligibleProjects =
+    projects.filter((project) =>
+      value.teamId === "general"
+        ? project.teamId === null
+        : project.teamId ===
+          value.teamId,
+    );
 
-  function changeScope(teamId: string) {
+  function changeScope(
+    teamId: string,
+  ) {
     const nextPeople =
       teamId === "general"
         ? people
-        : people.filter((person) => person.teamIds.includes(teamId));
-    const allowed = new Set(nextPeople.map((person) => person.id));
-    const nextOwner = allowed.has(value.ownerId)
-      ? value.ownerId
-      : allowed.has(currentUserId)
-        ? currentUserId
-        : nextPeople[0]?.id ?? "";
+        : people.filter(
+            (person) =>
+              person.teamIds.includes(
+                teamId,
+              ),
+          );
 
-    const selectedProject = projects.find(
-      (project) => project.id === value.projectId,
+    const allowed = new Set(
+      nextPeople.map(
+        (person) => person.id,
+      ),
     );
-    const projectStillValid = selectedProject
-      ? teamId === "general"
-        ? selectedProject.teamId === null
-        : selectedProject.teamId === teamId
-      : value.projectId === "none";
+
+    const nextOwner =
+      allowed.has(value.ownerId)
+        ? value.ownerId
+        : allowed.has(currentUserId)
+          ? currentUserId
+          : nextPeople[0]?.id ?? "";
+
+    const selectedProject =
+      projects.find(
+        (project) =>
+          project.id ===
+          value.projectId,
+      );
+
+    const projectStillValid =
+      selectedProject
+        ? teamId === "general"
+          ? selectedProject.teamId === null
+          : selectedProject.teamId === teamId
+        : value.projectId === "none";
 
     onChange({
       ...value,
       teamId,
       ownerId: nextOwner,
-      projectId: projectStillValid ? value.projectId : "none",
-      assigneeIds: value.assigneeIds.filter((userId) => allowed.has(userId)),
+      projectId:
+        projectStillValid
+          ? value.projectId
+          : "none",
+      assigneeIds:
+        value.assigneeIds.filter(
+          (userId) =>
+            allowed.has(userId),
+        ),
     });
   }
 
-  function togglePerson(userId: string, enabled: boolean) {
+  function togglePerson(
+    userId: string,
+    enabled: boolean,
+  ) {
     onChange({
       ...value,
       assigneeIds: enabled
-        ? Array.from(new Set([...value.assigneeIds, userId]))
-        : value.assigneeIds.filter((id) => id !== userId),
+        ? Array.from(
+            new Set([
+              ...value.assigneeIds,
+              userId,
+            ]),
+          )
+        : value.assigneeIds.filter(
+            (id) => id !== userId,
+          ),
     });
   }
 
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <Label>Title</Label>
+        <Label>
+          Title
+        </Label>
+
         <Input
           maxLength={120}
           placeholder="Prepare kickoff presentation"
           value={value.title}
-          onChange={(event) => onChange({ ...value, title: event.target.value })}
+          onChange={(event) =>
+            onChange({
+              ...value,
+              title: event.target.value,
+            })
+          }
         />
       </div>
 
       <div className="space-y-2">
-        <Label>Description</Label>
+        <Label>
+          Description
+        </Label>
+
         <Textarea
           rows={5}
           maxLength={2000}
@@ -3710,55 +5010,86 @@ function TaskForm({
           placeholder="Add details or requirements…"
           value={value.description}
           onChange={(event) =>
-            onChange({ ...value, description: event.target.value })
+            onChange({
+              ...value,
+              description:
+                event.target.value,
+            })
           }
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Status</Label>
+          <Label>
+            Status
+          </Label>
+
           <Select
             value={value.status}
             onValueChange={(statusValue) => {
-              const status = statusValue as TaskStatus;
+              const status =
+                statusValue as TaskStatus;
+
               onChange({
                 ...value,
                 status,
-                blockedReason: status === "Blocked" ? value.blockedReason : "",
+                blockedReason:
+                  status === "Blocked"
+                    ? value.blockedReason
+                    : "",
               });
             }}
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
-              {STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
-                </SelectItem>
-              ))}
+              {STATUSES.map(
+                (status) => (
+                  <SelectItem
+                    key={status}
+                    value={status}
+                  >
+                    {status}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-2">
-          <Label>Priority</Label>
+          <Label>
+            Priority
+          </Label>
+
           <Select
             value={value.priority}
             onValueChange={(priority) =>
-              onChange({ ...value, priority: priority as TaskPriority })
+              onChange({
+                ...value,
+                priority:
+                  priority as TaskPriority,
+              })
             }
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
-              {PRIORITIES.map((priority) => (
-                <SelectItem key={priority} value={priority}>
-                  {priority}
-                </SelectItem>
-              ))}
+              {PRIORITIES.map(
+                (priority) => (
+                  <SelectItem
+                    key={priority}
+                    value={priority}
+                  >
+                    {priority}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -3766,7 +5097,10 @@ function TaskForm({
 
       {value.status === "Blocked" && (
         <div className="space-y-2">
-          <Label>Why is this blocked?</Label>
+          <Label>
+            Why is this blocked?
+          </Label>
+
           <Textarea
             rows={3}
             maxLength={500}
@@ -3774,7 +5108,11 @@ function TaskForm({
             placeholder="Waiting for supplier approval…"
             value={value.blockedReason}
             onChange={(event) =>
-              onChange({ ...value, blockedReason: event.target.value })
+              onChange({
+                ...value,
+                blockedReason:
+                  event.target.value,
+              })
             }
           />
         </div>
@@ -3782,28 +5120,50 @@ function TaskForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Deadline</Label>
+          <Label>
+            Deadline
+          </Label>
+
           <Input
             type="date"
             value={value.deadline}
             onChange={(event) =>
-              onChange({ ...value, deadline: event.target.value })
+              onChange({
+                ...value,
+                deadline:
+                  event.target.value,
+              })
             }
           />
         </div>
 
         <div className="space-y-2">
-          <Label>Team</Label>
-          <Select value={value.teamId} onValueChange={changeScope}>
+          <Label>
+            Team
+          </Label>
+
+          <Select
+            value={value.teamId}
+            onValueChange={
+              changeScope
+            }
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
               {role === "admin" && (
-                <SelectItem value="general">General — everyone</SelectItem>
+                <SelectItem value="general">
+                  General — everyone
+                </SelectItem>
               )}
+
               {teams.map((team) => (
-                <SelectItem key={team.id} value={team.id}>
+                <SelectItem
+                  key={team.id}
+                  value={team.id}
+                >
                   {team.name}
                 </SelectItem>
               ))}
@@ -3814,42 +5174,74 @@ function TaskForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Owner</Label>
+          <Label>
+            Owner
+          </Label>
+
           <Select
             value={value.ownerId}
-            onValueChange={(ownerId) => onChange({ ...value, ownerId })}
+            onValueChange={(ownerId) =>
+              onChange({
+                ...value,
+                ownerId,
+              })
+            }
           >
             <SelectTrigger>
               <SelectValue placeholder="Choose an owner" />
             </SelectTrigger>
+
             <SelectContent>
-              {eligiblePeople.map((person) => (
-                <SelectItem key={person.id} value={person.id}>
-                  {person.name}
-                </SelectItem>
-              ))}
+              {eligiblePeople.map(
+                (person) => (
+                  <SelectItem
+                    key={person.id}
+                    value={person.id}
+                  >
+                    {person.name}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-2">
-          <Label>Project</Label>
+          <Label>
+            Project
+          </Label>
+
           <Select
             value={value.projectId}
-            onValueChange={(projectId) => onChange({ ...value, projectId })}
+            onValueChange={(projectId) =>
+              onChange({
+                ...value,
+                projectId,
+              })
+            }
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
-              <SelectItem value="none">No project</SelectItem>
-              {eligibleProjects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.name}
-                </SelectItem>
-              ))}
+              <SelectItem value="none">
+                No project
+              </SelectItem>
+
+              {eligibleProjects.map(
+                (project) => (
+                  <SelectItem
+                    key={project.id}
+                    value={project.id}
+                  >
+                    {project.name}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
+
           {eligibleProjects.length === 0 && (
             <p className="text-xs text-muted-foreground">
               No projects exist for this team yet.
@@ -3860,7 +5252,10 @@ function TaskForm({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <Label>Assignees</Label>
+          <Label>
+            Assignees
+          </Label>
+
           <span className="text-xs text-muted-foreground">
             {value.assigneeIds.length} selected
           </span>
@@ -3872,28 +5267,44 @@ function TaskForm({
               No people are available for this team.
             </p>
           ) : (
-            eligiblePeople.map((person) => {
-              const checked = value.assigneeIds.includes(person.id);
-              return (
-                <label
-                  key={person.id}
-                  className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-muted"
-                >
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={(enabled) =>
-                      togglePerson(person.id, enabled === true)
-                    }
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{person.name}</p>
-                    {person.role === "team_lead" && (
-                      <p className="text-xs text-primary">Team Lead</p>
-                    )}
-                  </div>
-                </label>
-              );
-            })
+            eligiblePeople.map(
+              (person) => {
+                const checked =
+                  value.assigneeIds.includes(
+                    person.id,
+                  );
+
+                return (
+                  <label
+                    key={person.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-muted"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(enabled) =>
+                        togglePerson(
+                          person.id,
+                          enabled === true,
+                        )
+                      }
+                    />
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {person.name}
+                      </p>
+
+                      {person.role ===
+                        "team_lead" && (
+                        <p className="text-xs text-primary">
+                          Team Lead
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                );
+              },
+            )
           )}
         </div>
       </div>
@@ -3910,49 +5321,83 @@ function ProjectForm({
   people,
 }: {
   value: ProjectFormValue;
-  onChange: (value: ProjectFormValue) => void;
+  onChange: (
+    value: ProjectFormValue,
+  ) => void;
   role: TaskRole;
   currentUserId: string;
-  teams: { id: string; name: string }[];
+  teams: {
+    id: string;
+    name: string;
+  }[];
   people: TaskPerson[];
 }) {
   const eligiblePeople =
     value.teamId === "general"
       ? people
-      : people.filter((person) => person.teamIds.includes(value.teamId));
+      : people.filter(
+          (person) =>
+            person.teamIds.includes(
+              value.teamId,
+            ),
+        );
 
-  function changeScope(teamId: string) {
+  function changeScope(
+    teamId: string,
+  ) {
     const nextPeople =
       teamId === "general"
         ? people
-        : people.filter((person) => person.teamIds.includes(teamId));
-    const allowed = new Set(nextPeople.map((person) => person.id));
+        : people.filter(
+            (person) =>
+              person.teamIds.includes(
+                teamId,
+              ),
+          );
+
+    const allowed = new Set(
+      nextPeople.map(
+        (person) => person.id,
+      ),
+    );
 
     onChange({
       ...value,
       teamId,
-      ownerId: allowed.has(value.ownerId)
-        ? value.ownerId
-        : allowed.has(currentUserId)
-          ? currentUserId
-          : nextPeople[0]?.id ?? "",
+      ownerId:
+        allowed.has(value.ownerId)
+          ? value.ownerId
+          : allowed.has(currentUserId)
+            ? currentUserId
+            : nextPeople[0]?.id ?? "",
     });
   }
 
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <Label>Name</Label>
+        <Label>
+          Name
+        </Label>
+
         <Input
           maxLength={120}
           placeholder="Global 7500 Installation"
           value={value.name}
-          onChange={(event) => onChange({ ...value, name: event.target.value })}
+          onChange={(event) =>
+            onChange({
+              ...value,
+              name: event.target.value,
+            })
+          }
         />
       </div>
 
       <div className="space-y-2">
-        <Label>Description</Label>
+        <Label>
+          Description
+        </Label>
+
         <Textarea
           rows={5}
           maxLength={2000}
@@ -3960,55 +5405,86 @@ function ProjectForm({
           placeholder="What is this project trying to achieve?"
           value={value.description}
           onChange={(event) =>
-            onChange({ ...value, description: event.target.value })
+            onChange({
+              ...value,
+              description:
+                event.target.value,
+            })
           }
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Status</Label>
+          <Label>
+            Status
+          </Label>
+
           <Select
             value={value.status}
             onValueChange={(statusValue) => {
-              const status = statusValue as TaskStatus;
+              const status =
+                statusValue as TaskStatus;
+
               onChange({
                 ...value,
                 status,
-                blockedReason: status === "Blocked" ? value.blockedReason : "",
+                blockedReason:
+                  status === "Blocked"
+                    ? value.blockedReason
+                    : "",
               });
             }}
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
-              {STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
-                </SelectItem>
-              ))}
+              {STATUSES.map(
+                (status) => (
+                  <SelectItem
+                    key={status}
+                    value={status}
+                  >
+                    {status}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-2">
-          <Label>Priority</Label>
+          <Label>
+            Priority
+          </Label>
+
           <Select
             value={value.priority}
             onValueChange={(priority) =>
-              onChange({ ...value, priority: priority as TaskPriority })
+              onChange({
+                ...value,
+                priority:
+                  priority as TaskPriority,
+              })
             }
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
-              {PRIORITIES.map((priority) => (
-                <SelectItem key={priority} value={priority}>
-                  {priority}
-                </SelectItem>
-              ))}
+              {PRIORITIES.map(
+                (priority) => (
+                  <SelectItem
+                    key={priority}
+                    value={priority}
+                  >
+                    {priority}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -4016,7 +5492,10 @@ function ProjectForm({
 
       {value.status === "Blocked" && (
         <div className="space-y-2">
-          <Label>Why is this blocked?</Label>
+          <Label>
+            Why is this blocked?
+          </Label>
+
           <Textarea
             rows={3}
             maxLength={500}
@@ -4024,7 +5503,11 @@ function ProjectForm({
             placeholder="Waiting for approval…"
             value={value.blockedReason}
             onChange={(event) =>
-              onChange({ ...value, blockedReason: event.target.value })
+              onChange({
+                ...value,
+                blockedReason:
+                  event.target.value,
+              })
             }
           />
         </div>
@@ -4032,29 +5515,54 @@ function ProjectForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Deadline</Label>
+          <Label>
+            Deadline
+          </Label>
+
           <Input
             type="date"
             value={value.deadline}
             onChange={(event) =>
-              onChange({ ...value, deadline: event.target.value })
+              onChange({
+                ...value,
+                deadline:
+                  event.target.value,
+              })
             }
           />
-          <p className="text-xs text-muted-foreground">Optional for projects.</p>
+
+          <p className="text-xs text-muted-foreground">
+            Optional for projects.
+          </p>
         </div>
 
         <div className="space-y-2">
-          <Label>Team</Label>
-          <Select value={value.teamId} onValueChange={changeScope}>
+          <Label>
+            Team
+          </Label>
+
+          <Select
+            value={value.teamId}
+            onValueChange={
+              changeScope
+            }
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
+
             <SelectContent>
               {role === "admin" && (
-                <SelectItem value="general">General — everyone</SelectItem>
+                <SelectItem value="general">
+                  General — everyone
+                </SelectItem>
               )}
+
               {teams.map((team) => (
-                <SelectItem key={team.id} value={team.id}>
+                <SelectItem
+                  key={team.id}
+                  value={team.id}
+                >
                   {team.name}
                 </SelectItem>
               ))}
@@ -4064,20 +5572,34 @@ function ProjectForm({
       </div>
 
       <div className="space-y-2">
-        <Label>Owner</Label>
+        <Label>
+          Owner
+        </Label>
+
         <Select
           value={value.ownerId}
-          onValueChange={(ownerId) => onChange({ ...value, ownerId })}
+          onValueChange={(ownerId) =>
+            onChange({
+              ...value,
+              ownerId,
+            })
+          }
         >
           <SelectTrigger>
             <SelectValue placeholder="Choose an owner" />
           </SelectTrigger>
+
           <SelectContent>
-            {eligiblePeople.map((person) => (
-              <SelectItem key={person.id} value={person.id}>
-                {person.name}
-              </SelectItem>
-            ))}
+            {eligiblePeople.map(
+              (person) => (
+                <SelectItem
+                  key={person.id}
+                  value={person.id}
+                >
+                  {person.name}
+                </SelectItem>
+              ),
+            )}
           </SelectContent>
         </Select>
       </div>
