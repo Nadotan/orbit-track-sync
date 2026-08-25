@@ -359,8 +359,8 @@ export const setWorkshopStatus =
 
                     body:
                       data.isOpen
-                        ? `${actorName} opened the workshop.`
-                        : `${actorName} closed the workshop.`,
+                        ? `${actorName} opened the workshop - Turn on your clock!`
+                        : `${actorName} closed the workshop - Turn off your clock!`,
 
                     url:
                       "/meetings",
