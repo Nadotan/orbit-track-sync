@@ -6,6 +6,7 @@ import {
   Info,
   LogOut,
   UserRound,
+  Vote,
 } from "lucide-react";
 
 import {
@@ -76,14 +77,18 @@ function initials(
 ) {
   return (
     name
-      .split(" ")
+      .split(
+        " ",
+      )
       .map(
         (
           n,
         ) =>
           n[0],
       )
-      .join("")
+      .join(
+        "",
+      )
       .slice(
         0,
         2,
@@ -317,9 +322,23 @@ export function AppHeader() {
                 }}
               >
                 <UserRound className="size-4" />
-
                 Profile
               </DropdownMenuItem>
+
+              {currentUser.role ===
+                "Admin" && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    navigate({
+                      to:
+                        "/polls",
+                    });
+                  }}
+                >
+                  <Vote className="size-4" />
+                  Polls
+                </DropdownMenuItem>
+              )}
 
               <DropdownMenuSeparator />
 
@@ -334,7 +353,6 @@ export function AppHeader() {
                 }}
               >
                 <LogOut className="size-4" />
-
                 Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>
