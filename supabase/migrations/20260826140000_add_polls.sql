@@ -1,7 +1,9 @@
 -- Polls / Question of the Day
--- One migration: schema, constraints, grants and RLS.
+--
+-- Safe to run on a clean database and safe to reconcile a database where this
+-- schema was created manually before the migration file was committed.
 
-CREATE TABLE public.polls (
+CREATE TABLE IF NOT EXISTS public.polls (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
   label text NOT NULL DEFAULT 'Question of the Day',
@@ -29,14 +31,14 @@ CREATE TABLE public.polls (
     CHECK (closes_at > published_at)
 );
 
-CREATE INDEX polls_active_idx
+CREATE INDEX IF NOT EXISTS polls_active_idx
   ON public.polls (closes_at, published_at DESC);
 
-CREATE INDEX polls_created_at_idx
+CREATE INDEX IF NOT EXISTS polls_created_at_idx
   ON public.polls (created_at DESC);
 
 
-CREATE TABLE public.poll_options (
+CREATE TABLE IF NOT EXISTS public.poll_options (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
   poll_id uuid NOT NULL
@@ -61,11 +63,11 @@ CREATE TABLE public.poll_options (
     UNIQUE (poll_id, id)
 );
 
-CREATE INDEX poll_options_poll_idx
+CREATE INDEX IF NOT EXISTS poll_options_poll_idx
   ON public.poll_options (poll_id, position);
 
 
-CREATE TABLE public.poll_votes (
+CREATE TABLE IF NOT EXISTS public.poll_votes (
   poll_id uuid NOT NULL
     REFERENCES public.polls(id)
     ON DELETE CASCADE,
@@ -87,69 +89,102 @@ CREATE TABLE public.poll_votes (
     ON DELETE CASCADE
 );
 
-CREATE INDEX poll_votes_option_idx
+CREATE INDEX IF NOT EXISTS poll_votes_option_idx
   ON public.poll_votes (poll_id, option_id);
 
 
-ALTER TABLE public.polls
-ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE public.poll_options
-ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE public.poll_votes
-ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.polls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.poll_options ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.poll_votes ENABLE ROW LEVEL SECURITY;
 
 
--- App writes go through authenticated TanStack server functions.
--- Normal authenticated clients only get read access.
-
+-- Writes are performed by authenticated TanStack server functions after
+-- permission checks. Authenticated browser clients only need SELECT.
 GRANT SELECT
-ON public.polls,
-   public.poll_options,
-   public.poll_votes
+ON TABLE
+  public.polls,
+  public.poll_options,
+  public.poll_votes
 TO authenticated;
 
 GRANT ALL
-ON public.polls,
-   public.poll_options,
-   public.poll_votes
+ON TABLE
+  public.polls,
+  public.poll_options,
+  public.poll_votes
 TO service_role;
 
 REVOKE ALL
-ON public.polls,
-   public.poll_options,
-   public.poll_votes
+ON TABLE
+  public.polls,
+  public.poll_options,
+  public.poll_votes
 FROM anon;
 
 
-CREATE POLICY "Signed in users can read published polls"
-ON public.polls
-FOR SELECT
-TO authenticated
-USING (
-  published_at <= now()
-);
-
-
-CREATE POLICY "Signed in users can read published poll options"
-ON public.poll_options
-FOR SELECT
-TO authenticated
-USING (
-  EXISTS (
+DO $$
+BEGIN
+  IF NOT EXISTS (
     SELECT 1
-    FROM public.polls p
-    WHERE p.id = poll_options.poll_id
-      AND p.published_at <= now()
-  )
-);
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'polls'
+      AND policyname = 'Signed in users can read published polls'
+  ) THEN
+    CREATE POLICY "Signed in users can read published polls"
+    ON public.polls
+    FOR SELECT
+    TO authenticated
+    USING (
+      published_at <= now()
+    );
+  END IF;
+END
+$$;
 
 
-CREATE POLICY "Users can read their own poll votes"
-ON public.poll_votes
-FOR SELECT
-TO authenticated
-USING (
-  auth.uid() = user_id
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'poll_options'
+      AND policyname = 'Signed in users can read published poll options'
+  ) THEN
+    CREATE POLICY "Signed in users can read published poll options"
+    ON public.poll_options
+    FOR SELECT
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1
+        FROM public.polls p
+        WHERE p.id = poll_options.poll_id
+          AND p.published_at <= now()
+      )
+    );
+  END IF;
+END
+$$;
+
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'poll_votes'
+      AND policyname = 'Users can read their own poll votes'
+  ) THEN
+    CREATE POLICY "Users can read their own poll votes"
+    ON public.poll_votes
+    FOR SELECT
+    TO authenticated
+    USING (
+      auth.uid() = user_id
+    );
+  END IF;
+END
+$$;

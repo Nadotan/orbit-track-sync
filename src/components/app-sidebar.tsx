@@ -137,7 +137,7 @@ export function AppSidebar() {
             </p>
 
             <p className="truncate text-xs text-sidebar-foreground/60">
-              version 4.0.0
+              version 4.1.1 polls
             </p>
           </div>
         </div>
