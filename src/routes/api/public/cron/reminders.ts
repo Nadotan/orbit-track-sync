@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-/** Scheduled reminder sweep: forgotten running clocks and un-answered meeting invites. */
+/**
+ * Scheduled notification sweep:
+ * - unanswered meeting RSVP reminders
+ * - overdue task reminders
+ */
 export const Route = createFileRoute("/api/public/cron/reminders")({
   server: {
     handlers: {
@@ -9,14 +13,15 @@ export const Route = createFileRoute("/api/public/cron/reminders")({
         const provided = request.headers.get("x-cron-secret");
 
         if (!secret || provided !== secret) {
-          return new Response("Unauthorized", { status: 401 });
+          return new Response("Unauthorized", {
+            status: 401,
+          });
         }
 
         const { runReminderSweep } = await import("@/lib/push.server");
+        const result = await runReminderSweep();
 
-        const { rsvpReminders } = await runReminderSweep();
-
-        return Response.json({ rsvpReminders });
+        return Response.json(result);
       },
     },
   },
