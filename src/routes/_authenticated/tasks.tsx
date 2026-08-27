@@ -17,8 +17,8 @@ import {
   AlertTriangle,
   Archive,
   CalendarClock,
-  Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -27,7 +27,6 @@ import {
   FolderPlus,
   Loader2,
   MessageSquareText,
-  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -68,7 +67,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -115,6 +113,7 @@ import {
   updateTaskStatus,
 } from "@/lib/tasks.functions";
 import type {
+  ProjectStatus,
   TaskItem,
   TaskPerson,
   TaskPriority,
@@ -209,7 +208,7 @@ interface ProjectFormValue {
   name: string;
   description: string;
   deadline: string;
-  status: TaskStatus;
+  status: ProjectStatus;
   priority: TaskPriority;
   ownerId: string;
   blockedReason: string;
@@ -240,7 +239,7 @@ interface ProjectCardActions {
 
   onStatusChange: (
     project: TaskProject,
-    status: TaskStatus,
+    status: ProjectStatus,
   ) => void;
 
   onPriorityChange: (
@@ -304,7 +303,7 @@ function defaultProjectForm(
     name: "",
     description: "",
     deadline: "",
-    status: "To Do",
+    status: null,
     priority: "Medium",
     ownerId: currentUserId,
     blockedReason: "",
@@ -456,6 +455,16 @@ function statusClass(
   return "border-border bg-muted text-muted-foreground";
 }
 
+function projectStatusClass(
+  status: ProjectStatus,
+) {
+  if (status === null) {
+    return "border-border bg-muted text-muted-foreground";
+  }
+
+  return statusClass(status);
+}
+
 function priorityClass(
   priority: TaskPriority,
 ) {
@@ -503,7 +512,7 @@ function shortDeadlineDate(
 
 function deadlineInfo(
   deadline: string,
-  status: TaskStatus,
+  status: TaskStatus | null,
 ) {
   const exactDate =
     shortDeadlineDate(deadline);
@@ -590,7 +599,7 @@ function deadlineInfo(
 
 function optionalDeadlineInfo(
   deadline: string | null,
-  status: TaskStatus,
+  status: ProjectStatus,
 ) {
   if (!deadline) {
     return {
@@ -609,6 +618,32 @@ function optionalDeadlineInfo(
     deadline,
     status,
   );
+}
+
+function deadlinePillClass(
+  deadline: string,
+  status: TaskStatus | null,
+) {
+  if (!deadline) {
+    return "border-border bg-muted text-muted-foreground";
+  }
+
+  if (status !== "Done") {
+    const days =
+      deadlineDays(
+        deadline,
+      );
+
+    if (days < 0) {
+      return "border-destructive/30 bg-destructive/10 text-destructive";
+    }
+
+    if (days <= 1) {
+      return "border-warning/30 bg-warning/10 text-warning";
+    }
+  }
+
+  return "border-border bg-muted text-muted-foreground";
 }
 
 function smartTaskRank(
@@ -3081,7 +3116,7 @@ function TasksPage() {
 
   async function performQuickProjectStatus(
     project: TaskProject,
-    status: TaskStatus,
+    status: ProjectStatus,
     blockedReason = "",
   ) {
     const key =
@@ -3103,10 +3138,11 @@ function TasksPage() {
       });
 
       toast.success(
-        status ===
-          "Done"
+        status === "Done"
           ? "Project completed"
-          : "Project status updated",
+          : status === null
+            ? "Project status cleared"
+            : "Project status updated",
       );
 
       await load();
@@ -3128,7 +3164,7 @@ function TasksPage() {
 
   function handleQuickProjectStatus(
     project: TaskProject,
-    status: TaskStatus,
+    status: ProjectStatus,
   ) {
     if (
       !project.canEditStatus ||
@@ -3277,7 +3313,9 @@ function TasksPage() {
       });
 
       toast.success(
-        "Project deadline updated",
+        deadline
+          ? "Project deadline updated"
+          : "Project deadline cleared",
       );
 
       await load();
@@ -4864,7 +4902,7 @@ function TasksPage() {
                             Status
                           </Label>
 
-                          <InlineStatusEditor
+                          <InlineProjectStatusEditor
                             status={
                               selectedProject.status
                             }
@@ -5288,20 +5326,6 @@ function TaskRow({
   onOpen: () => void;
   actions: TaskCardActions;
 }) {
-  const deadline =
-    deadlineInfo(
-      task.deadline,
-      task.status,
-    );
-
-  const overdue =
-    task.status !==
-      "Done" &&
-    deadlineDays(
-      task.deadline,
-    ) <
-      0;
-
   return (
     <div
       role="button"
@@ -5309,7 +5333,12 @@ function TaskRow({
       className={cn(
         "group min-w-0 cursor-pointer rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-colors hover:bg-muted/30 sm:px-3.5",
 
-        overdue &&
+        task.status !==
+          "Done" &&
+          deadlineDays(
+            task.deadline,
+          ) <
+            0 &&
           "border-destructive/25",
 
         task.status ===
@@ -5334,237 +5363,153 @@ function TaskRow({
         }
       }}
     >
-      <div className="flex min-w-0 items-start gap-2.5">
-        <button
-          type="button"
-          className={cn(
-            "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border transition-colors",
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <p
+            className={cn(
+              "min-w-0 flex-1 break-words text-sm font-semibold leading-5",
 
-            task.status ===
-              "Done"
-              ? "border-success bg-success text-success-foreground"
-              : "border-muted-foreground/30 hover:border-primary",
-          )}
-          aria-label={
-            task.status ===
-            "Done"
-              ? "Task completed"
-              : "Mark task done"
-          }
-          disabled={
-            !task.canEditStatus ||
-            task.status ===
-              "Done" ||
-            actions.busyKey ===
-              `task:${task.id}:status`
-          }
-          onClick={(
-            event,
-          ) => {
-            event.stopPropagation();
-
-            if (
-              task.status !==
+              task.status ===
                 "Done" &&
-              task.canEditStatus
-            ) {
-              actions.onStatusChange(
-                task,
-                "Done",
-              );
+                "line-through decoration-muted-foreground/40",
+            )}
+          >
+            {
+              task.title
             }
-          }}
-        >
-          {actions.busyKey ===
-          `task:${task.id}:status` ? (
-            <Loader2 className="size-3 animate-spin" />
-          ) : task.status ===
-            "Done" ? (
-            <Check className="size-3" />
-          ) : null}
-        </button>
+          </p>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-start justify-between gap-2">
-            <p
-              className={cn(
-                "min-w-0 flex-1 break-words text-sm font-semibold leading-5",
-
-                task.status ===
-                  "Done" &&
-                  "line-through decoration-muted-foreground/40",
-              )}
-            >
-              {
-                task.title
-              }
-            </p>
-
-            <div
-              className="flex shrink-0 items-center gap-1"
-              onClick={
-                stopInteractiveEvent
-              }
-              onPointerDown={
-                stopInteractiveEvent
-              }
-            >
-              <InlinePriorityEditor
-                priority={
-                  task.priority
-                }
-                canEdit={
-                  task.canEditDetails
-                }
-                saving={
-                  actions.busyKey ===
-                  `task:${task.id}:priority`
-                }
-                onChange={(
-                  priority,
-                ) =>
-                  actions.onPriorityChange(
-                    task,
-                    priority,
-                  )
-                }
-              />
-            </div>
-          </div>
-
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground sm:text-[11px]">
-            <InlineDeadlineEditor
-              deadline={
-                task.deadline
-              }
-              status={
-                task.status
+          <div
+            className="shrink-0"
+            onClick={
+              stopInteractiveEvent
+            }
+            onPointerDown={
+              stopInteractiveEvent
+            }
+          >
+            <InlinePriorityEditor
+              priority={
+                task.priority
               }
               canEdit={
                 task.canEditDetails
               }
               saving={
                 actions.busyKey ===
-                `task:${task.id}:deadline`
+                `task:${task.id}:priority`
               }
-              compact
               onChange={(
-                value,
+                priority,
               ) =>
-                actions.onDeadlineChange(
+                actions.onPriorityChange(
                   task,
-                  value,
+                  priority,
                 )
               }
             />
-
-            {task.projectName && (
-              <>
-                <span className="text-border">
-                  ·
-                </span>
-
-                <span className="inline-flex max-w-[10rem] items-center gap-1 truncate">
-                  <FolderKanban className="size-3 shrink-0" />
-
-                  {
-                    task.projectName
-                  }
-                </span>
-              </>
-            )}
-
-            {!task.projectName && (
-              <>
-                <span className="text-border">
-                  ·
-                </span>
-
-                <span className="truncate">
-                  {
-                    task.teamName
-                  }
-                </span>
-              </>
-            )}
-
-            {task.status ===
-              "Blocked" && (
-              <>
-                <span className="text-border">
-                  ·
-                </span>
-
-                <span className="font-medium text-destructive">
-                  Blocked
-                </span>
-              </>
-            )}
           </div>
+        </div>
 
-          <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
-            <div className="min-w-0 truncate text-[10px] text-muted-foreground sm:text-[11px]">
-              <span className="font-medium text-foreground">
-                {
-                  task.ownerName
-                }
-              </span>
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground sm:text-[11px]">
+          {task.projectName ? (
+            <span className="inline-flex max-w-[11rem] items-center gap-1 truncate">
+              <FolderKanban className="size-3 shrink-0" />
 
-              {task.assignees.length >
-                1 &&
-                ` +${task.assignees.length - 1}`}
-            </div>
-
-            <div
-              className="shrink-0"
-              onClick={
-                stopInteractiveEvent
-              }
-              onPointerDown={
-                stopInteractiveEvent
-              }
-            >
-              <InlineStatusEditor
-                status={
-                  task.status
-                }
-                canEdit={
-                  task.canEditStatus
-                }
-                saving={
-                  actions.busyKey ===
-                  `task:${task.id}:status`
-                }
-                onChange={(
-                  status,
-                ) =>
-                  actions.onStatusChange(
-                    task,
-                    status,
-                  )
-                }
-              />
-            </div>
-          </div>
-
-          {task.status ===
-            "Blocked" &&
-            task.blockedReason && (
-              <p className="mt-1 line-clamp-1 text-[10px] text-destructive">
-                {
-                  task.blockedReason
-                }
-              </p>
-            )}
-
-          {overdue && (
-            <span className="sr-only">
               {
-                deadline.text
+                task.projectName
+              }
+            </span>
+          ) : (
+            <span className="truncate">
+              {
+                task.teamName
               }
             </span>
           )}
+
+          <span className="text-border">
+            ·
+          </span>
+
+          <span className="min-w-0 truncate">
+            <span className="font-medium text-foreground">
+              {
+                task.ownerName
+              }
+            </span>
+
+            {task.assignees.length >
+              1 &&
+              ` +${task.assignees.length - 1}`}
+          </span>
         </div>
+
+        <div
+          className="mt-2 flex flex-wrap items-center gap-1.5"
+          onClick={
+            stopInteractiveEvent
+          }
+          onPointerDown={
+            stopInteractiveEvent
+          }
+        >
+          <InlineDeadlineEditor
+            deadline={
+              task.deadline
+            }
+            status={
+              task.status
+            }
+            canEdit={
+              task.canEditDetails
+            }
+            saving={
+              actions.busyKey ===
+              `task:${task.id}:deadline`
+            }
+            compact
+            onChange={(
+              value,
+            ) =>
+              actions.onDeadlineChange(
+                task,
+                value,
+              )
+            }
+          />
+
+          <InlineStatusEditor
+            status={
+              task.status
+            }
+            canEdit={
+              task.canEditStatus
+            }
+            saving={
+              actions.busyKey ===
+              `task:${task.id}:status`
+            }
+            onChange={(
+              status,
+            ) =>
+              actions.onStatusChange(
+                task,
+                status,
+              )
+            }
+          />
+        </div>
+
+        {task.status ===
+          "Blocked" &&
+          task.blockedReason && (
+            <p className="mt-1.5 line-clamp-1 text-[10px] text-destructive">
+              {
+                task.blockedReason
+              }
+            </p>
+          )}
       </div>
     </div>
   );
@@ -5952,37 +5897,6 @@ function ProjectRow({
               {progress}% complete
             </span>
 
-            <span>
-              ·
-            </span>
-
-            <InlineDeadlineEditor
-              deadline={
-                project.deadline ??
-                ""
-              }
-              status={
-                project.status
-              }
-              optional
-              compact
-              canEdit={
-                project.canEditDetails
-              }
-              saving={
-                actions.busyKey ===
-                `project:${project.id}:deadline`
-              }
-              onChange={(
-                deadline,
-              ) =>
-                actions.onDeadlineChange(
-                  project,
-                  deadline,
-                )
-              }
-            />
-
             {overdue >
               0 && (
               <>
@@ -6024,28 +5938,44 @@ function ProjectRow({
         />
       </div>
 
-      <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[10px] text-muted-foreground">
-          {
-            project.ownerName
-          }{" "}
-          ·{" "}
-          {
-            project.teamName
-          }{" "}
-          ·{" "}
-          {
-            tasks.length
-          }{" "}
-          task
-          {tasks.length ===
-          1
-            ? ""
-            : "s"}
-        </span>
+      <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+        <div
+          onClick={
+            stopInteractiveEvent
+          }
+          onPointerDown={
+            stopInteractiveEvent
+          }
+        >
+          <InlineDeadlineEditor
+            deadline={
+              project.deadline ??
+              ""
+            }
+            status={
+              project.status
+            }
+            optional
+            compact
+            canEdit={
+              project.canEditDetails
+            }
+            saving={
+              actions.busyKey ===
+              `project:${project.id}:deadline`
+            }
+            onChange={(
+              deadline,
+            ) =>
+              actions.onDeadlineChange(
+                project,
+                deadline,
+              )
+            }
+          />
+        </div>
 
         <div
-          className="flex shrink-0 items-center gap-1"
           onClick={
             stopInteractiveEvent
           }
@@ -6073,8 +6003,17 @@ function ProjectRow({
               )
             }
           />
+        </div>
 
-          <InlineStatusEditor
+        <div
+          onClick={
+            stopInteractiveEvent
+          }
+          onPointerDown={
+            stopInteractiveEvent
+          }
+        >
+          <InlineProjectStatusEditor
             status={
               project.status
             }
@@ -6096,6 +6035,25 @@ function ProjectRow({
           />
         </div>
       </div>
+
+      <p className="mt-2 min-w-0 truncate text-[10px] text-muted-foreground">
+        {
+          project.ownerName
+        }{" "}
+        ·{" "}
+        {
+          project.teamName
+        }{" "}
+        ·{" "}
+        {
+          tasks.length
+        }{" "}
+        task
+        {tasks.length ===
+        1
+          ? ""
+          : "s"}
+      </p>
     </div>
   );
 }
@@ -6228,7 +6186,7 @@ function ProjectWorkspaceView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <InlineStatusEditor
+          <InlineProjectStatusEditor
             status={
               project.status
             }
@@ -6758,14 +6716,13 @@ function ProjectSummary({
           variant="outline"
           className={cn(
             "rounded-full",
-            statusClass(
+            projectStatusClass(
               project.status,
             ),
           )}
         >
-          {
-            project.status
-          }
+          {project.status ??
+            "No status"}
         </Badge>
       </div>
 
@@ -7083,6 +7040,111 @@ function InlineStatusEditor({
   );
 }
 
+function InlineProjectStatusEditor({
+  status,
+  canEdit,
+  saving,
+  onChange,
+}: {
+  status: ProjectStatus;
+  canEdit: boolean;
+  saving: boolean;
+  onChange: (
+    status: ProjectStatus,
+  ) => void;
+}) {
+  if (
+    !canEdit
+  ) {
+    return (
+      <Badge
+        variant="outline"
+        className={cn(
+          "h-6 rounded-full px-2 py-0 text-[9px] font-medium sm:text-[10px]",
+          projectStatusClass(
+            status,
+          ),
+        )}
+      >
+        {status ??
+          "No status"}
+      </Badge>
+    );
+  }
+
+  return (
+    <div
+      onClick={
+        stopInteractiveEvent
+      }
+      onPointerDown={
+        stopInteractiveEvent
+      }
+      onKeyDown={
+        stopInteractiveEvent
+      }
+    >
+      <Select
+        value={
+          status ??
+          "none"
+        }
+        disabled={
+          saving
+        }
+        onValueChange={(
+          value,
+        ) =>
+          onChange(
+            value === "none"
+              ? null
+              : value as TaskStatus,
+          )
+        }
+      >
+        <SelectTrigger
+          aria-label="Change project status"
+          className={cn(
+            "h-6 w-auto min-w-0 gap-1 rounded-full px-2 py-0 text-[9px] font-medium shadow-none sm:text-[10px] [&>svg]:size-3",
+            projectStatusClass(
+              status,
+            ),
+          )}
+        >
+          {saving ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <SelectValue />
+          )}
+        </SelectTrigger>
+
+        <SelectContent>
+          <SelectItem value="none">
+            No status
+          </SelectItem>
+
+          {STATUSES.map(
+            (
+              item,
+            ) => (
+              <SelectItem
+                key={
+                  item
+                }
+                value={
+                  item
+                }
+              >
+                {item}
+              </SelectItem>
+            ),
+          )}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function InlinePriorityEditor({
   priority,
   canEdit,
@@ -7190,7 +7252,7 @@ function InlineDeadlineEditor({
   onChange,
 }: {
   deadline: string;
-  status: TaskStatus;
+  status: TaskStatus | null;
   canEdit: boolean;
   saving: boolean;
   optional?: boolean;
@@ -7229,17 +7291,24 @@ function InlineDeadlineEditor({
       ? info.shortText
       : info.text;
 
+  const pillClass =
+    deadlinePillClass(
+      deadline,
+      status,
+    );
+
   if (
     !canEdit
   ) {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1",
-          info.className,
+          "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[9px] font-medium sm:text-[10px]",
+          pillClass,
         )}
       >
         <CalendarClock className="size-3 shrink-0" />
+
         {shownText}
       </span>
     );
@@ -7274,8 +7343,8 @@ function InlineDeadlineEditor({
               saving
             }
             className={cn(
-              "inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left text-[10px] transition-colors hover:bg-muted sm:text-[11px]",
-              info.className,
+              "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[9px] font-medium shadow-none transition-colors sm:text-[10px]",
+              pillClass,
             )}
           >
             {saving ? (
@@ -7284,7 +7353,11 @@ function InlineDeadlineEditor({
               <CalendarClock className="size-3 shrink-0" />
             )}
 
-            {shownText}
+            <span>
+              {shownText}
+            </span>
+
+            <ChevronDown className="size-3 opacity-50" />
           </button>
         </PopoverTrigger>
 
@@ -8391,13 +8464,18 @@ function ProjectForm({
 
           <Select
             value={
-              value.status
+              value.status ??
+              "none"
             }
             onValueChange={(
               statusValue,
             ) => {
-              const status =
-                statusValue as TaskStatus;
+              const status:
+                ProjectStatus =
+                statusValue ===
+                "none"
+                  ? null
+                  : statusValue as TaskStatus;
 
               onChange({
                 ...value,
@@ -8416,6 +8494,10 @@ function ProjectForm({
             </SelectTrigger>
 
             <SelectContent>
+              <SelectItem value="none">
+                No status
+              </SelectItem>
+
               {STATUSES.map(
                 (
                   status,
@@ -8539,7 +8621,7 @@ function ProjectForm({
           />
 
           <p className="text-[10px] text-muted-foreground">
-            Optional
+            Optional — leave empty for no deadline.
           </p>
         </div>
 
