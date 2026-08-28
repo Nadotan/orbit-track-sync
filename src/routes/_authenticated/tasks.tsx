@@ -142,7 +142,7 @@ export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
     meta: [
       {
-        title: "Tasks — POM",
+        title: "Tasks - POM",
       },
       {
         name: "description",
@@ -3578,7 +3578,7 @@ function TasksPage() {
         await syncSheets();
 
       toast.success(
-        `Google Sheets synced — ${result.projects} projects, ${result.tasks} tasks, ${result.updates} updates`,
+        `Google Sheets synced - ${result.projects} projects, ${result.tasks} tasks, ${result.updates} updates`,
       );
     } catch (
       error
@@ -8122,7 +8122,7 @@ function TaskForm({
               {role ===
                 "admin" && (
                 <SelectItem value="general">
-                  General — everyone
+                  General - everyone
                 </SelectItem>
               )}
 
@@ -8621,7 +8621,7 @@ function ProjectForm({
           />
 
           <p className="text-[10px] text-muted-foreground">
-            Optional — leave empty for no deadline.
+            Optional - leave empty for no deadline.
           </p>
         </div>
 
@@ -8646,7 +8646,7 @@ function ProjectForm({
               {role ===
                 "admin" && (
                 <SelectItem value="general">
-                  General — everyone
+                  General - everyone
                 </SelectItem>
               )}
 

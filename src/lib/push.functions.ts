@@ -634,7 +634,7 @@ export const notifyMeetingCreated =
                 "New meeting scheduled",
 
               body:
-                `${meeting.title} — ${meeting.date} at ${meeting.time}. Tap to RSVP.`,
+                `${meeting.title} - ${meeting.date} at ${meeting.time}. Tap to RSVP.`,
 
               url:
                 "/meetings",

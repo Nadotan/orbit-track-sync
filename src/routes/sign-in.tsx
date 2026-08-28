@@ -21,7 +21,7 @@ export const Route = createFileRoute("/sign-in")({
   head: () => ({
     meta: [
       {
-        title: "Sign in — POM",
+        title: "Sign in - POM",
       },
     ],
   }),

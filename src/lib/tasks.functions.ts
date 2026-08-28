@@ -438,7 +438,7 @@ async function sendAssignmentPush(
 ) {
   await safeTaskPush(userIds, actorUserId, {
     title: "New task assigned",
-    body: `${task.title} — due ${task.deadline}.`,
+    body: `${task.title} - due ${task.deadline}.`,
     url: "/tasks",
     tag: `task-assigned-${task.id}`,
   });
@@ -455,7 +455,7 @@ async function sendDeadlinePush(
 ) {
   await safeTaskPush(userIds, actorUserId, {
     title: "Task deadline changed",
-    body: `${task.title} — new deadline ${task.deadline}.`,
+    body: `${task.title} - new deadline ${task.deadline}.`,
     url: "/tasks",
     tag: `task-deadline-${task.id}`,
   });
@@ -472,7 +472,7 @@ async function sendBlockedOwnerPush(
 ) {
   await safeTaskPush([ownerId], actorUserId, {
     title: "Task blocked",
-    body: `${task.title} — ${task.reason}`,
+    body: `${task.title} - ${task.reason}`,
     url: "/tasks",
     tag: `task-blocked-${task.id}`,
   });

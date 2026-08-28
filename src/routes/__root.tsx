@@ -103,7 +103,7 @@ export const Route = createRootRouteWithContext<{
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "POM — Time Tracking & Team Operations",
+        title: "POM - Time Tracking & Team Operations",
       },
       {
         name: "description",
@@ -112,7 +112,7 @@ export const Route = createRootRouteWithContext<{
       },
       {
         property: "og:title",
-        content: "POM — Time Tracking & Team Operations",
+        content: "POM - Time Tracking & Team Operations",
       },
       {
         property: "og:description",

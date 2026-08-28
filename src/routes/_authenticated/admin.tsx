@@ -70,13 +70,13 @@ import type { Meeting, Profile, Rsvp } from "@/lib/types";
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
-      { title: "Admin Dashboard — POM" },
+      { title: "Admin Dashboard - POM" },
       {
         name: "description",
         content:
           "Team management, meeting scheduling and workforce time analytics for admins.",
       },
-      { property: "og:title", content: "Admin Dashboard — POM" },
+      { property: "og:title", content: "Admin Dashboard - POM" },
       {
         property: "og:description",
         content:
@@ -1287,7 +1287,7 @@ function RsvpInsightsPanel({
               min={0}
               disabled={!usesAmount}
               value={usesAmount ? queryAmount : ""}
-              placeholder="—"
+              placeholder="-"
               onChange={(event) =>
                 setQueryAmount(
                   Math.max(0, Number(event.target.value) || 0),

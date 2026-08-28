@@ -98,7 +98,7 @@ export const Route =
       meta: [
         {
           title:
-            "Time Tracker — POM",
+            "Time Tracker - POM",
         },
         {
           name:
@@ -110,7 +110,7 @@ export const Route =
           property:
             "og:title",
           content:
-            "Time Tracker — POM",
+            "Time Tracker - POM",
         },
         {
           property:
@@ -726,7 +726,7 @@ function TrackerPage() {
           {myEntries.length ===
           0 ? (
             <p className="text-sm text-muted-foreground">
-              No time entries yet — start your first session above.
+              No time entries yet - start your first session above.
             </p>
           ) : (
             <ol className="relative space-y-5 border-l border-border pl-6">
@@ -825,7 +825,7 @@ function TrackerPage() {
               {formatDuration(
                 elapsed,
               )}{" "}
-              — add a short summary to save this entry.
+              - add a short summary to save this entry.
             </DialogDescription>
           </DialogHeader>
 
@@ -889,7 +889,7 @@ function TrackerPage() {
                         }
                       >
                         {task.projectName
-                          ? `${task.projectName} — ${task.title}`
+                          ? `${task.projectName} - ${task.title}`
                           : task.title}
                       </SelectItem>
                     ),
@@ -911,7 +911,7 @@ function TrackerPage() {
               taskOptions.length >
                 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Optional — choose the task this work belongs to.
+                  Optional - choose the task this work belongs to.
                 </p>
               )}
           </div>

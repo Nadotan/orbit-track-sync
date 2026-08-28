@@ -16,7 +16,7 @@ export const Route =
       meta: [
         {
           title:
-            "Countdown — POM",
+            "Countdown - POM",
         },
         {
           name:

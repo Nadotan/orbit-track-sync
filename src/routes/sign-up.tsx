@@ -23,7 +23,7 @@ export const Route = createFileRoute("/sign-up")({
     meta: [
       {
         title:
-          "Create your account — POM",
+          "Create your account - POM",
       },
     ],
   }),
@@ -181,7 +181,7 @@ function SignUpPage() {
       <AuthShell
         eyebrow="One last step"
         title="Verify your email"
-        subtitle="Your account is created — confirm your email address to activate it."
+        subtitle="Your account is created - confirm your email address to activate it."
       >
         <div className="space-y-5">
           <div className="flex items-start gap-3 rounded-2xl bg-accent p-4 text-left">
@@ -198,7 +198,7 @@ function SignUpPage() {
               <p className="text-sm text-muted-foreground">
                 Open the email and tap the link to
                 finish setting up your account. It
-                can take a minute to arrive — check
+                can take a minute to arrive - check
                 your spam folder too.
               </p>
             </div>
@@ -227,7 +227,7 @@ function SignUpPage() {
             className="w-full rounded-full"
           >
             <Link to="/sign-in">
-              I've verified — sign in
+              I've verified - sign in
             </Link>
           </Button>
         </div>

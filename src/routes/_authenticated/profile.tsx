@@ -38,7 +38,7 @@ import {
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
     meta: [
-      { title: "Profile — POM" },
+      { title: "Profile - POM" },
       {
         name: "description",
         content: "Manage your POM availability.",

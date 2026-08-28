@@ -4,7 +4,7 @@ import {
   savePushSubscription,
 } from "./push.functions";
 
-/** VAPID public key — safe to ship to the browser. */
+/** VAPID public key - safe to ship to the browser. */
 export const VAPID_PUBLIC_KEY =
   "BGEzxsjM_gjkW-BX3iXfLY4H6gY8TezR5gvlv0RaOqKRY_Ap4Kvd5o7PivHc9lboTGiEpE05PUiy5ie21MUJICQ";
 

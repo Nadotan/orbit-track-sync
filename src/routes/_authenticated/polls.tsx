@@ -55,7 +55,7 @@ export const Route = createFileRoute("/_authenticated/polls")({
   head: () => ({
     meta: [
       {
-        title: "Polls — POM",
+        title: "Polls - POM",
       },
       {
         name: "description",
