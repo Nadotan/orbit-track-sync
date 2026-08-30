@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 /**
  * Scheduled notification sweep:
  * - unanswered meeting RSVP reminders
- * - reminders to attending members who forgot to start The Clock
+ * - overdue task reminders
  */
 export const Route = createFileRoute("/api/public/cron/reminders")({
   server: {
@@ -18,22 +18,10 @@ export const Route = createFileRoute("/api/public/cron/reminders")({
           });
         }
 
-        const [
-          { runReminderSweep },
-          { runAttendanceClockReminderSweep },
-        ] = await Promise.all([
-          import("@/lib/push.server"),
-          import("@/lib/attendance-clock-reminders.server"),
-        ]);
+        const { runReminderSweep } = await import("@/lib/push.server");
+        const result = await runReminderSweep();
 
-        const reminderResult = await runReminderSweep();
-        const clockResult =
-          await runAttendanceClockReminderSweep();
-
-        return Response.json({
-          ...reminderResult,
-          ...clockResult,
-        });
+        return Response.json(result);
       },
     },
   },
