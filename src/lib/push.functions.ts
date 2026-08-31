@@ -24,11 +24,17 @@ export interface PushAdminUserHealth {
   lastFailureAt: string | null;
   lastFailureStatus: number | null;
   lastFailureMessage: string | null;
-  lastPermission: "granted" | "denied" | "default" | "unsupported" | null;
+  lastPermission:
+    | "granted"
+    | "denied"
+    | "default"
+    | "unsupported"
+    | null;
   lastPermissionAt: string | null;
 }
 
-const PUSH_WORKING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const PUSH_WORKING_WINDOW_MS =
+  30 * 24 * 60 * 60 * 1000;
 
 const subscriptionSchema = z.object({
   endpoint: z.string().url().max(2000),
@@ -42,8 +48,19 @@ const endpointSchema = z.object({
 
 const pushClientStatusSchema = z.object({
   clientId: z.string().uuid(),
-  permission: z.enum(["granted", "denied", "default", "unsupported"]),
-  endpoint: z.string().url().max(2000).nullable(),
+
+  permission: z.enum([
+    "granted",
+    "denied",
+    "default",
+    "unsupported",
+  ]),
+
+  endpoint: z
+    .string()
+    .url()
+    .max(2000)
+    .nullable(),
 });
 
 const meetingSchema = z.object({
@@ -52,18 +69,31 @@ const meetingSchema = z.object({
 
 const rsvpChangeSchema = z.object({
   meetingId: z.string().uuid(),
-  status: z.enum(["Attending", "Declined"]),
-  previousStatus: z.enum(["Attending", "Declined"]).nullable(),
+
+  status: z.enum([
+    "Attending",
+    "Declined",
+  ]),
+
+  previousStatus: z
+    .enum([
+      "Attending",
+      "Declined",
+    ])
+    .nullable(),
 });
 
 const timerSchema = z.object({
   startedAt: z.string().datetime(),
 });
 
-function timestampMs(value: string | null | undefined) {
+function timestampMs(
+  value: string | null | undefined,
+) {
   if (!value) return null;
 
-  const parsed = new Date(value).getTime();
+  const parsed =
+    new Date(value).getTime();
 
   return Number.isFinite(parsed)
     ? parsed
@@ -71,13 +101,21 @@ function timestampMs(value: string | null | undefined) {
 }
 
 function latestTimestamp(
-  values: Array<string | null | undefined>,
+  values: Array<
+    string | null | undefined
+  >,
 ) {
-  let bestValue: string | null = null;
-  let bestMs = -Infinity;
+  let bestValue:
+    | string
+    | null =
+    null;
+
+  let bestMs =
+    -Infinity;
 
   for (const value of values) {
-    const ms = timestampMs(value);
+    const ms =
+      timestampMs(value);
 
     if (
       ms === null ||
@@ -86,8 +124,11 @@ function latestTimestamp(
       continue;
     }
 
-    bestMs = ms;
-    bestValue = value ?? null;
+    bestMs =
+      ms;
+
+    bestValue =
+      value ?? null;
   }
 
   return bestValue;
@@ -241,6 +282,7 @@ export const reportPushClientStatus =
           {
             data:
               existing,
+
             error:
               existingError,
           },
@@ -583,6 +625,7 @@ export const notifyMeetingCreated =
         const {
           data:
             meeting,
+
           error:
             meetingError,
         } =
@@ -621,10 +664,87 @@ export const notifyMeetingCreated =
               meeting.team_id,
             )
           ).filter(
-            (id) =>
+            (
+              id,
+            ) =>
               id !==
               context.userId,
           );
+
+        /*
+         * Reuse the same audience already calculated for
+         * the existing Web Push.
+         *
+         * New-meeting events belong in the user's Inbox,
+         * but they do not force a pop-up. Setting
+         * popup_dismissed_at immediately suppresses only
+         * the pop-up while keeping the row unread.
+         */
+        if (
+          audience.length >
+          0
+        ) {
+          try {
+            const {
+              error:
+                notificationError,
+            } =
+              await (
+                supabaseAdmin as any
+              )
+                .from(
+                  "user_notifications",
+                )
+                .insert(
+                  audience.map(
+                    (
+                      userId,
+                    ) => ({
+                      user_id:
+                        userId,
+
+                      kind:
+                        "meeting",
+
+                      title:
+                        "New meeting scheduled",
+
+                      message:
+                        `${meeting.title} · ${meeting.date} at ${meeting.time}`,
+
+                      task_id:
+                        null,
+
+                      created_by:
+                        context.userId,
+
+                      requires_ack:
+                        false,
+
+                      popup_dismissed_at:
+                        new Date()
+                          .toISOString(),
+                    }),
+                  ),
+                );
+
+            if (
+              notificationError
+            ) {
+              console.error(
+                "[push] Failed to create meeting in-app notifications",
+                notificationError,
+              );
+            }
+          } catch (
+            error
+          ) {
+            console.error(
+              "[push] Failed to create meeting in-app notifications",
+              error,
+            );
+          }
+        }
 
         const sent =
           await sendPushToUsers(
@@ -685,6 +805,7 @@ export const notifyRsvpChange =
         const {
           data:
             storedRsvp,
+
           error:
             storedRsvpError,
         } =
@@ -771,7 +892,9 @@ export const notifyRsvpChange =
           (
             await adminUserIds()
           ).filter(
-            (id) =>
+            (
+              id,
+            ) =>
               id !==
               context.userId,
           );
@@ -955,11 +1078,13 @@ export const getPushAdminStatus =
           user_id: string;
           client_id: string;
           endpoint: string | null;
+
           permission:
             | "granted"
             | "denied"
             | "default"
             | "unsupported";
+
           last_seen_at: string;
           ever_registered_at: string | null;
         };
@@ -982,12 +1107,16 @@ export const getPushAdminStatus =
           [
             ...new Set([
               ...subscriptions.map(
-                (row) =>
+                (
+                  row,
+                ) =>
                   row.user_id,
               ),
 
               ...clients.map(
-                (row) =>
+                (
+                  row,
+                ) =>
                   row.user_id,
               ),
             ]),
@@ -1004,14 +1133,18 @@ export const getPushAdminStatus =
             ) => {
               const userSubscriptions =
                 subscriptions.filter(
-                  (row) =>
+                  (
+                    row,
+                  ) =>
                     row.user_id ===
                     userId,
                 );
 
               const userClients =
                 clients.filter(
-                  (row) =>
+                  (
+                    row,
+                  ) =>
                     row.user_id ===
                     userId,
                 );
@@ -1082,14 +1215,18 @@ export const getPushAdminStatus =
 
               const registeredClients =
                 userClients.filter(
-                  (row) =>
+                  (
+                    row,
+                  ) =>
                     row.ever_registered_at !==
                     null,
                 );
 
               const blockedClients =
                 registeredClients.filter(
-                  (row) =>
+                  (
+                    row,
+                  ) =>
                     row.permission !==
                     "granted",
                 ).length;
@@ -1246,7 +1383,9 @@ export const getPushAdminStatus =
                 lastAttemptAt:
                   latestTimestamp(
                     userSubscriptions.map(
-                      (row) =>
+                      (
+                        row,
+                      ) =>
                         row.last_attempt_at,
                     ),
                   ),
@@ -1254,7 +1393,9 @@ export const getPushAdminStatus =
                 lastSuccessAt:
                   latestTimestamp(
                     userSubscriptions.map(
-                      (row) =>
+                      (
+                        row,
+                      ) =>
                         row.last_success_at,
                     ),
                   ),
@@ -1290,18 +1431,23 @@ export const getPushAdminStatus =
         const enabledUserIds =
           userStatuses
             .filter(
-              (status) =>
+              (
+                status,
+              ) =>
                 status.registeredDevices >
                 0,
             )
             .map(
-              (status) =>
+              (
+                status,
+              ) =>
                 status.userId,
             );
 
         return {
           enabledUserIds,
           userStatuses,
+
           workingWindowDays:
             30,
         };
@@ -1393,6 +1539,7 @@ export const broadcastPush =
           const {
             data:
               profiles,
+
             error,
           } =
             await supabaseAdmin
@@ -1418,13 +1565,16 @@ export const broadcastPush =
               profiles ??
               []
             ).map(
-              (profile) =>
+              (
+                profile,
+              ) =>
                 profile.id,
             );
         } else {
           const {
             data:
               subscriptions,
+
             error,
           } =
             await supabaseAdmin
@@ -1448,7 +1598,9 @@ export const broadcastPush =
                   subscriptions ??
                   []
                 ).map(
-                  (subscription) =>
+                  (
+                    subscription,
+                  ) =>
                     String(
                       subscription.user_id,
                     ),

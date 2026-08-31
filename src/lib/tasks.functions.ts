@@ -94,6 +94,11 @@ export interface ClockTaskOption {
   projectName: string | null;
 }
 
+type TaskUserNotificationKind =
+  | "task_assigned"
+  | "task_changed"
+  | "task_update";
+
 const taskStatusSchema = z.enum([
   "To Do",
   "In Progress",
@@ -425,6 +430,91 @@ async function safeTaskPush(
       error,
     );
   }
+}
+
+/**
+ * Creates the personal POM notification that also drives
+ * the task pop-up.
+ *
+ * Notification failure never blocks the task mutation.
+ */
+async function safeTaskInAppNotification(
+  admin: any,
+  userIds: string[],
+  actorUserId: string,
+  payload: {
+    kind: TaskUserNotificationKind;
+    title: string;
+    message: string;
+    taskId: string;
+  },
+) {
+  const targets = uniqueStrings(userIds).filter(
+    (id) => id !== actorUserId,
+  );
+
+  if (targets.length === 0) {
+    return;
+  }
+
+  try {
+    const { error } = await admin
+      .from("user_notifications")
+      .insert(
+        targets.map((userId) => ({
+          user_id: userId,
+          kind: payload.kind,
+          title: payload.title.slice(0, 120),
+          message: payload.message.slice(0, 2000),
+          task_id: payload.taskId,
+          created_by: actorUserId,
+          requires_ack: true,
+        })),
+      );
+
+    if (error) {
+      console.error(
+        "[tasks] Failed to create in-app task notification",
+        error,
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[tasks] Failed to create in-app task notification",
+      error,
+    );
+  }
+}
+
+async function taskResponsibleUserIds(
+  admin: any,
+  taskId: string,
+  ownerId: string,
+) {
+  const { data, error } = await admin
+    .from("task_assignees")
+    .select("user_id")
+    .eq("task_id", taskId);
+
+  if (error) {
+    console.error(
+      "[tasks] Failed to load task recipients for in-app notification",
+      error,
+    );
+
+    return [
+      ownerId,
+    ];
+  }
+
+  return uniqueStrings([
+    ownerId,
+
+    ...(data ?? []).map(
+      (row: any) =>
+        row.user_id as string,
+    ),
+  ]);
 }
 
 async function sendAssignmentPush(
@@ -961,8 +1051,10 @@ export const getTasksWorkspace = createServerFn({
         ),
 
       people,
+
       projects:
         visibleProjects,
+
       tasks:
         resultTasks,
     } satisfies TasksWorkspace;
@@ -993,7 +1085,8 @@ export const getMyOpenTasks = createServerFn({
 
     const taskIds = uniqueStrings(
       (assignments ?? []).map(
-        (assignment: any) => assignment.task_id,
+        (assignment: any) =>
+          assignment.task_id,
       ),
     );
 
@@ -1113,10 +1206,12 @@ export const createProject = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     await validateProjectOwner(
       admin,
@@ -1192,10 +1287,12 @@ export const updateProject = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const {
       data: existing,
@@ -1292,10 +1389,12 @@ export const updateProjectStatus = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const {
       data: project,
@@ -1372,10 +1471,12 @@ export const archiveProject = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const {
       data: project,
@@ -1468,10 +1569,12 @@ export const createTask = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const assigneeIds =
       await validateTaskPeople(
@@ -1575,6 +1678,28 @@ export const createTask = createServerFn({
       context.userId,
     );
 
+    await safeTaskInAppNotification(
+      admin,
+      [
+        data.ownerId,
+        ...assigneeIds,
+      ],
+      context.userId,
+      {
+        kind:
+          "task_assigned",
+
+        title:
+          "New task assigned",
+
+        message:
+          `${task.title} · due ${task.deadline}`,
+
+        taskId:
+          task.id,
+      },
+    );
+
     if (data.status === "Blocked") {
       await sendBlockedOwnerPush(
         data.ownerId,
@@ -1610,10 +1735,12 @@ export const updateTaskStatus = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const {
       data: task,
@@ -1621,7 +1748,7 @@ export const updateTaskStatus = createServerFn({
     } = await admin
       .from("tasks")
       .select(
-        "id, title, team_id, status, owner_id, archived_at, deleted_at",
+        "id, title, team_id, status, owner_id, blocked_reason, archived_at, deleted_at",
       )
       .eq("id", data.taskId)
       .maybeSingle();
@@ -1725,6 +1852,61 @@ export const updateTaskStatus = createServerFn({
       );
     }
 
+    const changes:
+      string[] = [];
+
+    if (
+      task.status !==
+      data.status
+    ) {
+      changes.push(
+        `Status → ${data.status}`,
+      );
+    }
+
+    if (
+      (
+        task.blocked_reason ??
+        ""
+      ) !==
+      blockedReason
+    ) {
+      changes.push(
+        "Blocked reason updated",
+      );
+    }
+
+    if (
+      changes.length >
+      0
+    ) {
+      const recipients =
+        await taskResponsibleUserIds(
+          admin,
+          task.id,
+          task.owner_id,
+        );
+
+      await safeTaskInAppNotification(
+        admin,
+        recipients,
+        context.userId,
+        {
+          kind:
+            "task_changed",
+
+          title:
+            "Task updated",
+
+          message:
+            `${task.title} · ${changes.join(" · ")}`,
+
+          taskId:
+            task.id,
+        },
+      );
+    }
+
     await syncSheetsAfterMutation();
 
     return {
@@ -1743,10 +1925,12 @@ export const updateTask = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const {
       data: existing,
@@ -1754,7 +1938,7 @@ export const updateTask = createServerFn({
     } = await admin
       .from("tasks")
       .select(
-        "id, title, team_id, deadline, status, owner_id, archived_at, deleted_at",
+        "id, title, description, team_id, deadline, status, priority, owner_id, blocked_reason, project_id, archived_at, deleted_at",
       )
       .eq(
         "id",
@@ -1818,30 +2002,204 @@ export const updateTask = createServerFn({
       );
     }
 
-    const previousIds = uniqueStrings(
-      (existingAssignments ?? []).map(
-        (assignment: any) =>
-          assignment.user_id,
-      ),
-    );
+    const previousIds =
+      uniqueStrings(
+        (
+          existingAssignments ??
+          []
+        ).map(
+          (
+            assignment: any,
+          ) =>
+            assignment.user_id,
+        ),
+      );
 
     const previousSet =
-      new Set(previousIds);
+      new Set(
+        previousIds,
+      );
 
     const nextSet =
-      new Set(assigneeIds);
+      new Set(
+        assigneeIds,
+      );
 
     const added =
       assigneeIds.filter(
-        (id) =>
-          !previousSet.has(id),
+        (
+          id,
+        ) =>
+          !previousSet.has(
+            id,
+          ),
       );
 
     const removed =
       previousIds.filter(
-        (id) =>
-          !nextSet.has(id),
+        (
+          id,
+        ) =>
+          !nextSet.has(
+            id,
+          ),
       );
+
+    const previousResponsible =
+      uniqueStrings([
+        existing.owner_id,
+        ...previousIds,
+      ]);
+
+    const nextResponsible =
+      uniqueStrings([
+        data.ownerId,
+        ...assigneeIds,
+      ]);
+
+    const previousResponsibleSet =
+      new Set(
+        previousResponsible,
+      );
+
+    const nextResponsibleSet =
+      new Set(
+        nextResponsible,
+      );
+
+    const newlyResponsible =
+      nextResponsible.filter(
+        (
+          id,
+        ) =>
+          !previousResponsibleSet.has(
+            id,
+          ),
+      );
+
+    const noLongerResponsible =
+      previousResponsible.filter(
+        (
+          id,
+        ) =>
+          !nextResponsibleSet.has(
+            id,
+          ),
+      );
+
+    const continuingResponsible =
+      nextResponsible.filter(
+        (
+          id,
+        ) =>
+          previousResponsibleSet.has(
+            id,
+          ),
+      );
+
+    const cleanTitle =
+      data.title.trim();
+
+    const cleanDescription =
+      data.description.trim();
+
+    const changes:
+      string[] = [];
+
+    if (
+      existing.title !==
+      cleanTitle
+    ) {
+      changes.push(
+        "Title changed",
+      );
+    }
+
+    if (
+      existing.description !==
+      cleanDescription
+    ) {
+      changes.push(
+        "Description updated",
+      );
+    }
+
+    if (
+      existing.deadline !==
+      data.deadline
+    ) {
+      changes.push(
+        `Deadline → ${data.deadline}`,
+      );
+    }
+
+    if (
+      existing.status !==
+      data.status
+    ) {
+      changes.push(
+        `Status → ${data.status}`,
+      );
+    }
+
+    if (
+      existing.priority !==
+      data.priority
+    ) {
+      changes.push(
+        `Priority → ${data.priority}`,
+      );
+    }
+
+    if (
+      existing.owner_id !==
+      data.ownerId
+    ) {
+      changes.push(
+        "Owner changed",
+      );
+    }
+
+    if (
+      (
+        existing.blocked_reason ??
+        ""
+      ) !==
+      blockedReason
+    ) {
+      changes.push(
+        "Blocked reason updated",
+      );
+    }
+
+    if (
+      existing.project_id !==
+      data.projectId
+    ) {
+      changes.push(
+        "Project changed",
+      );
+    }
+
+    if (
+      existing.team_id !==
+      data.teamId
+    ) {
+      changes.push(
+        "Team changed",
+      );
+    }
+
+    if (
+      added.length >
+        0 ||
+      removed.length >
+        0
+    ) {
+      changes.push(
+        "Assignees changed",
+      );
+    }
 
     const now =
       new Date().toISOString();
@@ -1852,10 +2210,10 @@ export const updateTask = createServerFn({
       .from("tasks")
       .update({
         title:
-          data.title.trim(),
+          cleanTitle,
 
         description:
-          data.description.trim(),
+          cleanDescription,
 
         deadline:
           data.deadline,
@@ -1930,6 +2288,9 @@ export const updateTask = createServerFn({
       }
     }
 
+    /*
+     * Existing Web Push behavior stays unchanged.
+     */
     if (added.length > 0) {
       await sendAssignmentPush(
         added,
@@ -1938,7 +2299,7 @@ export const updateTask = createServerFn({
             data.taskId,
 
           title:
-            data.title.trim(),
+            cleanTitle,
 
           deadline:
             data.deadline,
@@ -1952,19 +2313,25 @@ export const updateTask = createServerFn({
       data.deadline
     ) {
       const addedSet =
-        new Set(added);
+        new Set(
+          added,
+        );
 
       await sendDeadlinePush(
         assigneeIds.filter(
-          (id) =>
-            !addedSet.has(id),
+          (
+            id,
+          ) =>
+            !addedSet.has(
+              id,
+            ),
         ),
         {
           id:
             data.taskId,
 
           title:
-            data.title.trim(),
+            cleanTitle,
 
           deadline:
             data.deadline,
@@ -1984,12 +2351,88 @@ export const updateTask = createServerFn({
             data.taskId,
 
           title:
-            data.title.trim(),
+            cleanTitle,
 
           reason:
             blockedReason,
         },
         context.userId,
+      );
+    }
+
+    /*
+     * Newly responsible users receive an assignment pop-up.
+     *
+     * This includes a new owner even if that person is not
+     * one of the assignees.
+     */
+    await safeTaskInAppNotification(
+      admin,
+      newlyResponsible,
+      context.userId,
+      {
+        kind:
+          "task_assigned",
+
+        title:
+          "New task assigned",
+
+        message:
+          `${cleanTitle} · due ${data.deadline}`,
+
+        taskId:
+          data.taskId,
+      },
+    );
+
+    /*
+     * A removed owner/assignee should know that responsibility
+     * was removed even though they are no longer in the new list.
+     */
+    await safeTaskInAppNotification(
+      admin,
+      noLongerResponsible,
+      context.userId,
+      {
+        kind:
+          "task_changed",
+
+        title:
+          "Task assignment changed",
+
+        message:
+          `${cleanTitle} · You are no longer responsible for this task.`,
+
+        taskId:
+          data.taskId,
+      },
+    );
+
+    /*
+     * Existing owner/assignees receive one combined notification,
+     * regardless of how many fields changed in the same save.
+     */
+    if (
+      changes.length >
+      0
+    ) {
+      await safeTaskInAppNotification(
+        admin,
+        continuingResponsible,
+        context.userId,
+        {
+          kind:
+            "task_changed",
+
+          title:
+            "Task updated",
+
+          message:
+            `${cleanTitle} · ${changes.join(" · ")}`,
+
+          taskId:
+            data.taskId,
+        },
       );
     }
 
@@ -2011,10 +2454,12 @@ export const archiveTask = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const {
       data: task,
@@ -2088,10 +2533,12 @@ export const duplicateTask = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const [
       sourceResult,
@@ -2254,6 +2701,28 @@ export const duplicateTask = createServerFn({
       context.userId,
     );
 
+    await safeTaskInAppNotification(
+      admin,
+      [
+        source.owner_id,
+        ...assigneeIds,
+      ],
+      context.userId,
+      {
+        kind:
+          "task_assigned",
+
+        title:
+          "New task assigned",
+
+        message:
+          `${task.title} · due ${task.deadline}`,
+
+        taskId:
+          task.id,
+      },
+    );
+
     await syncSheetsAfterMutation();
 
     return {
@@ -2277,10 +2746,12 @@ export const deleteTask = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     if (access.role !== "admin") {
       throw new Error(
@@ -2351,10 +2822,12 @@ export const addWorkUpdate = createServerFn({
     );
 
     const admin = supabaseAdmin as any;
-    const access = await getAccess(
-      admin,
-      context.userId,
-    );
+
+    const access =
+      await getAccess(
+        admin,
+        context.userId,
+      );
 
     const taskId =
       data.taskId ??
@@ -2364,6 +2837,15 @@ export const addWorkUpdate = createServerFn({
       data.projectId ??
       null;
 
+    let taskForNotification:
+      | {
+          id: string;
+          title: string;
+          ownerId: string;
+        }
+      | null =
+      null;
+
     if (taskId) {
       const {
         data: task,
@@ -2371,7 +2853,7 @@ export const addWorkUpdate = createServerFn({
       } = await admin
         .from("tasks")
         .select(
-          "id, team_id, owner_id, archived_at, deleted_at",
+          "id, title, team_id, owner_id, archived_at, deleted_at",
         )
         .eq(
           "id",
@@ -2427,6 +2909,17 @@ export const addWorkUpdate = createServerFn({
           "You cannot add an update to this task.",
         );
       }
+
+      taskForNotification = {
+        id:
+          task.id,
+
+        title:
+          task.title,
+
+        ownerId:
+          task.owner_id,
+      };
     } else if (projectId) {
       const {
         data: project,
@@ -2493,6 +2986,42 @@ export const addWorkUpdate = createServerFn({
       throw new Error(
         error?.message ??
           "Unable to add update.",
+      );
+    }
+
+    /*
+     * This function only creates source="manual" updates.
+     *
+     * Clock-generated work_updates are created by the existing
+     * database sync trigger and therefore never reach this block.
+     */
+    if (
+      taskForNotification
+    ) {
+      const recipients =
+        await taskResponsibleUserIds(
+          admin,
+          taskForNotification.id,
+          taskForNotification.ownerId,
+        );
+
+      await safeTaskInAppNotification(
+        admin,
+        recipients,
+        context.userId,
+        {
+          kind:
+            "task_update",
+
+          title:
+            "New task update",
+
+          message:
+            `${taskForNotification.title} · ${data.body.trim()}`,
+
+          taskId:
+            taskForNotification.id,
+        },
       );
     }
 
