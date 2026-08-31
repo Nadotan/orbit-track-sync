@@ -28,9 +28,9 @@ async function getProfileName(
     any,
 
   userId:
-    string |
-    null |
-    undefined,
+    | string
+    | null
+    | undefined,
 ) {
   if (
     !userId
@@ -41,6 +41,7 @@ async function getProfileName(
   const {
     data:
       profile,
+
     error,
   } =
     await admin
@@ -96,6 +97,7 @@ export const getWorkshopStatus =
         const {
           data:
             status,
+
           error,
         } =
           await admin
@@ -172,6 +174,7 @@ export const setWorkshopStatus =
         const {
           data:
             current,
+
           error:
             currentError,
         } =
@@ -267,6 +270,7 @@ export const setWorkshopStatus =
                 updated_by:
                   context.userId,
               },
+
               {
                 onConflict:
                   "id",
@@ -285,103 +289,167 @@ export const setWorkshopStatus =
           0;
 
         /*
-         * Send a notification for BOTH directions:
-         *
-         * Closed -> Open
-         * Open   -> Closed
-         *
-         * The person who moved the switch is excluded because
-         * they already see the result immediately in POM.
+         * Only Closed -> Open
+         * creates a Start Clock reminder.
          */
-        try {
-          const {
-            data:
-              profiles,
-            error:
-              profilesError,
-          } =
-            await admin
-              .from(
-                "profiles",
-              )
-              .select(
-                "id",
-              );
+        if (
+          data.isOpen
+        ) {
+          try {
+            const {
+              data:
+                profiles,
 
-          if (
-            profilesError
-          ) {
-            console.error(
-              "[workshop] Failed to load push audience",
-              profilesError,
-            );
-          } else {
-            const userIds =
-              (
-                profiles ??
-                []
-              )
-                .map(
-                  (
-                    profile:
-                      any,
-                  ) =>
-                    profile.id,
+              error:
+                profilesError,
+            } =
+              await admin
+                .from(
+                  "profiles",
                 )
-                .filter(
-                  (
-                    userId:
-                      string,
-                  ) =>
-                    userId !==
-                    context.userId,
+                .select(
+                  "id",
                 );
 
             if (
-              userIds.length >
-              0
+              profilesError
             ) {
+              console.error(
+                "[workshop] Failed to load reminder audience",
+                profilesError,
+              );
+            } else {
+              const candidateIds =
+                (
+                  profiles ??
+                  []
+                )
+                  .map(
+                    (
+                      profile:
+                        any,
+                    ) =>
+                      profile.id as string,
+                  )
+                  .filter(
+                    (
+                      userId:
+                        string,
+                    ) =>
+                      userId !==
+                      context.userId,
+                  );
+
               const {
-                sendPushToUsers,
+                filterUsersByPreference,
               } =
                 await import(
-                  "./push.server"
+                  "./preferences.server"
                 );
 
-              pushesSent =
-                await sendPushToUsers(
-                  userIds,
-                  {
-                    title:
-                      data.isOpen
-                        ? "Workshop opened"
-                        : "Workshop closed",
-
-                    body:
-                      data.isOpen
-                        ? `${actorName} opened the workshop - Turn on your clock!`
-                        : `${actorName} closed the workshop - Turn off your clock!`,
-
-                    url:
-                      "/meetings",
-
-                    tag:
-                      "workshop-status",
-                  },
+              const optedInIds =
+                await filterUsersByPreference(
+                  candidateIds,
+                  "workshop_clock_start_reminder",
                 );
+
+              if (
+                optedInIds.length >
+                0
+              ) {
+                const {
+                  data:
+                    runningTimers,
+
+                  error:
+                    timerError,
+                } =
+                  await admin
+                    .from(
+                      "active_timers",
+                    )
+                    .select(
+                      "user_id",
+                    )
+                    .in(
+                      "user_id",
+                      optedInIds,
+                    );
+
+                if (
+                  timerError
+                ) {
+                  console.error(
+                    "[workshop] Failed to check running Clocks",
+                    timerError,
+                  );
+                } else {
+                  const runningUserIds =
+                    new Set<
+                      string
+                    >(
+                      (
+                        runningTimers ??
+                        []
+                      ).map(
+                        (
+                          timer:
+                            any,
+                        ) =>
+                          timer.user_id as string,
+                      ),
+                    );
+
+                  const reminderUserIds =
+                    optedInIds.filter(
+                      (
+                        userId,
+                      ) =>
+                        !runningUserIds.has(
+                          userId,
+                        ),
+                    );
+
+                  if (
+                    reminderUserIds.length >
+                    0
+                  ) {
+                    const {
+                      sendPushToUsers,
+                    } =
+                      await import(
+                        "./push.server"
+                      );
+
+                    pushesSent =
+                      await sendPushToUsers(
+                        reminderUserIds,
+                        {
+                          title:
+                            "Workshop opened",
+
+                          body:
+                            `${actorName} opened the workshop. Start your Clock.`,
+
+                          url:
+                            "/",
+
+                          tag:
+                            "workshop-clock-start",
+                        },
+                      );
+                  }
+                }
+              }
             }
+          } catch (
+            pushError
+          ) {
+            console.error(
+              "[workshop] Failed to send workshop Clock reminder",
+              pushError,
+            );
           }
-        } catch (
-          pushError
-        ) {
-          /*
-           * The status change must still succeed if Push
-           * is temporarily unavailable.
-           */
-          console.error(
-            "[workshop] Failed to send workshop notification",
-            pushError,
-          );
         }
 
         return {

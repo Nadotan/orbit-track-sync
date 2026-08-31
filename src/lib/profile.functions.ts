@@ -1,178 +1,372 @@
-import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  createServerFn,
+} from "@tanstack/react-start";
 
-const onboardingSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, "Please enter your name.")
-    .max(120, "Name is too long."),
+import {
+  z,
+} from "zod";
 
-  teamId: z.string().uuid().nullable(),
+import {
+  requireSupabaseAuth,
+} from "@/integrations/supabase/auth-middleware";
 
-  /*
-   * Either a storage object path inside the private avatars
-   * bucket ("<user-id>/avatar-123.jpg") or an absolute URL.
-   */
-  avatarUrl: z
-    .string()
-    .trim()
-    .min(1)
-    .max(500)
-    .refine(
-      (value) =>
-        /^https?:\/\//i.test(value) ||
-        /^[A-Za-z0-9._\-/]+$/.test(value),
-      "Invalid avatar reference.",
-    )
-    .nullable(),
-});
+import {
+  isUserPreferenceKey,
+  type UserPreferenceKey,
+} from "./preferences";
 
-export const completeOnboardingProfile = createServerFn({
-  method: "POST",
-})
-  .middleware([requireSupabaseAuth])
-  .validator(onboardingSchema)
-  .handler(async ({ data, context }) => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+const onboardingSchema =
+  z.object({
+    name:
+      z
+        .string()
+        .trim()
+        .min(
+          1,
+          "Please enter your name.",
+        )
+        .max(
+          120,
+          "Name is too long.",
+        ),
 
-    const {
-      data: { user },
-      error: userError,
-    } = await context.supabase.auth.getUser();
+    teamId:
+      z
+        .string()
+        .uuid()
+        .nullable(),
 
-    if (userError || !user) {
-      throw new Error(
-        "Your session is no longer valid. Please sign in again.",
-      );
-    }
+    avatarUrl:
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .refine(
+          (
+            value,
+          ) =>
+            /^https?:\/\//i.test(
+              value,
+            ) ||
+            /^[A-Za-z0-9._\-/]+$/.test(
+              value,
+            ),
+          "Invalid avatar reference.",
+        )
+        .nullable(),
+  });
 
-    if (user.id !== context.userId) {
-      throw new Error("Authenticated user mismatch.");
-    }
+const preferenceKeySchema =
+  z.custom<UserPreferenceKey>(
+    (
+      value,
+    ) =>
+      typeof value ===
+        "string" &&
+      isUserPreferenceKey(
+        value,
+      ),
+    {
+      message:
+        "Unknown preference.",
+    },
+  );
 
-    if (!user.email) {
-      throw new Error(
-        "Your account does not have an email address.",
-      );
-    }
+const preferenceUpdateSchema =
+  z.object({
+    key:
+      preferenceKeySchema,
 
-    if (data.teamId) {
-      const {
-        data: team,
-        error: teamError,
-      } = await supabaseAdmin
-        .from("teams")
-        .select("id")
-        .eq("id", data.teamId)
-        .maybeSingle();
+    enabled:
+      z.boolean(),
+  });
 
-      if (teamError) {
-        throw new Error(teamError.message);
-      }
-
-      if (!team) {
-        throw new Error(
-          "The selected team no longer exists. Please choose another team.",
-        );
-      }
-    }
-
-    /*
-     * Save normal profile data.
-     *
-     * Do NOT use profiles.onboarded because that column does
-     * not exist in the actual database.
-     */
-    const {
-      data: profile,
-      error: profileError,
-    } = await supabaseAdmin
-      .from("profiles")
-      .upsert(
-        {
-          id: context.userId,
-          email: user.email,
-          name: data.name,
-          team_id: data.teamId,
-          avatar_url: data.avatarUrl,
-        },
-        {
-          onConflict: "id",
-        },
-      )
-      .select(
-        "id, name, email, team_id, avatar_url",
-      )
-      .single();
-
-    if (profileError) {
-      console.error(
-        "Failed to save onboarding profile:",
-        profileError,
-      );
-
-      throw new Error(profileError.message);
-    }
-
-    /*
-     * Keep the multi-team membership list in sync with the
-     * team picked during onboarding.
-     */
-    if (data.teamId) {
-      const { error: membershipError } =
-        await supabaseAdmin
-          .from("team_members")
-          .upsert(
-            {
-              user_id: context.userId,
-              team_id: data.teamId,
-            },
-            { onConflict: "user_id,team_id" },
+export const getUserPreferences =
+  createServerFn({
+    method:
+      "GET",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .handler(
+      async ({
+        context,
+      }) => {
+        const {
+          getPreferencesForUser,
+        } =
+          await import(
+            "./preferences.server"
           );
 
-      if (membershipError) {
-        console.error(
-          "Failed to save team membership:",
-          membershipError,
+        return getPreferencesForUser(
+          context.userId,
         );
-      }
-    }
+      },
+    );
 
+export const setUserPreference =
+  createServerFn({
+    method:
+      "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      preferenceUpdateSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          setPreferenceForUser,
+        } =
+          await import(
+            "./preferences.server"
+          );
 
-    /*
-     * Store onboarding completion in Supabase Auth app_metadata.
-     *
-     * This can only be changed here using the server-side
-     * admin client.
-     */
-    const { error: metadataError } =
-      await supabaseAdmin.auth.admin.updateUserById(
-        context.userId,
-        {
-          app_metadata: {
-            ...(user.app_metadata ?? {}),
-            onboarded: true,
+        return setPreferenceForUser(
+          context.userId,
+          data.key,
+          data.enabled,
+        );
+      },
+    );
+
+export const completeOnboardingProfile =
+  createServerFn({
+    method:
+      "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .validator(
+      onboardingSchema,
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          supabaseAdmin,
+        } =
+          await import(
+            "@/integrations/supabase/client.server"
+          );
+
+        const {
+          data: {
+            user,
           },
-        },
-      );
 
-    if (metadataError) {
-      console.error(
-        "Failed to save onboarding status:",
-        metadataError,
-      );
+          error:
+            userError,
+        } =
+          await context
+            .supabase
+            .auth
+            .getUser();
 
-      throw new Error(
-        `Profile was saved, but onboarding status failed: ${metadataError.message}`,
-      );
-    }
+        if (
+          userError ||
+          !user
+        ) {
+          throw new Error(
+            "Your session is no longer valid. Please sign in again.",
+          );
+        }
 
-    return {
-      ...profile,
-      onboarded: true,
-    };
-  });
+        if (
+          user.id !==
+          context.userId
+        ) {
+          throw new Error(
+            "Authenticated user mismatch.",
+          );
+        }
+
+        if (
+          !user.email
+        ) {
+          throw new Error(
+            "Your account does not have an email address.",
+          );
+        }
+
+        if (
+          data.teamId
+        ) {
+          const {
+            data:
+              team,
+
+            error:
+              teamError,
+          } =
+            await supabaseAdmin
+              .from(
+                "teams",
+              )
+              .select(
+                "id",
+              )
+              .eq(
+                "id",
+                data.teamId,
+              )
+              .maybeSingle();
+
+          if (
+            teamError
+          ) {
+            throw new Error(
+              teamError.message,
+            );
+          }
+
+          if (
+            !team
+          ) {
+            throw new Error(
+              "The selected team no longer exists. Please choose another team.",
+            );
+          }
+        }
+
+        const {
+          data:
+            profile,
+
+          error:
+            profileError,
+        } =
+          await supabaseAdmin
+            .from(
+              "profiles",
+            )
+            .upsert(
+              {
+                id:
+                  context.userId,
+
+                email:
+                  user.email,
+
+                name:
+                  data.name,
+
+                team_id:
+                  data.teamId,
+
+                avatar_url:
+                  data.avatarUrl,
+              },
+
+              {
+                onConflict:
+                  "id",
+              },
+            )
+            .select(
+              "id, name, email, team_id, avatar_url",
+            )
+            .single();
+
+        if (
+          profileError
+        ) {
+          console.error(
+            "Failed to save onboarding profile:",
+            profileError,
+          );
+
+          throw new Error(
+            profileError.message,
+          );
+        }
+
+        if (
+          data.teamId
+        ) {
+          const {
+            error:
+              membershipError,
+          } =
+            await supabaseAdmin
+              .from(
+                "team_members",
+              )
+              .upsert(
+                {
+                  user_id:
+                    context.userId,
+
+                  team_id:
+                    data.teamId,
+                },
+
+                {
+                  onConflict:
+                    "user_id,team_id",
+                },
+              );
+
+          if (
+            membershipError
+          ) {
+            console.error(
+              "Failed to save team membership:",
+              membershipError,
+            );
+          }
+        }
+
+        const {
+          error:
+            metadataError,
+        } =
+          await supabaseAdmin
+            .auth
+            .admin
+            .updateUserById(
+              context.userId,
+              {
+                app_metadata: {
+                  ...(
+                    user.app_metadata ??
+                    {}
+                  ),
+
+                  onboarded:
+                    true,
+                },
+              },
+            );
+
+        if (
+          metadataError
+        ) {
+          console.error(
+            "Failed to save onboarding status:",
+            metadataError,
+          );
+
+          throw new Error(
+            `Profile was saved, but onboarding status failed: ${metadataError.message}`,
+          );
+        }
+
+        return {
+          ...profile,
+          onboarded:
+            true,
+        };
+      },
+    );

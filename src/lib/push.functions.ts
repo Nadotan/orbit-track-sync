@@ -1,7 +1,14 @@
-import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
+import {
+  createServerFn,
+} from "@tanstack/react-start";
 
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  z,
+} from "zod";
+
+import {
+  requireSupabaseAuth,
+} from "@/integrations/supabase/auth-middleware";
 
 export type PushAdminHealthStatus =
   | "working"
@@ -24,86 +31,142 @@ export interface PushAdminUserHealth {
   lastFailureAt: string | null;
   lastFailureStatus: number | null;
   lastFailureMessage: string | null;
+
   lastPermission:
     | "granted"
     | "denied"
     | "default"
     | "unsupported"
     | null;
+
   lastPermissionAt: string | null;
 }
 
 const PUSH_WORKING_WINDOW_MS =
   30 * 24 * 60 * 60 * 1000;
 
-const subscriptionSchema = z.object({
-  endpoint: z.string().url().max(2000),
-  p256dh: z.string().min(1).max(500),
-  auth: z.string().min(1).max(500),
-});
+const subscriptionSchema =
+  z.object({
+    endpoint:
+      z
+        .string()
+        .url()
+        .max(2000),
 
-const endpointSchema = z.object({
-  endpoint: z.string().url().max(2000),
-});
+    p256dh:
+      z
+        .string()
+        .min(1)
+        .max(500),
 
-const pushClientStatusSchema = z.object({
-  clientId: z.string().uuid(),
+    auth:
+      z
+        .string()
+        .min(1)
+        .max(500),
+  });
 
-  permission: z.enum([
-    "granted",
-    "denied",
-    "default",
-    "unsupported",
-  ]),
+const endpointSchema =
+  z.object({
+    endpoint:
+      z
+        .string()
+        .url()
+        .max(2000),
+  });
 
-  endpoint: z
-    .string()
-    .url()
-    .max(2000)
-    .nullable(),
-});
+const pushClientStatusSchema =
+  z.object({
+    clientId:
+      z
+        .string()
+        .uuid(),
 
-const meetingSchema = z.object({
-  meetingId: z.string().uuid(),
-});
+    permission:
+      z.enum([
+        "granted",
+        "denied",
+        "default",
+        "unsupported",
+      ]),
 
-const rsvpChangeSchema = z.object({
-  meetingId: z.string().uuid(),
+    endpoint:
+      z
+        .string()
+        .url()
+        .max(2000)
+        .nullable(),
+  });
 
-  status: z.enum([
-    "Attending",
-    "Declined",
-  ]),
+const meetingSchema =
+  z.object({
+    meetingId:
+      z
+        .string()
+        .uuid(),
+  });
 
-  previousStatus: z
-    .enum([
-      "Attending",
-      "Declined",
-    ])
-    .nullable(),
-});
+const rsvpChangeSchema =
+  z.object({
+    meetingId:
+      z
+        .string()
+        .uuid(),
 
-const timerSchema = z.object({
-  startedAt: z.string().datetime(),
-});
+    status:
+      z.enum([
+        "Attending",
+        "Declined",
+      ]),
+
+    previousStatus:
+      z
+        .enum([
+          "Attending",
+          "Declined",
+        ])
+        .nullable(),
+  });
+
+const timerSchema =
+  z.object({
+    startedAt:
+      z
+        .string()
+        .datetime(),
+  });
 
 function timestampMs(
-  value: string | null | undefined,
+  value:
+    | string
+    | null
+    | undefined,
 ) {
-  if (!value) return null;
+  if (
+    !value
+  ) {
+    return null;
+  }
 
   const parsed =
-    new Date(value).getTime();
+    new Date(
+      value,
+    ).getTime();
 
-  return Number.isFinite(parsed)
+  return Number.isFinite(
+    parsed,
+  )
     ? parsed
     : null;
 }
 
 function latestTimestamp(
-  values: Array<
-    string | null | undefined
-  >,
+  values:
+    Array<
+      | string
+      | null
+      | undefined
+    >,
 ) {
   let bestValue:
     | string
@@ -113,9 +176,14 @@ function latestTimestamp(
   let bestMs =
     -Infinity;
 
-  for (const value of values) {
+  for (
+    const value
+    of values
+  ) {
     const ms =
-      timestampMs(value);
+      timestampMs(
+        value,
+      );
 
     if (
       ms === null ||
@@ -128,7 +196,8 @@ function latestTimestamp(
       ms;
 
     bestValue =
-      value ?? null;
+      value ??
+      null;
   }
 
   return bestValue;
@@ -136,7 +205,8 @@ function latestTimestamp(
 
 export const savePushSubscription =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -184,7 +254,9 @@ export const savePushSubscription =
               },
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           console.error(
             "[push] Failed to save push subscription",
             error,
@@ -196,14 +268,16 @@ export const savePushSubscription =
         }
 
         return {
-          ok: true,
+          ok:
+            true,
         };
       },
     );
 
 export const removePushSubscription =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -240,21 +314,25 @@ export const removePushSubscription =
               data.endpoint,
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           throw new Error(
             error.message,
           );
         }
 
         return {
-          ok: true,
+          ok:
+            true,
         };
       },
     );
 
 export const reportPushClientStatus =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -279,14 +357,7 @@ export const reportPushClientStatus =
             .toISOString();
 
         const [
-          {
-            data:
-              existing,
-
-            error:
-              existingError,
-          },
-
+          existingResult,
           endpointResult,
         ] =
           await Promise.all([
@@ -327,21 +398,24 @@ export const reportPushClientStatus =
                   )
                   .maybeSingle()
               : Promise.resolve({
-                  data: null,
-                  error: null,
+                  data:
+                    null,
+
+                  error:
+                    null,
                 }),
           ]);
 
         if (
-          existingError
+          existingResult.error
         ) {
           console.error(
             "[push] Failed to load push client state",
-            existingError,
+            existingResult.error,
           );
 
           throw new Error(
-            existingError.message,
+            existingResult.error.message,
           );
         }
 
@@ -365,7 +439,8 @@ export const reportPushClientStatus =
           null;
 
         const everRegisteredAt =
-          existing
+          existingResult
+            .data
             ?.ever_registered_at ??
           (
             verifiedEndpoint
@@ -409,7 +484,9 @@ export const reportPushClientStatus =
               },
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           console.error(
             "[push] Failed to save push client state",
             error,
@@ -421,14 +498,16 @@ export const reportPushClientStatus =
         }
 
         return {
-          ok: true,
+          ok:
+            true,
         };
       },
     );
 
 export const markTimerRunning =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -473,7 +552,9 @@ export const markTimerRunning =
               },
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           console.error(
             "[push] Failed to save running timer",
             error,
@@ -485,14 +566,16 @@ export const markTimerRunning =
         }
 
         return {
-          ok: true,
+          ok:
+            true,
         };
       },
     );
 
 export const markTimerStopped =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -521,7 +604,9 @@ export const markTimerStopped =
               context.userId,
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           console.error(
             "[push] Failed to stop active timer",
             error,
@@ -533,14 +618,16 @@ export const markTimerStopped =
         }
 
         return {
-          ok: true,
+          ok:
+            true,
         };
       },
     );
 
 export const sendClockReminder =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -564,7 +651,8 @@ export const sendClockReminder =
 
 export const notifyMeetingCreated =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -654,7 +742,8 @@ export const notifyMeetingCreated =
           !meeting
         ) {
           return {
-            sent: 0,
+            sent:
+              0,
           };
         }
 
@@ -672,13 +761,8 @@ export const notifyMeetingCreated =
           );
 
         /*
-         * Reuse the same audience already calculated for
-         * the existing Web Push.
-         *
-         * New-meeting events belong in the user's Inbox,
-         * but they do not force a pop-up. Setting
-         * popup_dismissed_at immediately suppresses only
-         * the pop-up while keeping the row unread.
+         * New meetings remain in the in-app Inbox
+         * regardless of the Push preference.
          */
         if (
           audience.length >
@@ -746,9 +830,22 @@ export const notifyMeetingCreated =
           }
         }
 
+        const {
+          filterUsersByPreference,
+        } =
+          await import(
+            "./preferences.server"
+          );
+
+        const pushAudience =
+          await filterUsersByPreference(
+            audience,
+            "new_meeting_notifications",
+          );
+
         const sent =
           await sendPushToUsers(
-            audience,
+            pushAudience,
             {
               title:
                 "New meeting scheduled",
@@ -772,7 +869,8 @@ export const notifyMeetingCreated =
 
 export const notifyRsvpChange =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -791,7 +889,8 @@ export const notifyRsvpChange =
             data.status
         ) {
           return {
-            sent: 0,
+            sent:
+              0,
           };
         }
 
@@ -833,7 +932,8 @@ export const notifyRsvpChange =
             data.status
         ) {
           return {
-            sent: 0,
+            sent:
+              0,
           };
         }
 
@@ -928,7 +1028,8 @@ export const notifyRsvpChange =
 
 export const sweepReminders =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -949,13 +1050,15 @@ export const sweepReminders =
 const broadcastSchema =
   z.object({
     title:
-      z.string()
+      z
+        .string()
         .trim()
         .min(1)
         .max(80),
 
     body:
-      z.string()
+      z
+        .string()
         .trim()
         .min(1)
         .max(300),
@@ -963,7 +1066,8 @@ const broadcastSchema =
     userIds:
       z
         .array(
-          z.string()
+          z
+            .string()
             .uuid(),
         )
         .max(500)
@@ -972,7 +1076,8 @@ const broadcastSchema =
 
 export const getPushAdminStatus =
   createServerFn({
-    method: "GET",
+    method:
+      "GET",
   })
     .middleware([
       requireSupabaseAuth,
@@ -1103,24 +1208,23 @@ export const getPushAdminStatus =
             []
           ) as ClientHealthRow[];
 
-        const userIds =
-          [
-            ...new Set([
-              ...subscriptions.map(
-                (
-                  row,
-                ) =>
-                  row.user_id,
-              ),
+        const userIds = [
+          ...new Set([
+            ...subscriptions.map(
+              (
+                row,
+              ) =>
+                row.user_id,
+            ),
 
-              ...clients.map(
-                (
-                  row,
-                ) =>
-                  row.user_id,
-              ),
-            ]),
-          ];
+            ...clients.map(
+              (
+                row,
+              ) =>
+                row.user_id,
+            ),
+          ]),
+        ];
 
         const now =
           Date.now();
@@ -1163,8 +1267,8 @@ export const getPushAdminStatus =
                 [];
 
               for (
-                const row of
-                userSubscriptions
+                const row
+                of userSubscriptions
               ) {
                 const successMs =
                   timestampMs(
@@ -1283,7 +1387,8 @@ export const getPushAdminStatus =
               const latestFailureRow =
                 failureRowsForDetails
                   .reduce<
-                    SubscriptionHealthRow | null
+                    | SubscriptionHealthRow
+                    | null
                   >(
                     (
                       latest,
@@ -1325,7 +1430,8 @@ export const getPushAdminStatus =
               const latestClient =
                 userClients
                   .reduce<
-                    ClientHealthRow | null
+                    | ClientHealthRow
+                    | null
                   >(
                     (
                       latest,
@@ -1456,7 +1562,8 @@ export const getPushAdminStatus =
 
 export const broadcastPush =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -1531,8 +1638,11 @@ export const broadcastPush =
             0
           ) {
             return {
-              sent: 0,
-              recipients: 0,
+              sent:
+                0,
+
+              recipients:
+                0,
             };
           }
 
@@ -1554,7 +1664,9 @@ export const broadcastPush =
                 requested,
               );
 
-          if (error) {
+          if (
+            error
+          ) {
             throw new Error(
               error.message,
             );
@@ -1585,7 +1697,9 @@ export const broadcastPush =
                 "user_id",
               );
 
-          if (error) {
+          if (
+            error
+          ) {
             throw new Error(
               error.message,
             );
@@ -1593,7 +1707,9 @@ export const broadcastPush =
 
           targetUserIds =
             [
-              ...new Set<string>(
+              ...new Set<
+                string
+              >(
                 (
                   subscriptions ??
                   []
@@ -1614,8 +1730,11 @@ export const broadcastPush =
           0
         ) {
           return {
-            sent: 0,
-            recipients: 0,
+            sent:
+              0,
+
+            recipients:
+              0,
           };
         }
 
