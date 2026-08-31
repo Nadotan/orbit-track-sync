@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import {
   eachDayOfInterval,
   endOfMonth,
@@ -15,12 +16,13 @@ import {
 } from "date-fns";
 import {
   AlarmClock,
+  BellRing,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Loader2,
+  SlidersHorizontal,
 } from "lucide-react";
-import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -31,15 +33,22 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
 import {
   getOwnAvailability,
   setOwnAvailability,
 } from "@/lib/availability.functions";
 import {
-  getAttendanceClockReminderSetting,
-  setAttendanceClockReminderSetting,
-} from "@/lib/attendance-clock.functions";
+  PREFERENCE_DEFINITIONS,
+  PREFERENCE_KEYS,
+  defaultUserPreferences,
+  type UserPreferenceKey,
+  type UserPreferences,
+} from "@/lib/preferences";
+import {
+  getUserPreferences,
+  setUserPreference,
+} from "@/lib/profile.functions";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
@@ -49,7 +58,7 @@ export const Route = createFileRoute("/_authenticated/profile")({
       },
       {
         name: "description",
-        content: "Manage your POM availability and Clock reminders.",
+        content: "Manage your POM availability and notification preferences.",
       },
     ],
   }),
@@ -67,6 +76,8 @@ const WEEKDAYS = [
   "Sat",
 ];
 
+const PREFERENCE_EVENT = "pom:user-preference-changed";
+
 interface DragState {
   start: string;
   current: string;
@@ -74,26 +85,12 @@ interface DragState {
   before: Set<string>;
 }
 
-function keyFromDate(
-  date: Date,
-) {
-  return format(
-    date,
-    "yyyy-MM-dd",
-  );
+function keyFromDate(date: Date) {
+  return format(date, "yyyy-MM-dd");
 }
 
-function dateFromKey(
-  key: string,
-) {
-  const [
-    year,
-    month,
-    day,
-  ] =
-    key
-      .split("-")
-      .map(Number);
+function dateFromKey(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
 
   return new Date(
     year!,
@@ -106,15 +103,8 @@ function keysBetween(
   first: string,
   second: string,
 ) {
-  const firstDate =
-    dateFromKey(
-      first,
-    );
-
-  const secondDate =
-    dateFromKey(
-      second,
-    );
+  const firstDate = dateFromKey(first);
+  const secondDate = dateFromKey(second);
 
   const start =
     firstDate <= secondDate
@@ -129,204 +119,238 @@ function keysBetween(
   return eachDayOfInterval({
     start,
     end,
-  }).map(
-    keyFromDate,
-  );
+  }).map(keyFromDate);
 }
 
-function ClockReminderSetting() {
-  const loadSetting =
+function preferenceIcon(
+  key: UserPreferenceKey,
+) {
+  if (
+    key === "clock_reminders"
+  ) {
+    return AlarmClock;
+  }
+
+  if (
+    key === "workshop_clock_start_reminder"
+  ) {
+    return BellRing;
+  }
+
+  return CalendarDays;
+}
+
+function PreferencesCard() {
+  const loadPreferences =
     useServerFn(
-      getAttendanceClockReminderSetting,
+      getUserPreferences,
     );
 
-  const saveSetting =
+  const savePreference =
     useServerFn(
-      setAttendanceClockReminderSetting,
+      setUserPreference,
     );
 
   const [
-    enabled,
-    setEnabled,
+    preferences,
+    setPreferences,
   ] =
-    useState(
-      true,
+    useState<UserPreferences>(
+      () =>
+        defaultUserPreferences(),
     );
 
   const [
     loading,
     setLoading,
   ] =
-    useState(
-      true,
-    );
+    useState(true);
 
   const [
-    saving,
-    setSaving,
+    savingKey,
+    setSavingKey,
   ] =
-    useState(
-      false,
-    );
+    useState<
+      UserPreferenceKey | null
+    >(null);
 
-  useEffect(
-    () => {
-      let active =
-        true;
+  useEffect(() => {
+    let active = true;
 
-      void loadSetting()
-        .then(
-          (
-            result,
-          ) => {
-            if (
-              active
-            ) {
-              setEnabled(
-                result.enabled,
-              );
-            }
-          },
-        )
-        .catch(
-          (
-            error,
-          ) => {
-            console.error(
-              "Failed to load Clock reminder setting:",
-              error,
-            );
-
-            if (
-              active
-            ) {
-              toast.error(
-                "Could not load your Clock reminder setting.",
-              );
-            }
-          },
-        )
-        .finally(
-          () => {
-            if (
-              active
-            ) {
-              setLoading(
-                false,
-              );
-            }
-          },
+    void loadPreferences()
+      .then((result) => {
+        if (active) {
+          setPreferences(result);
+        }
+      })
+      .catch((error) => {
+        console.error(
+          "Failed to load preferences:",
+          error,
         );
 
-      return () => {
-        active =
-          false;
-      };
-    },
-    [
-      loadSetting,
-    ],
-  );
+        if (active) {
+          toast.error(
+            "Could not load your preferences.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
 
-  async function changeSetting(
-    next: boolean,
+    return () => {
+      active = false;
+    };
+  }, [
+    loadPreferences,
+  ]);
+
+  async function changePreference(
+    key: UserPreferenceKey,
+    enabled: boolean,
   ) {
     if (
       loading ||
-      saving
+      savingKey
     ) {
       return;
     }
 
     const previous =
-      enabled;
+      preferences[key];
 
-    setEnabled(
-      next,
+    setPreferences(
+      (current) => ({
+        ...current,
+        [key]: enabled,
+      }),
     );
 
-    setSaving(
-      true,
-    );
+    setSavingKey(key);
 
     try {
-      await saveSetting({
+      await savePreference({
         data: {
-          enabled:
-            next,
+          key,
+          enabled,
         },
       });
 
       window.dispatchEvent(
-        new Event(
-          "pom:attendance-clock-setting-changed",
+        new CustomEvent(
+          PREFERENCE_EVENT,
+          {
+            detail: {
+              key,
+              enabled,
+            },
+          },
         ),
       );
-    } catch (
-      error
-    ) {
-      setEnabled(
-        previous,
+    } catch (error) {
+      setPreferences(
+        (current) => ({
+          ...current,
+          [key]: previous,
+        }),
       );
 
       toast.error(
-        error instanceof
-          Error
+        error instanceof Error
           ? error.message
-          : "Could not update your Clock reminder setting.",
+          : "Could not update your preference.",
       );
     } finally {
-      setSaving(
-        false,
-      );
+      setSavingKey(null);
     }
   }
 
   return (
     <Card className="surface-card">
-      <CardContent className="p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-              <AlarmClock className="size-5" />
-            </div>
-
-            <div className="min-w-0">
-              <p className="font-medium">
-                Meeting Clock reminder
-              </p>
-
-              <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                If you marked Attending and your Clock is still off 15 minutes
-                after the meeting starts, POM will remind you.
-              </p>
-            </div>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <div className="grid size-10 place-items-center rounded-2xl bg-primary/10 text-primary">
+            <SlidersHorizontal className="size-5" />
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            {saving && (
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
-            )}
+          <div>
+            <CardTitle className="text-lg">
+              Preferences
+            </CardTitle>
 
-            <Switch
-              checked={
-                enabled
-              }
-              disabled={
-                loading ||
-                saving
-              }
-              aria-label="Meeting Clock reminder"
-              onCheckedChange={(
-                next,
-              ) =>
-                void changeSetting(
-                  next,
-                )
-              }
-            />
+            <p className="mt-1 text-sm text-muted-foreground">
+              Choose which optional reminders POM should send you.
+            </p>
           </div>
         </div>
+      </CardHeader>
+
+      <CardContent className="divide-y divide-border p-0">
+        {PREFERENCE_KEYS.map(
+          (key) => {
+            const definition =
+              PREFERENCE_DEFINITIONS[key];
+
+            const Icon =
+              preferenceIcon(key);
+
+            const saving =
+              savingKey === key;
+
+            return (
+              <div
+                key={key}
+                className="flex items-start justify-between gap-4 px-5 py-4 sm:px-6"
+              >
+                <div className="flex min-w-0 gap-3">
+                  <div className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+                    <Icon className="size-4" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {definition.title}
+                    </p>
+
+                    <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                      {definition.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2 pt-1">
+                  {saving && (
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  )}
+
+                  <Switch
+                    checked={
+                      preferences[key]
+                    }
+                    disabled={
+                      loading ||
+                      savingKey !== null
+                    }
+                    aria-label={
+                      definition.title
+                    }
+                    onCheckedChange={(
+                      enabled,
+                    ) =>
+                      void changePreference(
+                        key,
+                        enabled,
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            );
+          },
+        )}
       </CardContent>
     </Card>
   );
@@ -367,17 +391,13 @@ function ProfilePage() {
     loading,
     setLoading,
   ] =
-    useState(
-      true,
-    );
+    useState(true);
 
   const [
     saving,
     setSaving,
   ] =
-    useState(
-      false,
-    );
+    useState(false);
 
   const [
     preview,
@@ -396,58 +416,43 @@ function ProfilePage() {
       null,
     );
 
-  useEffect(
-    () => {
-      let active =
-        true;
+  useEffect(() => {
+    let active = true;
 
-      void (async () => {
-        try {
-          const result =
-            await loadAvailability();
-
-          if (
-            !active
-          ) {
-            return;
-          }
-
+    void loadAvailability()
+      .then((result) => {
+        if (active) {
           setSelectedDates(
             new Set(
               result.dates,
             ),
           );
-        } catch (
-          error
-        ) {
-          console.error(
-            "Failed to load availability:",
-            error,
-          );
+        }
+      })
+      .catch((error) => {
+        console.error(
+          "Failed to load availability:",
+          error,
+        );
 
+        if (active) {
           toast.error(
             "Could not load your availability.",
           );
-        } finally {
-          if (
-            active
-          ) {
-            setLoading(
-              false,
-            );
-          }
         }
-      })();
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
 
-      return () => {
-        active =
-          false;
-      };
-    },
-    [
-      loadAvailability,
-    ],
-  );
+    return () => {
+      active = false;
+    };
+  }, [
+    loadAvailability,
+  ]);
 
   const days =
     useMemo(
@@ -497,34 +502,21 @@ function ProfilePage() {
         before: Set<string>,
       ) => {
         const next =
-          new Set(
-            before,
-          );
+          new Set(before);
 
         for (
           const date
           of dates
         ) {
-          if (
-            unavailable
-          ) {
-            next.add(
-              date,
-            );
+          if (unavailable) {
+            next.add(date);
           } else {
-            next.delete(
-              date,
-            );
+            next.delete(date);
           }
         }
 
-        setSelectedDates(
-          next,
-        );
-
-        setSaving(
-          true,
-        );
+        setSelectedDates(next);
+        setSaving(true);
 
         try {
           await saveAvailability({
@@ -533,27 +525,21 @@ function ProfilePage() {
               unavailable,
             },
           });
-        } catch (
-          error
-        ) {
+        } catch (error) {
           console.error(
             "Failed to save availability:",
             error,
           );
 
           setSelectedDates(
-            new Set(
-              before,
-            ),
+            new Set(before),
           );
 
           toast.error(
             "Could not save your availability.",
           );
         } finally {
-          setSaving(
-            false,
-          );
+          setSaving(false);
         }
       },
       [
@@ -567,27 +553,18 @@ function ProfilePage() {
         const drag =
           dragRef.current;
 
-        if (
-          !drag
-        ) {
+        if (!drag) {
           return;
         }
 
-        dragRef.current =
-          null;
+        dragRef.current = null;
+        setPreview(null);
 
-        setPreview(
-          null,
-        );
-
-        const dates =
+        await persistChange(
           keysBetween(
             drag.start,
             drag.current,
-          );
-
-        await persistChange(
-          dates,
+          ),
           drag.unavailable,
           drag.before,
         );
@@ -597,49 +574,42 @@ function ProfilePage() {
       ],
     );
 
-  useEffect(
-    () => {
-      const handlePointerUp =
-        () => {
-          void finishDrag();
-        };
+  useEffect(() => {
+    const handlePointerUp =
+      () => {
+        void finishDrag();
+      };
 
-      const handlePointerCancel =
-        () => {
-          dragRef.current =
-            null;
+    const handlePointerCancel =
+      () => {
+        dragRef.current = null;
+        setPreview(null);
+      };
 
-          setPreview(
-            null,
-          );
-        };
+    window.addEventListener(
+      "pointerup",
+      handlePointerUp,
+    );
 
-      window.addEventListener(
+    window.addEventListener(
+      "pointercancel",
+      handlePointerCancel,
+    );
+
+    return () => {
+      window.removeEventListener(
         "pointerup",
         handlePointerUp,
       );
 
-      window.addEventListener(
+      window.removeEventListener(
         "pointercancel",
         handlePointerCancel,
       );
-
-      return () => {
-        window.removeEventListener(
-          "pointerup",
-          handlePointerUp,
-        );
-
-        window.removeEventListener(
-          "pointercancel",
-          handlePointerCancel,
-        );
-      };
-    },
-    [
-      finishDrag,
-    ],
-  );
+    };
+  }, [
+    finishDrag,
+  ]);
 
   function beginDrag(
     event:
@@ -656,8 +626,7 @@ function ProfilePage() {
     if (
       event.pointerType ===
         "mouse" &&
-      event.button !==
-        0
+      event.button !== 0
     ) {
       return;
     }
@@ -665,19 +634,12 @@ function ProfilePage() {
     event.preventDefault();
 
     const unavailable =
-      !selectedDates.has(
-        date,
-      );
+      !selectedDates.has(date);
 
     dragRef.current = {
-      start:
-        date,
-
-      current:
-        date,
-
+      start: date,
+      current: date,
       unavailable,
-
       before:
         new Set(
           selectedDates,
@@ -685,12 +647,8 @@ function ProfilePage() {
     };
 
     setPreview({
-      start:
-        date,
-
-      current:
-        date,
-
+      start: date,
+      current: date,
       unavailable,
     });
   }
@@ -702,9 +660,7 @@ function ProfilePage() {
     const drag =
       dragRef.current;
 
-    if (
-      !drag
-    ) {
+    if (!drag) {
       return;
     }
 
@@ -714,14 +670,8 @@ function ProfilePage() {
         clientY,
       );
 
-    if (
-      !element
-    ) {
-      return;
-    }
-
     const button =
-      element.closest<HTMLElement>(
+      element?.closest<HTMLElement>(
         "[data-availability-date]",
       );
 
@@ -732,14 +682,12 @@ function ProfilePage() {
 
     if (
       !date ||
-      date ===
-        drag.current
+      date === drag.current
     ) {
       return;
     }
 
-    drag.current =
-      date;
+    drag.current = date;
 
     setPreview({
       start:
@@ -769,43 +717,9 @@ function ProfilePage() {
       );
 
     void persistChange(
-      [
-        date,
-      ],
-
-      !before.has(
-        date,
-      ),
-
+      [date],
+      !before.has(date),
       before,
-    );
-  }
-
-  function previousMonth() {
-    setMonth(
-      (
-        current,
-      ) =>
-        new Date(
-          current.getFullYear(),
-          current.getMonth() -
-            1,
-          1,
-        ),
-    );
-  }
-
-  function nextMonth() {
-    setMonth(
-      (
-        current,
-      ) =>
-        new Date(
-          current.getFullYear(),
-          current.getMonth() +
-            1,
-          1,
-        ),
     );
   }
 
@@ -822,11 +736,11 @@ function ProfilePage() {
         </h1>
 
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage your availability and Clock reminders.
+          Manage your availability and notification preferences.
         </p>
       </div>
 
-      <ClockReminderSetting />
+      <PreferencesCard />
 
       <Card className="surface-card overflow-hidden">
         <CardHeader>
@@ -835,11 +749,17 @@ function ProfilePage() {
               type="button"
               variant="outline"
               size="icon"
-              disabled={
-                saving
-              }
-              onClick={
-                previousMonth
+              disabled={saving}
+              onClick={() =>
+                setMonth(
+                  (current) =>
+                    new Date(
+                      current.getFullYear(),
+                      current.getMonth() -
+                        1,
+                      1,
+                    ),
+                )
               }
               aria-label="Previous month"
             >
@@ -863,11 +783,17 @@ function ProfilePage() {
               type="button"
               variant="outline"
               size="icon"
-              disabled={
-                saving
-              }
-              onClick={
-                nextMonth
+              disabled={saving}
+              onClick={() =>
+                setMonth(
+                  (current) =>
+                    new Date(
+                      current.getFullYear(),
+                      current.getMonth() +
+                        1,
+                      1,
+                    ),
+                )
               }
               aria-label="Next month"
             >
@@ -912,9 +838,7 @@ function ProfilePage() {
                       }
                       className="py-2 text-center text-xs font-medium text-muted-foreground"
                     >
-                      {
-                        weekday
-                      }
+                      {weekday}
                     </div>
                   ),
                 )}
@@ -938,9 +862,7 @@ function ProfilePage() {
                     day,
                   ) => {
                     const date =
-                      keyFromDate(
-                        day,
-                      );
+                      keyFromDate(day);
 
                     const inPreview =
                       previewKeys.has(
@@ -956,14 +878,11 @@ function ProfilePage() {
                           );
 
                     const isToday =
-                      date ===
-                      today;
+                      date === today;
 
                     return (
                       <div
-                        key={
-                          date
-                        }
+                        key={date}
                         className="grid place-items-center py-1"
                       >
                         <button
