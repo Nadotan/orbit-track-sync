@@ -54,7 +54,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MentionTextarea } from "@/components/mention-textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -4764,44 +4763,37 @@ function TasksPage() {
                   </div>
                 ) : (
                   <TaskQuickView
-  task={
-    selectedTask
-  }
-  people={
-    currentWorkspace.people.filter(
-      (
-        person,
-      ) =>
-        person.id !==
-        currentWorkspace.currentUserId,
-    )
-  }
-  actions={
-    taskCardActions
-  }
-  onEdit={
-    selectedTask.canEditDetails
-      ? () =>
-          setTaskEditOpen(
-            true,
-          )
-      : undefined
-  }
-  onDone={
-    selectedTask.canEditStatus &&
-    selectedTask.status !==
-      "Done"
-      ? () =>
-          handleQuickTaskStatus(
-            selectedTask,
-            "Done",
-          )
-      : undefined
-  }
-  onAddUpdate={
-    handleAddTaskUpdate
-  }
-/>
+                    task={
+                      selectedTask
+                    }
+                    actions={
+                      taskCardActions
+                    }
+                    onEdit={
+                      selectedTask.canEditDetails
+                        ? () =>
+                            setTaskEditOpen(
+                              true,
+                            )
+                        : undefined
+                    }
+                    onDone={
+                      selectedTask.canEditStatus &&
+                      selectedTask.status !==
+                        "Done"
+                        ? () =>
+                            handleQuickTaskStatus(
+                              selectedTask,
+                              "Done",
+                            )
+                        : undefined
+                    }
+                    onAddUpdate={
+                      handleAddTaskUpdate
+                    }
+                  />
+                )}
+              </>
             )}
         </DialogContent>
       </Dialog>
@@ -5525,14 +5517,12 @@ function TaskRow({
 
 function TaskQuickView({
   task,
-  people,
   actions,
   onEdit,
   onDone,
   onAddUpdate,
 }: {
   task: TaskItem;
-  people: TaskPerson[];
   actions: TaskCardActions;
   onEdit?: () => void;
   onDone?: () => void;
@@ -5737,9 +5727,6 @@ function TaskQuickView({
         description="Progress, notes and work logged from The Clock."
         updates={
           task.updates
-        }
-        people={
-          people
         }
         canAdd={
           task.canEditStatus
