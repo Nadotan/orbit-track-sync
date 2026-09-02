@@ -41,6 +41,10 @@ import {
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  MentionTextarea,
+  extractMentionIds,
+} from "@/components/mention-textarea";
+import {
   CLOCK_UPDATE_MIN_WORDS,
   saveClockSession,
 } from "@/lib/clock-session.functions";
