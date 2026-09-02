@@ -554,55 +554,6 @@ function TrackerPage() {
     );
   }
 
-  function toggleMention(
-    taskId:
-      string,
-
-    userId:
-      string,
-  ) {
-    setTaskDrafts(
-      (
-        current,
-      ) => {
-        const draft =
-          current[
-            taskId
-          ] ?? {
-            body:
-              "",
-
-            mentionedUserIds:
-              [],
-          };
-
-        const mentionedUserIds =
-          draft.mentionedUserIds.includes(
-            userId,
-          )
-            ? draft.mentionedUserIds.filter(
-                (
-                  id,
-                ) =>
-                  id !==
-                  userId,
-              )
-            : [
-                ...draft.mentionedUserIds,
-                userId,
-              ];
-
-        return {
-          ...current,
-
-          [taskId]: {
-            ...draft,
-            mentionedUserIds,
-          },
-        };
-      },
-    );
-  }
 
   async function handleStop() {
     if (
