@@ -18,6 +18,9 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedCountdownsRouteImport } from './routes/_authenticated/countdowns'
 import { Route as AuthenticatedMeetingsRouteImport } from './routes/_authenticated/meetings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
+import { Route as AuthenticatedPollsRouteImport } from './routes/_authenticated/polls'
+import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
 import { Route as AuthenticatedTrackerRouteImport } from './routes/_authenticated/tracker'
 import { Route as ApiTimerClosedRouteImport } from './routes/api/timer-closed'
 import { Route as ApiPublicCronRemindersRouteImport } from './routes/api/public/cron/reminders'
@@ -66,6 +69,21 @@ const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedPollsRoute = AuthenticatedPollsRouteImport.update({
+  id: '/polls',
+  path: '/polls',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedTrackerRoute = AuthenticatedTrackerRouteImport.update({
   id: '/tracker',
   path: '/tracker',
@@ -91,6 +109,9 @@ export interface FileRoutesByFullPath {
   '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/polls': typeof AuthenticatedPollsRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/tasks': typeof AuthenticatedTasksRoute
   '/tracker': typeof AuthenticatedTrackerRoute
   '/api/timer-closed': typeof ApiTimerClosedRoute
   '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
@@ -103,6 +124,9 @@ export interface FileRoutesByTo {
   '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/polls': typeof AuthenticatedPollsRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/tasks': typeof AuthenticatedTasksRoute
   '/tracker': typeof AuthenticatedTrackerRoute
   '/api/timer-closed': typeof ApiTimerClosedRoute
   '/': typeof AuthenticatedIndexRoute
@@ -118,6 +142,9 @@ export interface FileRoutesById {
   '/_authenticated/countdowns': typeof AuthenticatedCountdownsRoute
   '/_authenticated/meetings': typeof AuthenticatedMeetingsRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
+  '/_authenticated/polls': typeof AuthenticatedPollsRoute
+  '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/_authenticated/tasks': typeof AuthenticatedTasksRoute
   '/_authenticated/tracker': typeof AuthenticatedTrackerRoute
   '/api/timer-closed': typeof ApiTimerClosedRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -134,6 +161,9 @@ export interface FileRouteTypes {
     | '/countdowns'
     | '/meetings'
     | '/onboarding'
+    | '/polls'
+    | '/profile'
+    | '/tasks'
     | '/tracker'
     | '/api/timer-closed'
     | '/api/public/cron/reminders'
@@ -146,6 +176,9 @@ export interface FileRouteTypes {
     | '/countdowns'
     | '/meetings'
     | '/onboarding'
+    | '/polls'
+    | '/profile'
+    | '/tasks'
     | '/tracker'
     | '/api/timer-closed'
     | '/'
@@ -160,6 +193,9 @@ export interface FileRouteTypes {
     | '/_authenticated/countdowns'
     | '/_authenticated/meetings'
     | '/_authenticated/onboarding'
+    | '/_authenticated/polls'
+    | '/_authenticated/profile'
+    | '/_authenticated/tasks'
     | '/_authenticated/tracker'
     | '/api/timer-closed'
     | '/_authenticated/'
@@ -240,6 +276,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOnboardingRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/polls': {
+      id: '/_authenticated/polls'
+      path: '/polls'
+      fullPath: '/polls'
+      preLoaderRoute: typeof AuthenticatedPollsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/profile': {
+      id: '/_authenticated/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/tasks': {
+      id: '/_authenticated/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AuthenticatedTasksRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/tracker': {
       id: '/_authenticated/tracker'
       path: '/tracker'
@@ -269,6 +326,9 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCountdownsRoute: typeof AuthenticatedCountdownsRoute
   AuthenticatedMeetingsRoute: typeof AuthenticatedMeetingsRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
+  AuthenticatedPollsRoute: typeof AuthenticatedPollsRoute
+  AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
+  AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
   AuthenticatedTrackerRoute: typeof AuthenticatedTrackerRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
@@ -278,6 +338,9 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCountdownsRoute: AuthenticatedCountdownsRoute,
   AuthenticatedMeetingsRoute: AuthenticatedMeetingsRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
+  AuthenticatedPollsRoute: AuthenticatedPollsRoute,
+  AuthenticatedProfileRoute: AuthenticatedProfileRoute,
+  AuthenticatedTasksRoute: AuthenticatedTasksRoute,
   AuthenticatedTrackerRoute: AuthenticatedTrackerRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
