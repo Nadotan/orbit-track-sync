@@ -57,6 +57,11 @@ const saveClockSessionSchema = z
       .nullable()
       .optional(),
 
+    generalMentionedUserIds: z
+      .array(z.string().uuid())
+      .max(100)
+      .default([]),
+
     updates: z
       .array(clockTaskUpdateSchema)
       .max(20),
