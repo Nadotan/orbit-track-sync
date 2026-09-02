@@ -390,10 +390,24 @@ export const saveClockSession =
                   ): name is string =>
                     Boolean(name),
                 )
+                /*
+                 * Inline @Name mentions are already
+                 * written in the body, so only append
+                 * tags that are missing from the text.
+                 */
+                .filter(
+                  (name) =>
+                    !body
+                      .toLowerCase()
+                      .includes(
+                        `@${name.toLowerCase()}`,
+                      ),
+                )
                 .map(
                   (name) =>
                     `@${name}`,
                 );
+
 
             return tags.length >
               0
