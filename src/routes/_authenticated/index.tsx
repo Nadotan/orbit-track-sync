@@ -1105,25 +1105,23 @@ function TrackerPage() {
                 />
               </div>
 
-              <Textarea
+              <MentionTextarea
                 id="general-clock-update"
                 autoFocus
-                rows={
-                  6
+                rows={6}
+                people={
+                  mentionablePeople
                 }
-                className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
-                placeholder="Describe what you worked on, what changed, decisions you made, results, and what should happen next…"
+                className="bg-muted/50 p-4 pb-11 text-base leading-relaxed shadow-inner focus-visible:ring-2"
+                placeholder="Describe what you worked on, what changed, decisions you made, results, and what should happen next… Type @ to tag a teammate."
                 value={
                   generalUpdate
                 }
-                onChange={(
-                  event,
-                ) =>
-                  setGeneralUpdate(
-                    event.target.value,
-                  )
+                onChange={
+                  setGeneralUpdate
                 }
               />
+
             </div>
           ) : (
             <div className="space-y-4">
