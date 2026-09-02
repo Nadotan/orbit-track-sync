@@ -643,16 +643,20 @@ function TrackerPage() {
                   "",
 
                 mentionedUserIds:
-                  taskDrafts[
-                    taskId
-                  ]?.mentionedUserIds ??
-                  [],
+                  extractMentionIds(
+                    taskDrafts[
+                      taskId
+                    ]?.body ??
+                      "",
+                    mentionablePeople,
+                  ),
               }),
             ),
         },
       });
 
       cancelSession();
+
 
       refresh();
 
