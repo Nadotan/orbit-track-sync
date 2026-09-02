@@ -57,6 +57,11 @@ const saveClockSessionSchema = z
       .nullable()
       .optional(),
 
+    generalMentionedUserIds: z
+      .array(z.string().uuid())
+      .max(100)
+      .default([]),
+
     updates: z
       .array(clockTaskUpdateSchema)
       .max(20),
@@ -276,17 +281,20 @@ export const saveClockSession =
 
         const requestedMentionIds =
           uniqueStrings(
-            data.updates
-              .flatMap(
+            [
+              ...data.updates.flatMap(
                 (update) =>
                   update.mentionedUserIds,
-              )
-              .filter(
-                (userId) =>
-                  userId !==
-                  context.userId,
               ),
+              ...(data.generalMentionedUserIds ??
+                []),
+            ].filter(
+              (userId) =>
+                userId !==
+                context.userId,
+            ),
           );
+
 
         const mentionNameMap =
           new Map<
@@ -382,10 +390,24 @@ export const saveClockSession =
                   ): name is string =>
                     Boolean(name),
                 )
+                /*
+                 * Inline @Name mentions are already
+                 * written in the body, so only append
+                 * tags that are missing from the text.
+                 */
+                .filter(
+                  (name) =>
+                    !body
+                      .toLowerCase()
+                      .includes(
+                        `@${name.toLowerCase()}`,
+                      ),
+                )
                 .map(
                   (name) =>
                     `@${name}`,
                 );
+
 
             return tags.length >
               0
