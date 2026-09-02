@@ -2,9 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  AtSign,
   CalendarClock,
-  Check,
   Clock,
   Flame,
   Loader2,
@@ -16,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { MentionTextarea } from "@/components/mention-textarea";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,16 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  CLOCK_UPDATE_MIN_WORDS,
-  saveClockSession,
-} from "@/lib/clock-session.functions";
+import { saveClockSession } from "@/lib/clock-session.functions";
 import {
   formatDateTime,
   formatDuration,
@@ -52,6 +42,10 @@ import {
 import { useStore } from "@/lib/store";
 import { getMyOpenTasks } from "@/lib/tasks.functions";
 import type { ClockTaskOption } from "@/lib/tasks.functions";
+import {
+  WORK_UPDATE_MIN_WORDS,
+  countWorkUpdateWords,
+} from "@/lib/work-update-text";
 
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
@@ -75,21 +69,9 @@ export const Route = createFileRoute("/_authenticated/")({
       },
     ],
   }),
+
   component: TrackerPage,
 });
-
-interface ClockTaskDraft {
-  body: string;
-  mentionedUserIds: string[];
-}
-
-function countWords(value: string) {
-  const trimmed = value.trim();
-
-  return trimmed
-    ? trimmed.split(/\s+/u).length
-    : 0;
-}
 
 function TrackerPage() {
   const {
@@ -102,7 +84,8 @@ function TrackerPage() {
     updateTimeEntry,
     deleteTimeEntry,
     refresh,
-  } = useStore();
+  } =
+    useStore();
 
   const loadOpenTasks =
     useServerFn(
@@ -166,7 +149,7 @@ function TrackerPage() {
     useState<
       Record<
         string,
-        ClockTaskDraft
+        string
       >
     >(
       {},
@@ -225,15 +208,12 @@ function TrackerPage() {
     );
 
   const running =
-    activeSession
-      ?.userId ===
+    activeSession?.userId ===
     currentUser.id;
 
   useEffect(
     () => {
-      if (
-        !running
-      ) {
+      if (!running) {
         return;
       }
 
@@ -261,8 +241,7 @@ function TrackerPage() {
     running
       ? now -
         new Date(
-          activeSession!
-            .startTime,
+          activeSession!.startTime,
         ).getTime()
       : 0;
 
@@ -293,13 +272,24 @@ function TrackerPage() {
               profile.id !==
               currentUser.id,
           )
+          .map(
+            (
+              profile,
+            ) => ({
+              id:
+                profile.id,
+
+              name:
+                profile.name,
+            }),
+          )
           .sort(
             (
-              a,
-              b,
+              first,
+              second,
             ) =>
-              a.name.localeCompare(
-                b.name,
+              first.name.localeCompare(
+                second.name,
               ),
           ),
       [
@@ -375,12 +365,12 @@ function TrackerPage() {
       );
 
   const generalWordCount =
-    countWords(
+    countWorkUpdateWords(
       generalUpdate,
     );
 
   const editWordCount =
-    countWords(
+    countWorkUpdateWords(
       editText,
     );
 
@@ -388,18 +378,18 @@ function TrackerPage() {
     selectedTaskIds.length ===
     0
       ? generalWordCount >=
-        CLOCK_UPDATE_MIN_WORDS
+        WORK_UPDATE_MIN_WORDS
       : selectedTaskIds.every(
           (
             taskId,
           ) =>
-            countWords(
+            countWorkUpdateWords(
               taskDrafts[
                 taskId
-              ]?.body ??
+              ] ??
                 "",
             ) >=
-            CLOCK_UPDATE_MIN_WORDS,
+            WORK_UPDATE_MIN_WORDS,
         );
 
   function resetStopForm() {
@@ -484,46 +474,37 @@ function TrackerPage() {
     setSelectedTaskIds(
       (
         current,
-      ) => {
-        if (
-          current.includes(
-            taskId,
-          )
-        ) {
-          return current.filter(
-            (
-              id,
-            ) =>
-              id !==
-              taskId,
-          );
-        }
-
-        return [
-          ...current,
+      ) =>
+        current.includes(
           taskId,
-        ];
-      },
+        )
+          ? current.filter(
+              (
+                id,
+              ) =>
+                id !==
+                taskId,
+            )
+          : [
+              ...current,
+              taskId,
+            ],
     );
 
     setTaskDrafts(
       (
         current,
       ) =>
-        current[
-          taskId
-        ]
+        Object.prototype.hasOwnProperty.call(
+          current,
+          taskId,
+        )
           ? current
           : {
               ...current,
 
-              [taskId]: {
-                body:
-                  "",
-
-                mentionedUserIds:
-                  [],
-              },
+              [taskId]:
+                "",
             },
     );
   }
@@ -541,66 +522,9 @@ function TrackerPage() {
       ) => ({
         ...current,
 
-        [taskId]: {
+        [taskId]:
           body,
-
-          mentionedUserIds:
-            current[
-              taskId
-            ]?.mentionedUserIds ??
-            [],
-        },
       }),
-    );
-  }
-
-  function toggleMention(
-    taskId:
-      string,
-
-    userId:
-      string,
-  ) {
-    setTaskDrafts(
-      (
-        current,
-      ) => {
-        const draft =
-          current[
-            taskId
-          ] ?? {
-            body:
-              "",
-
-            mentionedUserIds:
-              [],
-          };
-
-        const mentionedUserIds =
-          draft.mentionedUserIds.includes(
-            userId,
-          )
-            ? draft.mentionedUserIds.filter(
-                (
-                  id,
-                ) =>
-                  id !==
-                  userId,
-              )
-            : [
-                ...draft.mentionedUserIds,
-                userId,
-              ];
-
-        return {
-          ...current,
-
-          [taskId]: {
-            ...draft,
-            mentionedUserIds,
-          },
-        };
-      },
     );
   }
 
@@ -618,13 +542,16 @@ function TrackerPage() {
     );
 
     try {
+      const taskCount =
+        selectedTaskIds.length;
+
       await saveSession({
         data: {
           startedAt:
             activeSession.startTime,
 
           generalBody:
-            selectedTaskIds.length ===
+            taskCount ===
             0
               ? generalUpdate.trim()
               : null,
@@ -637,16 +564,12 @@ function TrackerPage() {
                 taskId,
 
                 body:
-                  taskDrafts[
-                    taskId
-                  ]?.body.trim() ??
-                  "",
-
-                mentionedUserIds:
-                  taskDrafts[
-                    taskId
-                  ]?.mentionedUserIds ??
-                  [],
+                  (
+                    taskDrafts[
+                      taskId
+                    ] ??
+                    ""
+                  ).trim(),
               }),
             ),
         },
@@ -663,9 +586,9 @@ function TrackerPage() {
       );
 
       toast.success(
-        selectedTaskIds.length >
+        taskCount >
         1
-          ? `Time entry saved with ${selectedTaskIds.length} task updates`
+          ? `Time entry saved with ${taskCount} task updates`
           : "Time entry saved",
       );
     } catch (
@@ -1081,47 +1004,39 @@ function TrackerPage() {
               </p>
             ) : null}
 
-            {taskOptions.length >
-              0 && (
-              <p className="text-xs text-muted-foreground">
-                You can select more than one task. Each selected task gets its
-                own work update.
-              </p>
-            )}
+            {!tasksLoading &&
+              taskOptions.length >
+                0 && (
+                <p className="text-xs text-muted-foreground">
+                  Select one or more tasks. Type @ in an update to mention a
+                  team member.
+                </p>
+              )}
           </div>
 
           {selectedTasks.length ===
           0 ? (
             <div className="space-y-2 rounded-2xl border border-border p-4">
-              <div className="flex items-center justify-between gap-3">
-                <Label htmlFor="general-clock-update">
-                  General work update
-                </Label>
+              <Label htmlFor="general-clock-update">
+                General work update
+              </Label>
 
-                <WordCounter
-                  value={
-                    generalUpdate
-                  }
-                />
-              </div>
-
-              <Textarea
+              <MentionTextarea
                 id="general-clock-update"
                 autoFocus
                 rows={
                   6
+                }
+                minWords={
+                  WORK_UPDATE_MIN_WORDS
                 }
                 className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
                 placeholder="Describe what you worked on, what changed, decisions you made, results, and what should happen next…"
                 value={
                   generalUpdate
                 }
-                onChange={(
-                  event,
-                ) =>
-                  setGeneralUpdate(
-                    event.target.value,
-                  )
+                onValueChange={
+                  setGeneralUpdate
                 }
               />
             </div>
@@ -1135,63 +1050,35 @@ function TrackerPage() {
                   const draft =
                     taskDrafts[
                       task.id
-                    ] ?? {
-                      body:
-                        "",
-
-                      mentionedUserIds:
-                        [],
-                    };
-
-                  const words =
-                    countWords(
-                      draft.body,
-                    );
-
-                  const taggedPeople =
-                    mentionablePeople.filter(
-                      (
-                        person,
-                      ) =>
-                        draft.mentionedUserIds.includes(
-                          person.id,
-                        ),
-                    );
+                    ] ??
+                    "";
 
                   return (
                     <div
                       key={
                         task.id
                       }
-                      className="space-y-4 rounded-2xl border border-border p-4"
+                      className="space-y-3 rounded-2xl border border-border p-4"
                     >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <p className="font-semibold">
-                            {task.projectName
-                              ? `${task.projectName} - ${task.title}`
-                              : task.title}
-                          </p>
+                      <div className="min-w-0">
+                        <p className="font-semibold">
+                          {task.projectName
+                            ? `${task.projectName} - ${task.title}`
+                            : task.title}
+                        </p>
 
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            Update{" "}
-                            {index +
-                              1}{" "}
-                            of{" "}
-                            {
-                              selectedTasks.length
-                            }
-                          </p>
-                        </div>
-
-                        <WordCounter
-                          value={
-                            draft.body
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Update{" "}
+                          {index +
+                            1}{" "}
+                          of{" "}
+                          {
+                            selectedTasks.length
                           }
-                        />
+                        </p>
                       </div>
 
-                      <Textarea
+                      <MentionTextarea
                         autoFocus={
                           index ===
                           0
@@ -1199,130 +1086,26 @@ function TrackerPage() {
                         rows={
                           6
                         }
-                        className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
-                        placeholder="Describe exactly what you did on this task, progress made, decisions, results, and next steps…"
-                        value={
-                          draft.body
+                        minWords={
+                          WORK_UPDATE_MIN_WORDS
                         }
-                        onChange={(
-                          event,
+                        people={
+                          mentionablePeople
+                        }
+                        className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
+                        placeholder="Describe what you did. Type @ to mention someone…"
+                        value={
+                          draft
+                        }
+                        onValueChange={(
+                          body,
                         ) =>
                           setTaskBody(
                             task.id,
-                            event.target.value,
+                            body,
                           )
                         }
                       />
-
-                      <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex min-w-0 flex-wrap gap-2">
-                          {taggedPeople.map(
-                            (
-                              person,
-                            ) => (
-                              <Badge
-                                key={
-                                  person.id
-                                }
-                                variant="secondary"
-                                className="rounded-full"
-                              >
-                                @
-                                {
-                                  person.name
-                                }
-                              </Badge>
-                            ),
-                          )}
-
-                          {taggedPeople.length ===
-                            0 && (
-                            <span className="text-xs text-muted-foreground">
-                              Nobody tagged
-                            </span>
-                          )}
-                        </div>
-
-                        <Popover>
-                          <PopoverTrigger
-                            asChild
-                          >
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="shrink-0 rounded-full"
-                            >
-                              <AtSign className="size-4" />
-                              Tag people
-                            </Button>
-                          </PopoverTrigger>
-
-                          <PopoverContent
-                            align="end"
-                            className="w-72 p-2"
-                          >
-                            <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">
-                              Tagged people get an in-app notification.
-                            </p>
-
-                            {mentionablePeople.length ===
-                            0 ? (
-                              <p className="px-2 py-3 text-sm text-muted-foreground">
-                                No other members available.
-                              </p>
-                            ) : (
-                              <div className="max-h-64 space-y-1 overflow-y-auto">
-                                {mentionablePeople.map(
-                                  (
-                                    person,
-                                  ) => {
-                                    const checked =
-                                      draft.mentionedUserIds.includes(
-                                        person.id,
-                                      );
-
-                                    return (
-                                      <label
-                                        key={
-                                          person.id
-                                        }
-                                        className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm hover:bg-muted"
-                                      >
-                                        <Checkbox
-                                          checked={
-                                            checked
-                                          }
-                                          onCheckedChange={() =>
-                                            toggleMention(
-                                              task.id,
-                                              person.id,
-                                            )
-                                          }
-                                        />
-
-                                        <span className="min-w-0 truncate">
-                                          {
-                                            person.name
-                                          }
-                                        </span>
-                                      </label>
-                                    );
-                                  },
-                                )}
-                              </div>
-                            )}
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-
-                      {words >=
-                        CLOCK_UPDATE_MIN_WORDS && (
-                        <p className="flex items-center gap-1.5 text-xs text-success">
-                          <Check className="size-3.5" />
-                          Minimum length reached
-                        </p>
-                      )}
                     </div>
                   );
                 },
@@ -1380,9 +1163,7 @@ function TrackerPage() {
         onOpenChange={(
           open,
         ) => {
-          if (
-            !open
-          ) {
+          if (!open) {
             setEditingId(
               null,
             );
@@ -1399,37 +1180,28 @@ function TrackerPage() {
               Update what you worked on during this session. Work updates must
               contain at least{" "}
               {
-                CLOCK_UPDATE_MIN_WORDS
+                WORK_UPDATE_MIN_WORDS
               }{" "}
               words.
             </DialogDescription>
           </DialogHeader>
 
-          <Textarea
+          <MentionTextarea
             autoFocus
             rows={
               5
+            }
+            minWords={
+              WORK_UPDATE_MIN_WORDS
             }
             className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
             value={
               editText
             }
-            onChange={(
-              event,
-            ) =>
-              setEditText(
-                event.target.value,
-              )
+            onValueChange={
+              setEditText
             }
           />
-
-          <div className="flex justify-end">
-            <WordCounter
-              value={
-                editText
-              }
-            />
-          </div>
 
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
@@ -1448,13 +1220,13 @@ function TrackerPage() {
               className="rounded-full"
               disabled={
                 editWordCount <
-                CLOCK_UPDATE_MIN_WORDS
+                WORK_UPDATE_MIN_WORDS
               }
               onClick={() => {
                 if (
                   !editingId ||
                   editWordCount <
-                    CLOCK_UPDATE_MIN_WORDS
+                    WORK_UPDATE_MIN_WORDS
                 ) {
                   return;
                 }
@@ -1487,9 +1259,7 @@ function TrackerPage() {
         onOpenChange={(
           open,
         ) => {
-          if (
-            !open
-          ) {
+          if (!open) {
             setDeletingId(
               null,
             );
@@ -1549,41 +1319,6 @@ function TrackerPage() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function WordCounter({
-  value,
-}: {
-  value:
-    string;
-}) {
-  const words =
-    countWords(
-      value,
-    );
-
-  const complete =
-    words >=
-    CLOCK_UPDATE_MIN_WORDS;
-
-  return (
-    <span
-      className={`shrink-0 text-xs font-medium ${
-        complete
-          ? "text-success"
-          : "text-muted-foreground"
-      }`}
-    >
-      {
-        words
-      }{" "}
-      /{" "}
-      {
-        CLOCK_UPDATE_MIN_WORDS
-      }{" "}
-      words
-    </span>
   );
 }
 

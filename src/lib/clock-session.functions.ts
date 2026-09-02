@@ -2,101 +2,152 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  WORK_UPDATE_MIN_WORDS,
+  containsNamedMention,
+  countWorkUpdateWords,
+} from "./work-update-text";
 
-export const CLOCK_UPDATE_MIN_WORDS = 30;
+const clockTaskUpdateSchema =
+  z
+    .object({
+      taskId:
+        z
+          .string()
+          .uuid(),
 
-function countWords(value: string) {
-  const trimmed = value.trim();
+      body:
+        z
+          .string()
+          .trim()
+          .max(
+            2000,
+          ),
+    })
+    .superRefine(
+      (
+        value,
+        context,
+      ) => {
+        if (
+          countWorkUpdateWords(
+            value.body,
+          ) <
+          WORK_UPDATE_MIN_WORDS
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
 
-  return trimmed
-    ? trimmed.split(/\s+/u).length
-    : 0;
+            path: [
+              "body",
+            ],
+
+            message:
+              `Write at least ${WORK_UPDATE_MIN_WORDS} words for every task update.`,
+          });
+        }
+      },
+    );
+
+const saveClockSessionSchema =
+  z
+    .object({
+      startedAt:
+        z
+          .string()
+          .datetime(),
+
+      generalBody:
+        z
+          .string()
+          .trim()
+          .max(
+            4000,
+          )
+          .nullable()
+          .optional(),
+
+      updates:
+        z
+          .array(
+            clockTaskUpdateSchema,
+          )
+          .max(
+            20,
+          ),
+    })
+    .superRefine(
+      (
+        value,
+        context,
+      ) => {
+        const taskIds =
+          value.updates.map(
+            (
+              update,
+            ) =>
+              update.taskId,
+          );
+
+        if (
+          new Set(
+            taskIds,
+          ).size !==
+          taskIds.length
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              "updates",
+            ],
+
+            message:
+              "Each task can only be selected once.",
+          });
+        }
+
+        if (
+          value.updates.length ===
+            0 &&
+          countWorkUpdateWords(
+            value.generalBody ??
+              "",
+          ) <
+            WORK_UPDATE_MIN_WORDS
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              "generalBody",
+            ],
+
+            message:
+              `Write at least ${WORK_UPDATE_MIN_WORDS} words before saving the session.`,
+          });
+        }
+      },
+    );
+
+function uniqueStrings(
+  values:
+    string[],
+) {
+  return Array.from(
+    new Set(
+      values,
+    ),
+  );
 }
-
-function uniqueStrings(values: string[]) {
-  return Array.from(new Set(values));
-}
-
-const clockTaskUpdateSchema = z
-  .object({
-    taskId: z.string().uuid(),
-
-    body: z
-      .string()
-      .trim()
-      .max(2000),
-
-    mentionedUserIds: z
-      .array(z.string().uuid())
-      .max(100)
-      .default([]),
-  })
-  .superRefine((value, context) => {
-    if (
-      countWords(value.body) <
-      CLOCK_UPDATE_MIN_WORDS
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["body"],
-        message: `Write at least ${CLOCK_UPDATE_MIN_WORDS} words for every task update.`,
-      });
-    }
-  });
-
-const saveClockSessionSchema = z
-  .object({
-    startedAt: z
-      .string()
-      .datetime(),
-
-    generalBody: z
-      .string()
-      .trim()
-      .max(4000)
-      .nullable()
-      .optional(),
-
-    updates: z
-      .array(clockTaskUpdateSchema)
-      .max(20),
-  })
-  .superRefine((value, context) => {
-    const taskIds =
-      value.updates.map(
-        (update) => update.taskId,
-      );
-
-    if (
-      new Set(taskIds).size !==
-      taskIds.length
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["updates"],
-        message:
-          "Each task can only be selected once.",
-      });
-    }
-
-    if (
-      value.updates.length === 0 &&
-      countWords(
-        value.generalBody ?? "",
-      ) <
-        CLOCK_UPDATE_MIN_WORDS
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["generalBody"],
-        message: `Write at least ${CLOCK_UPDATE_MIN_WORDS} words before saving the session.`,
-      });
-    }
-  });
 
 export const saveClockSession =
   createServerFn({
-    method: "POST",
+    method:
+      "POST",
   })
     .middleware([
       requireSupabaseAuth,
@@ -157,7 +208,9 @@ export const saveClockSession =
         const taskIds =
           uniqueStrings(
             data.updates.map(
-              (update) =>
+              (
+                update,
+              ) =>
                 update.taskId,
             ),
           );
@@ -233,7 +286,8 @@ export const saveClockSession =
                 []
               ).map(
                 (
-                  row: any,
+                  row:
+                    any,
                 ) =>
                   row.task_id,
               ),
@@ -274,125 +328,6 @@ export const saveClockSession =
           }
         }
 
-        const requestedMentionIds =
-          uniqueStrings(
-            data.updates
-              .flatMap(
-                (update) =>
-                  update.mentionedUserIds,
-              )
-              .filter(
-                (userId) =>
-                  userId !==
-                  context.userId,
-              ),
-          );
-
-        const mentionNameMap =
-          new Map<
-            string,
-            string
-          >();
-
-        if (
-          requestedMentionIds.length >
-          0
-        ) {
-          const {
-            data: profiles,
-            error:
-              profilesError,
-          } =
-            await admin
-              .from(
-                "profiles",
-              )
-              .select(
-                "id, name",
-              )
-              .in(
-                "id",
-                requestedMentionIds,
-              );
-
-          if (
-            profilesError
-          ) {
-            throw new Error(
-              "Unable to validate tagged people.",
-            );
-          }
-
-          for (
-            const profile
-            of profiles ?? []
-          ) {
-            mentionNameMap.set(
-              profile.id,
-              profile.name,
-            );
-          }
-        }
-
-        const {
-          data:
-            actorProfile,
-        } =
-          await admin
-            .from(
-              "profiles",
-            )
-            .select(
-              "name",
-            )
-            .eq(
-              "id",
-              context.userId,
-            )
-            .maybeSingle();
-
-        const actorName =
-          actorProfile?.name ??
-          "A team member";
-
-        const bodyWithMentions =
-          (
-            body: string,
-            mentionedUserIds:
-              string[],
-          ) => {
-            const tags =
-              uniqueStrings(
-                mentionedUserIds,
-              )
-                .filter(
-                  (userId) =>
-                    userId !==
-                    context.userId,
-                )
-                .map(
-                  (userId) =>
-                    mentionNameMap.get(
-                      userId,
-                    ),
-                )
-                .filter(
-                  (
-                    name,
-                  ): name is string =>
-                    Boolean(name),
-                )
-                .map(
-                  (name) =>
-                    `@${name}`,
-                );
-
-            return tags.length >
-              0
-              ? `${body.trim()}\n\n${tags.join(" ")}`
-              : body.trim();
-          };
-
         const historyDescription =
           data.updates.length ===
           0
@@ -410,13 +345,7 @@ export const saveClockSession =
                         update.taskId,
                       );
 
-                    const body =
-                      bodyWithMentions(
-                        update.body,
-                        update.mentionedUserIds,
-                      );
-
-                    return `${task?.title ?? "Task"}\n${body}`;
+                    return `${task?.title ?? "Task"}\n${update.body.trim()}`;
                   },
                 )
                 .join(
@@ -426,6 +355,7 @@ export const saveClockSession =
         const {
           data:
             timeEntry,
+
           error:
             timeEntryError,
         } =
@@ -450,13 +380,9 @@ export const saveClockSession =
                 historyDescription,
 
               /*
-               * New Clock sessions write
-               * their Task updates directly
-               * to work_updates.
-               *
-               * task_id remains NULL so the
-               * legacy one-task trigger does
-               * not create a duplicate update.
+               * Task updates are written directly below.
+               * Keeping task_id NULL prevents the legacy
+               * one-task trigger from creating a duplicate.
                */
               task_id:
                 null,
@@ -496,32 +422,23 @@ export const saveClockSession =
                   context.userId,
 
                 body:
-                  bodyWithMentions(
-                    update.body,
-                    update.mentionedUserIds,
-                  ),
+                  update.body.trim(),
 
                 source:
                   "clock",
 
                 /*
-                 * The existing column is UNIQUE,
-                 * so it cannot represent several
-                 * Task updates from one Clock
-                 * session. We intentionally leave
-                 * it NULL rather than changing the
-                 * current database schema.
+                 * source_time_entry_id is UNIQUE in
+                 * the current schema. One Clock
+                 * session can now create several
+                 * task updates, so this stays NULL.
                  */
                 source_time_entry_id:
                   null,
 
                 /*
-                 * If one task was selected, all
-                 * Clock time belongs to that task.
-                 *
-                 * With several tasks we do NOT
-                 * duplicate the full session time
-                 * onto every task.
+                 * Do not duplicate the full Clock
+                 * duration across several tasks.
                  */
                 duration_ms:
                   data.updates.length ===
@@ -570,101 +487,173 @@ export const saveClockSession =
           }
         }
 
-        const mentionNotifications =
-          data.updates.flatMap(
+        let mentionCount =
+          0;
+
+        /*
+         * Mentions are derived from the actual text.
+         * There is no second list of tags to keep in sync.
+         */
+        if (
+          data.updates.some(
             (
               update,
-            ) => {
-              const task =
-                taskMap.get(
-                  update.taskId,
-                );
-
-              const excerpt =
-                update.body
-                  .trim()
-                  .replace(
-                    /\s+/gu,
-                    " ",
-                  )
-                  .slice(
-                    0,
-                    180,
-                  );
-
-              return uniqueStrings(
-                update.mentionedUserIds,
-              )
-                .filter(
-                  (
-                    userId,
-                  ) =>
-                    userId !==
-                      context.userId &&
-                    mentionNameMap.has(
-                      userId,
-                    ),
-                )
-                .map(
-                  (
-                    userId,
-                  ) => ({
-                    user_id:
-                      userId,
-
-                    kind:
-                      "task_update",
-
-                    title:
-                      "You were mentioned",
-
-                    message:
-                      `${actorName} mentioned you in an update on ${task?.title ?? "a task"}: ${excerpt}`,
-
-                    task_id:
-                      update.taskId,
-
-                    created_by:
-                      context.userId,
-
-                    /*
-                     * Mention notifications
-                     * appear as a normal popup,
-                     * but do not require Got it.
-                     */
-                    requires_ack:
-                      false,
-                  }),
-                );
-            },
-          );
-
-        if (
-          mentionNotifications.length >
-          0
+            ) =>
+              update.body.includes(
+                "@",
+              ),
+          )
         ) {
-          const {
-            error:
-              notificationError,
-          } =
-            await admin
-              .from(
-                "user_notifications",
-              )
-              .insert(
-                mentionNotifications,
+          try {
+            const {
+              data:
+                profiles,
+
+              error:
+                profilesError,
+            } =
+              await admin
+                .from(
+                  "profiles",
+                )
+                .select(
+                  "id, name",
+                );
+
+            if (
+              profilesError
+            ) {
+              throw profilesError;
+            }
+
+            const actorName =
+              (
+                profiles ??
+                []
+              ).find(
+                (
+                  profile:
+                    any,
+                ) =>
+                  profile.id ===
+                  context.userId,
+              )?.name ??
+              "A team member";
+
+            const otherPeople =
+              (
+                profiles ??
+                []
+              ).filter(
+                (
+                  profile:
+                    any,
+                ) =>
+                  profile.id !==
+                  context.userId,
               );
 
-          if (
-            notificationError
+            const mentionNotifications =
+              data.updates.flatMap(
+                (
+                  update,
+                ) => {
+                  const task =
+                    taskMap.get(
+                      update.taskId,
+                    );
+
+                  const excerpt =
+                    update.body
+                      .trim()
+                      .replace(
+                        /\s+/gu,
+                        " ",
+                      )
+                      .slice(
+                        0,
+                        180,
+                      );
+
+                  return otherPeople
+                    .filter(
+                      (
+                        profile:
+                          any,
+                      ) =>
+                        containsNamedMention(
+                          update.body,
+                          profile.name,
+                        ),
+                    )
+                    .map(
+                      (
+                        profile:
+                          any,
+                      ) => ({
+                        user_id:
+                          profile.id,
+
+                        kind:
+                          "task_update",
+
+                        title:
+                          "You were mentioned",
+
+                        message:
+                          `${actorName} mentioned you in an update on ${task?.title ?? "a task"}: ${excerpt}`,
+
+                        task_id:
+                          update.taskId,
+
+                        created_by:
+                          context.userId,
+
+                        requires_ack:
+                          true,
+                      }),
+                    );
+                },
+              );
+
+            if (
+              mentionNotifications.length >
+              0
+            ) {
+              const {
+                error:
+                  notificationError,
+              } =
+                await admin
+                  .from(
+                    "user_notifications",
+                  )
+                  .insert(
+                    mentionNotifications,
+                  );
+
+              if (
+                notificationError
+              ) {
+                console.error(
+                  "[clock] Failed to create mention notifications",
+                  notificationError,
+                );
+              } else {
+                mentionCount =
+                  mentionNotifications.length;
+              }
+            }
+          } catch (
+            error
           ) {
             /*
-             * A notification failure should
-             * never lose the user's work log.
+             * Notification failure must never
+             * lose a saved work log.
              */
             console.error(
-              "[clock] Failed to create mention notifications",
-              notificationError,
+              "[clock] Failed to resolve mention notifications",
+              error,
             );
           }
         }
@@ -707,7 +696,7 @@ export const saveClockSession =
             data.updates.length,
 
           mentions:
-            mentionNotifications.length,
+            mentionCount,
         };
       },
     );
