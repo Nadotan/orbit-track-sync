@@ -281,17 +281,20 @@ export const saveClockSession =
 
         const requestedMentionIds =
           uniqueStrings(
-            data.updates
-              .flatMap(
+            [
+              ...data.updates.flatMap(
                 (update) =>
                   update.mentionedUserIds,
-              )
-              .filter(
-                (userId) =>
-                  userId !==
-                  context.userId,
               ),
+              ...(data.generalMentionedUserIds ??
+                []),
+            ].filter(
+              (userId) =>
+                userId !==
+                context.userId,
+            ),
           );
+
 
         const mentionNameMap =
           new Map<
