@@ -1148,16 +1148,6 @@ function TrackerPage() {
                       draft.body,
                     );
 
-                  const taggedPeople =
-                    mentionablePeople.filter(
-                      (
-                        person,
-                      ) =>
-                        draft.mentionedUserIds.includes(
-                          person.id,
-                        ),
-                    );
-
                   return (
                     <div
                       key={
@@ -1191,130 +1181,30 @@ function TrackerPage() {
                         />
                       </div>
 
-                      <Textarea
+                      <MentionTextarea
                         autoFocus={
                           index ===
                           0
                         }
-                        rows={
-                          6
+                        rows={6}
+                        people={
+                          mentionablePeople
                         }
-                        className="resize-none rounded-2xl bg-muted/50 p-4 text-base leading-relaxed shadow-inner focus-visible:ring-2"
-                        placeholder="Describe exactly what you did on this task, progress made, decisions, results, and next steps…"
+                        className="bg-muted/50 p-4 pb-11 text-base leading-relaxed shadow-inner focus-visible:ring-2"
+                        placeholder="Describe exactly what you did on this task, progress made, decisions, results, and next steps… Type @ to tag a teammate."
                         value={
                           draft.body
                         }
                         onChange={(
-                          event,
+                          next,
                         ) =>
                           setTaskBody(
                             task.id,
-                            event.target.value,
+                            next,
                           )
                         }
                       />
 
-                      <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex min-w-0 flex-wrap gap-2">
-                          {taggedPeople.map(
-                            (
-                              person,
-                            ) => (
-                              <Badge
-                                key={
-                                  person.id
-                                }
-                                variant="secondary"
-                                className="rounded-full"
-                              >
-                                @
-                                {
-                                  person.name
-                                }
-                              </Badge>
-                            ),
-                          )}
-
-                          {taggedPeople.length ===
-                            0 && (
-                            <span className="text-xs text-muted-foreground">
-                              Nobody tagged
-                            </span>
-                          )}
-                        </div>
-
-                        <Popover>
-                          <PopoverTrigger
-                            asChild
-                          >
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="shrink-0 rounded-full"
-                            >
-                              <AtSign className="size-4" />
-                              Tag people
-                            </Button>
-                          </PopoverTrigger>
-
-                          <PopoverContent
-                            align="end"
-                            className="w-72 p-2"
-                          >
-                            <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">
-                              Tagged people get an in-app notification.
-                            </p>
-
-                            {mentionablePeople.length ===
-                            0 ? (
-                              <p className="px-2 py-3 text-sm text-muted-foreground">
-                                No other members available.
-                              </p>
-                            ) : (
-                              <div className="max-h-64 space-y-1 overflow-y-auto">
-                                {mentionablePeople.map(
-                                  (
-                                    person,
-                                  ) => {
-                                    const checked =
-                                      draft.mentionedUserIds.includes(
-                                        person.id,
-                                      );
-
-                                    return (
-                                      <label
-                                        key={
-                                          person.id
-                                        }
-                                        className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm hover:bg-muted"
-                                      >
-                                        <Checkbox
-                                          checked={
-                                            checked
-                                          }
-                                          onCheckedChange={() =>
-                                            toggleMention(
-                                              task.id,
-                                              person.id,
-                                            )
-                                          }
-                                        />
-
-                                        <span className="min-w-0 truncate">
-                                          {
-                                            person.name
-                                          }
-                                        </span>
-                                      </label>
-                                    );
-                                  },
-                                )}
-                              </div>
-                            )}
-                          </PopoverContent>
-                        </Popover>
-                      </div>
 
                       {words >=
                         CLOCK_UPDATE_MIN_WORDS && (
