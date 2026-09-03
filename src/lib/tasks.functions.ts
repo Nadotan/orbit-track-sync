@@ -3029,6 +3029,70 @@ export const addWorkUpdate = createServerFn({
       );
     }
 
+    const mentionIds = uniqueStrings(
+      data.mentionedUserIds ?? [],
+    ).filter((id) => id !== context.userId);
+
+    if (mentionIds.length > 0) {
+      const [
+        { data: mentionProfiles },
+        { data: actorProfile },
+      ] = await Promise.all([
+        admin
+          .from("profiles")
+          .select("id")
+          .in("id", mentionIds),
+
+        admin
+          .from("profiles")
+          .select("name")
+          .eq("id", context.userId)
+          .maybeSingle(),
+      ]);
+
+      const validIds = (
+        mentionProfiles ?? []
+      ).map((row: any) => row.id as string);
+
+      if (validIds.length > 0) {
+        const actorName =
+          actorProfile?.name ??
+          "A team member";
+
+        const excerpt = data.body
+          .trim()
+          .replace(/\s+/gu, " ")
+          .slice(0, 180);
+
+        const { error: mentionError } =
+          await admin
+            .from("user_notifications")
+            .insert(
+              validIds.map(
+                (userId: string) => ({
+                  user_id: userId,
+                  kind: "task_update",
+                  title: "You were mentioned",
+                  message: `${actorName} mentioned you in an update on ${
+                    taskForNotification?.title ??
+                    "a project"
+                  }: ${excerpt}`,
+                  task_id: taskId,
+                  created_by: context.userId,
+                  requires_ack: false,
+                }),
+              ),
+            );
+
+        if (mentionError) {
+          console.error(
+            "[tasks] Failed to create mention notifications",
+            mentionError,
+          );
+        }
+      }
+    }
+
     return {
       id: update.id,
     };
