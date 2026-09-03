@@ -584,6 +584,17 @@ function TrackerPage() {
               ? generalUpdate.trim()
               : null,
 
+          generalMentionedUserIds:
+            selectedTaskIds.length ===
+            0
+              ? extractMentionIds(
+                  generalUpdate,
+                  mentionablePeople,
+                )
+              : [],
+
+
+
           updates:
             selectedTaskIds.map(
               (
