@@ -123,6 +123,10 @@ export function ActivePollButton() {
     activePolls.find((item) => item.userOptionId === null) ??
     activePolls[0];
 
+  if (!poll) {
+    return null;
+  }
+
   const needsVote = poll.userOptionId === null;
 
   return (

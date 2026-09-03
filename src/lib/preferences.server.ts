@@ -61,7 +61,7 @@ export async function getPreferencesForUser(
       )
     ) {
       preferences[
-        row.preference_key
+        row.preference_key as keyof typeof preferences
       ] =
         Boolean(
           row.enabled,

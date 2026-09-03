@@ -677,8 +677,9 @@ function ProfilePage() {
 
     const date =
       button
-        ?.dataset
-        .availabilityDate;
+        ?.dataset[
+        'availabilityDate'
+      ];
 
     if (
       !date ||

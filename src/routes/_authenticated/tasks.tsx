@@ -135,13 +135,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/tasks")({
   validateSearch: (search: Record<string, unknown>) => ({
     project:
-      typeof search.project === "string"
-        ? search.project
+      typeof search['project'] === "string"
+        ? search['project']
         : undefined,
 
     task:
-      typeof search.task === "string"
-        ? search.task
+      typeof search['task'] === "string"
+        ? search['task']
         : undefined,
   }),
 
@@ -2017,7 +2017,7 @@ function TasksPage() {
             ...previous,
           };
 
-          delete next.task;
+          next.task = undefined;
 
           return next;
         },
@@ -2064,7 +2064,7 @@ function TasksPage() {
           };
 
           delete next.project;
-          delete next.task;
+          next.task = undefined;
 
           return next;
         },
@@ -5540,8 +5540,8 @@ function TaskQuickView({
 }: {
   task: TaskItem;
   actions: TaskCardActions;
-  onEdit?: () => void;
-  onDone?: () => void;
+  onEdit?: (() => void) | undefined;
+  onDone?: (() => void) | undefined;
   onAddUpdate: (
     body: string,
     mentionedUserIds: string[],

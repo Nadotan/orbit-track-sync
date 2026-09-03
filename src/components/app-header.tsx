@@ -879,6 +879,8 @@ export function AppHeader() {
       search: {
         task:
           notification.taskId,
+        project:
+          undefined,
       },
     });
   }
@@ -1381,6 +1383,9 @@ export function AppHeader() {
                     navigate({
                       to:
                         "/polls",
+                      search: {
+                        poll: undefined,
+                      },
                     });
                   }}
                 >
