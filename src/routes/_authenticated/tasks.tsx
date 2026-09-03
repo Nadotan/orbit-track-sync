@@ -3713,6 +3713,9 @@ function TasksPage() {
       : 0;
 
   return (
+    <MentionPeopleProvider
+      people={currentWorkspace.people}
+    >
     <div className="mx-auto w-full max-w-6xl space-y-5 pb-28 md:pb-10">
       {projectPageId ? (
         selectedProject ? (
@@ -5219,6 +5222,7 @@ function TasksPage() {
         </SheetContent>
       </Sheet>
     </div>
+    </MentionPeopleProvider>
   );
 }
 
