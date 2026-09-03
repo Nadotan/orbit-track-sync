@@ -2063,7 +2063,7 @@ function TasksPage() {
             ...previous,
           };
 
-          delete next.project;
+          next.project = undefined;
           next.task = undefined;
 
           return next;
