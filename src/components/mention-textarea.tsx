@@ -113,7 +113,7 @@ export function MentionText({
 export function MentionTextarea({
   value,
   onChange,
-  people,
+  people: peopleProp,
   placeholder,
   rows = 4,
   maxLength = 2000,
@@ -121,6 +121,9 @@ export function MentionTextarea({
   id,
   className,
 }: MentionTextareaProps) {
+  const contextPeople = useMentionPeople();
+  const people = peopleProp ?? contextPeople;
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
