@@ -661,6 +661,50 @@ export const saveClockSession =
             },
           );
 
+        const generalExcerpt = (
+          data.generalBody ?? ""
+        )
+          .trim()
+          .replace(/\s+/gu, " ")
+          .slice(0, 180);
+
+        const generalMentionNotifications =
+          uniqueStrings(
+            data.generalMentionedUserIds ??
+              [],
+          )
+            .filter(
+              (userId) =>
+                userId !==
+                  context.userId &&
+                mentionNameMap.has(
+                  userId,
+                ),
+            )
+            .map((userId) => ({
+              user_id: userId,
+
+              kind: "task_update",
+
+              title:
+                "You were mentioned",
+
+              message: `${actorName} mentioned you in a Clock update: ${generalExcerpt}`,
+
+              task_id: null,
+
+              created_by:
+                context.userId,
+
+              requires_ack: false,
+            }));
+
+        mentionNotifications.push(
+          ...generalMentionNotifications,
+        );
+
+
+
         if (
           mentionNotifications.length >
           0
