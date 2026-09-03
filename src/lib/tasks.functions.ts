@@ -176,6 +176,10 @@ const addWorkUpdateSchema = z
     taskId: z.string().uuid().nullable().optional(),
     projectId: z.string().uuid().nullable().optional(),
     body: z.string().trim().min(1).max(2000),
+    mentionedUserIds: z
+      .array(z.string().uuid())
+      .max(100)
+      .default([]),
   })
   .refine(
     (value) => Boolean(value.taskId) !== Boolean(value.projectId),
