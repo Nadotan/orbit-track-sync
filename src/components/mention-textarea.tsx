@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -20,10 +22,31 @@ export interface MentionPerson {
   avatarUrl?: string | null;
 }
 
+const MentionPeopleContext =
+  createContext<MentionPerson[]>([]);
+
+export function MentionPeopleProvider({
+  people,
+  children,
+}: {
+  people: MentionPerson[];
+  children: React.ReactNode;
+}) {
+  return (
+    <MentionPeopleContext.Provider value={people}>
+      {children}
+    </MentionPeopleContext.Provider>
+  );
+}
+
+export function useMentionPeople() {
+  return useContext(MentionPeopleContext);
+}
+
 interface MentionTextareaProps {
   value: string;
   onChange: (value: string) => void;
-  people: MentionPerson[];
+  people?: MentionPerson[];
   placeholder?: string;
   rows?: number;
   maxLength?: number;
@@ -90,7 +113,7 @@ export function MentionText({
 export function MentionTextarea({
   value,
   onChange,
-  people,
+  people: peopleProp,
   placeholder,
   rows = 4,
   maxLength = 2000,
@@ -98,6 +121,9 @@ export function MentionTextarea({
   id,
   className,
 }: MentionTextareaProps) {
+  const contextPeople = useMentionPeople();
+  const people = peopleProp ?? contextPeople;
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 

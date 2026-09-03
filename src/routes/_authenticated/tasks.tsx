@@ -41,6 +41,12 @@ import {
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
+import {
+  MentionPeopleProvider,
+  MentionTextarea,
+  extractMentionIds,
+  useMentionPeople,
+} from "@/components/mention-textarea";
 
 import {
   AlertDialog,
@@ -3514,6 +3520,7 @@ function TasksPage() {
 
   async function handleAddTaskUpdate(
     body: string,
+    mentionedUserIds: string[] = [],
   ) {
     if (
       !selectedTask
@@ -3530,6 +3537,8 @@ function TasksPage() {
           null,
 
         body,
+
+        mentionedUserIds,
       },
     });
 
@@ -3538,6 +3547,7 @@ function TasksPage() {
 
   async function handleAddProjectUpdate(
     body: string,
+    mentionedUserIds: string[] = [],
   ) {
     if (
       !selectedProject
@@ -3554,6 +3564,8 @@ function TasksPage() {
           selectedProject.id,
 
         body,
+
+        mentionedUserIds,
       },
     });
 
@@ -3701,6 +3713,9 @@ function TasksPage() {
       : 0;
 
   return (
+    <MentionPeopleProvider
+      people={currentWorkspace.people}
+    >
     <div className="mx-auto w-full max-w-6xl space-y-5 pb-28 md:pb-10">
       {projectPageId ? (
         selectedProject ? (
@@ -5207,6 +5222,7 @@ function TasksPage() {
         </SheetContent>
       </Sheet>
     </div>
+    </MentionPeopleProvider>
   );
 }
 
@@ -5528,6 +5544,7 @@ function TaskQuickView({
   onDone?: () => void;
   onAddUpdate: (
     body: string,
+    mentionedUserIds: string[],
   ) => Promise<void>;
 }) {
   const deadline =
@@ -6073,7 +6090,10 @@ function ProjectWorkspaceView({
   onBack: () => void;
   onEdit: () => void;
   onOpenTask: (id: string) => void;
-  onAddUpdate: (body: string) => Promise<void>;
+  onAddUpdate: (
+    body: string,
+    mentionedUserIds: string[],
+  ) => Promise<void>;
   taskActions: TaskCardActions;
   projectActions: ProjectCardActions;
 }) {
@@ -6430,8 +6450,12 @@ function ProjectActivityPanel({
   canAdd: boolean;
   onAdd: (
     body: string,
+    mentionedUserIds: string[],
   ) => Promise<void>;
 }) {
+  const mentionPeople =
+    useMentionPeople();
+
   const [
     text,
     setText,
@@ -6516,6 +6540,10 @@ function ProjectActivityPanel({
     try {
       await onAdd(
         body,
+        extractMentionIds(
+          body,
+          mentionPeople,
+        ),
       );
 
       setText("");
@@ -6554,20 +6582,16 @@ function ProjectActivityPanel({
 
       {canAdd && (
         <div className="rounded-xl border bg-card p-3">
-          <Textarea
+          <MentionTextarea
             rows={2}
             maxLength={2000}
-            className="resize-none rounded-xl"
-            placeholder="Add an update…"
+            className="resize-none rounded-xl pb-11"
+            placeholder="Add an update… Type @ to tag a teammate."
             value={
               text
             }
-            onChange={(
-              event,
-            ) =>
-              setText(
-                event.target.value,
-              )
+            onChange={
+              setText
             }
           />
 
@@ -7509,10 +7533,14 @@ function WorkUpdatesPanel({
   canAdd: boolean;
   onAdd: (
     body: string,
+    mentionedUserIds: string[],
   ) => Promise<void>;
   emptyText: string;
   compact?: boolean;
 }) {
+  const mentionPeople =
+    useMentionPeople();
+
   const [
     text,
     setText,
@@ -7564,6 +7592,10 @@ function WorkUpdatesPanel({
     try {
       await onAdd(
         body,
+        extractMentionIds(
+          body,
+          mentionPeople,
+        ),
       );
 
       setText("");
@@ -7630,20 +7662,16 @@ function WorkUpdatesPanel({
 
       {canAdd && (
         <div className="space-y-2">
-          <Textarea
+          <MentionTextarea
             rows={2}
             maxLength={2000}
-            className="resize-none rounded-xl text-sm"
-            placeholder="Add an update…"
+            className="resize-none rounded-xl pb-11 text-sm"
+            placeholder="Add an update… Type @ to tag a teammate."
             value={
               text
             }
-            onChange={(
-              event,
-            ) =>
-              setText(
-                event.target.value,
-              )
+            onChange={
+              setText
             }
           />
 
