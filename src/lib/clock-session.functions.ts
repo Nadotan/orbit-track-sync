@@ -691,7 +691,8 @@ export const saveClockSession =
 
               message: `${actorName} mentioned you in a Clock update: ${generalExcerpt}`,
 
-              task_id: null,
+              task_id:
+                null as unknown as string,
 
               created_by:
                 context.userId,
