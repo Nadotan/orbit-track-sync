@@ -44,8 +44,8 @@ function readSecretKeyMap(value: string | undefined): string | undefined {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
 
-    if (typeof parsed.default === 'string' && parsed.default) {
-      return parsed.default;
+    if (typeof parsed['default'] === 'string' && parsed['default']) {
+      return parsed['default'];
     }
 
     return Object.values(parsed).find(

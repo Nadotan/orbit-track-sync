@@ -50,7 +50,7 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/polls")({
   validateSearch: (search: Record<string, unknown>) => ({
-    poll: typeof search.poll === "string" ? search.poll : undefined,
+    poll: typeof search['poll'] === "string" ? search['poll'] : undefined,
   }),
   head: () => ({
     meta: [
