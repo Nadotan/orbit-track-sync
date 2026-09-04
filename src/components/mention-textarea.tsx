@@ -214,10 +214,16 @@ export function MentionTextarea({
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
 
+    const words = needle.split(/\s+/u).filter(Boolean);
+
     return people
-      .filter((person) =>
-        needle ? person.name.toLowerCase().includes(needle) : true,
-      )
+      .filter((person) => {
+        if (words.length === 0) return true;
+
+        const name = person.name.toLowerCase();
+
+        return words.every((word) => name.includes(word));
+      })
       .slice(0, 8);
   }, [people, query]);
 
@@ -233,7 +239,10 @@ export function MentionTextarea({
 
   function syncFromCaret(text: string, caret: number) {
     const before = text.slice(0, caret);
-    const match = /(^|\s)@([\p{L}\p{N}._'-]*)$/u.exec(before);
+    const match =
+      /(^|\s)@([\p{L}\p{N}._'-]*(?:[ \u00A0][\p{L}\p{N}._'-]+){0,2})$/u.exec(
+        before,
+      );
 
     if (!match) {
       if (open) closeMenu();
