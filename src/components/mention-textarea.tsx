@@ -306,8 +306,12 @@ export function MentionTextarea({
     syncScroll();
   }, [value]);
 
-  const sharedTextClass =
-    "px-3 py-2 text-base leading-relaxed md:text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
+  const sharedClass = cn(
+    "flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm md:text-sm",
+    "resize-none rounded-2xl pb-11",
+    className,
+  );
+
 
   return (
     <div className="relative">
