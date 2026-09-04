@@ -290,8 +290,28 @@ export function MentionTextarea({
     });
   }
 
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  function syncScroll() {
+    const overlay = overlayRef.current;
+    const element = textareaRef.current;
+
+    if (!overlay || !element) return;
+
+    overlay.scrollTop = element.scrollTop;
+    overlay.scrollLeft = element.scrollLeft;
+  }
+
+  useEffect(() => {
+    syncScroll();
+  }, [value]);
+
+  const sharedTextClass =
+    "px-3 py-2 text-base leading-relaxed md:text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
+
   return (
     <div className="relative">
+
       {open && matches.length > 0 && (
         <div
           ref={listRef}
