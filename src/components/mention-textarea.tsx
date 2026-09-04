@@ -104,12 +104,14 @@ export function MentionText({
   people: peopleProp,
   currentUserId: currentUserIdProp,
   className,
+  markClassName,
   renderText,
 }: {
   text: string;
   people?: MentionPerson[];
   currentUserId?: string | null;
   className?: string;
+  markClassName?: string;
   renderText?: (value: string) => React.ReactNode;
 }) {
   const contextPeople = useMentionPeople();
@@ -160,6 +162,7 @@ export function MentionText({
             match.id === currentUserId
               ? "bg-primary text-primary-foreground"
               : "bg-primary/15 text-primary",
+            markClassName,
           )}
         >
           @{text.slice(at + 1, at + 1 + match.name.length)}
@@ -173,7 +176,7 @@ export function MentionText({
     pushText(text.slice(segmentStart));
 
     return out;
-  }, [text, people, currentUserId, renderText]);
+  }, [text, people, currentUserId, renderText, markClassName]);
 
 
   return (
@@ -418,7 +421,12 @@ export function MentionTextarea({
           "pointer-events-none absolute inset-0 z-10 overflow-hidden whitespace-pre-wrap break-words border-transparent bg-transparent text-foreground shadow-none [overflow-wrap:anywhere]",
         )}
       >
-        <MentionText text={value + "\n"} people={people} />
+        <MentionText
+          text={value + "\n"}
+          people={people}
+          currentUserId={null}
+          markClassName="rounded-[6px] bg-primary/20 px-0 py-0 font-normal text-primary"
+        />
       </div>
 
 
