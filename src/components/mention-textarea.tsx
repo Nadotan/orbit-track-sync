@@ -24,8 +24,8 @@ export interface MentionPerson {
 
 const MentionPeopleContext = createContext<{
   people: MentionPerson[];
-  currentUserId?: string | null;
-}>({ people: [] });
+  currentUserId: string | null | undefined;
+}>({ people: [], currentUserId: null });
 
 export function MentionPeopleProvider({
   people,
@@ -96,30 +96,96 @@ export function extractMentionIds(
 
 /**
  * Renders an update body with @mentions highlighted.
+ * Names may contain Hebrew or Latin letters and several words.
  */
 export function MentionText({
   text,
+  people: peopleProp,
+  currentUserId: currentUserIdProp,
   className,
+  renderText,
 }: {
   text: string;
+  people?: MentionPerson[];
+  currentUserId?: string | null;
   className?: string;
+  renderText?: (value: string) => React.ReactNode;
 }) {
-  const parts = text.split(/(@[\p{L}\p{N}._'-]+(?:\s+[\p{L}\p{N}._'-]+)?)/gu);
+  const contextPeople = useMentionPeople();
+  const contextUserId = useMentionCurrentUserId();
+  const people = peopleProp ?? contextPeople;
+  const currentUserId = currentUserIdProp ?? contextUserId;
+
+  const nodes = useMemo(() => {
+    const sorted = [...people].sort((a, b) => b.name.length - a.name.length);
+    const lower = text.toLowerCase();
+    const out: React.ReactNode[] = [];
+    let cursor = 0;
+    let key = 0;
+
+    while (cursor < text.length) {
+      const at = text.indexOf("@", cursor);
+
+      if (at === -1) break;
+
+      const match = sorted.find((person) =>
+        lower.startsWith(person.name.toLowerCase(), at + 1),
+      );
+
+      if (!match) {
+        cursor = at + 1;
+        continue;
+      }
+
+      const plain = text.slice(0, at).slice(out.length ? undefined : undefined);
+      void plain;
+
+      const before = text.slice(cursorStart(out, cursor, at), at);
+      void before;
+
+      out.push(
+        <Fragment key={`t-${key++}`}>
+          {renderText
+            ? renderText(text.slice(lastEnd(out, cursor), at))
+            : text.slice(lastEnd(out, cursor), at)}
+        </Fragment>,
+      );
+
+      out.push(
+        <mark
+          key={`m-${key++}`}
+          className={cn(
+            "rounded-md px-1 py-px font-semibold",
+            match.id === currentUserId
+              ? "bg-primary text-primary-foreground"
+              : "bg-primary/15 text-primary",
+          )}
+        >
+          @{text.slice(at + 1, at + 1 + match.name.length)}
+        </mark>,
+      );
+
+      cursor = at + 1 + match.name.length;
+      segmentStart = cursor;
+    }
+
+    out.push(
+      <Fragment key={`t-${key++}`}>
+        {renderText ? renderText(text.slice(segmentStart)) : text.slice(segmentStart)}
+      </Fragment>,
+    );
+
+    return out;
+  }, [text, people, currentUserId, renderText]);
 
   return (
-    <span className={className}>
-      {parts.map((part, index) =>
-        part.startsWith("@") ? (
-          <span
-            key={index}
-            className="font-medium text-primary"
-          >
-            {part}
-          </span>
-        ) : (
-          <span key={index}>{part}</span>
-        ),
+    <span
+      className={cn(
+        "whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+        className,
       )}
+    >
+      {nodes}
     </span>
   );
 }
