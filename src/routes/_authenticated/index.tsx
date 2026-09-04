@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  MentionText,
   MentionTextarea,
   extractMentionIds,
 } from "@/components/mention-textarea";
@@ -933,10 +934,15 @@ function TrackerPage() {
                       </div>
                     </div>
 
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                      {
-                        entry.description
-                      }
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      <MentionText
+                        text={
+                          entry.description
+                        }
+                        people={
+                          mentionablePeople
+                        }
+                      />
                     </p>
                   </li>
                 ),

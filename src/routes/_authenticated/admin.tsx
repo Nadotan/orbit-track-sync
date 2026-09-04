@@ -1,3 +1,4 @@
+import { MentionText } from "@/components/mention-textarea";
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment as FragmentRow, useEffect, useMemo, useState } from "react";
 import {
@@ -585,7 +586,10 @@ function AdminPage() {
                                     </Badge>
                                   </div>
                                   <p className="mt-1 text-muted-foreground">
-                                    {entry.description}
+                                    <MentionText
+                                      text={entry.description}
+                                      people={profiles}
+                                    />
                                   </p>
                                 </li>
                               ))}
@@ -687,7 +691,10 @@ function AdminPage() {
                                           {formatHours(entry.durationMs)}
                                         </span>
                                         <p className="text-muted-foreground">
-                                          {entry.description}
+                                          <MentionText
+                                            text={entry.description}
+                                            people={profiles}
+                                          />
                                         </p>
                                       </li>
                                     ))}

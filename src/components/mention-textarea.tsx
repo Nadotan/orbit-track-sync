@@ -1,4 +1,5 @@
 import {
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -22,26 +23,40 @@ export interface MentionPerson {
   avatarUrl?: string | null;
 }
 
-const MentionPeopleContext =
-  createContext<MentionPerson[]>([]);
+const MentionPeopleContext = createContext<{
+  people: MentionPerson[];
+  currentUserId: string | null | undefined;
+}>({ people: [], currentUserId: null });
 
 export function MentionPeopleProvider({
   people,
+  currentUserId,
   children,
 }: {
   people: MentionPerson[];
+  currentUserId?: string | null;
   children: React.ReactNode;
 }) {
+  const value = useMemo(
+    () => ({ people, currentUserId }),
+    [people, currentUserId],
+  );
+
   return (
-    <MentionPeopleContext.Provider value={people}>
+    <MentionPeopleContext.Provider value={value}>
       {children}
     </MentionPeopleContext.Provider>
   );
 }
 
 export function useMentionPeople() {
-  return useContext(MentionPeopleContext);
+  return useContext(MentionPeopleContext).people;
 }
+
+export function useMentionCurrentUserId() {
+  return useContext(MentionPeopleContext).currentUserId ?? null;
+}
+
 
 interface MentionTextareaProps {
   value: string;
@@ -82,30 +97,94 @@ export function extractMentionIds(
 
 /**
  * Renders an update body with @mentions highlighted.
+ * Names may contain Hebrew or Latin letters and several words.
  */
 export function MentionText({
   text,
+  people: peopleProp,
+  currentUserId: currentUserIdProp,
   className,
+  renderText,
 }: {
   text: string;
+  people?: MentionPerson[];
+  currentUserId?: string | null;
   className?: string;
+  renderText?: (value: string) => React.ReactNode;
 }) {
-  const parts = text.split(/(@[\p{L}\p{N}._'-]+(?:\s+[\p{L}\p{N}._'-]+)?)/gu);
+  const contextPeople = useMentionPeople();
+  const contextUserId = useMentionCurrentUserId();
+  const people = peopleProp ?? contextPeople;
+  const currentUserId = currentUserIdProp ?? contextUserId;
+
+  const nodes = useMemo(() => {
+    const sorted = [...people].sort((a, b) => b.name.length - a.name.length);
+    const lower = text.toLowerCase();
+    const out: React.ReactNode[] = [];
+
+    let segmentStart = 0;
+    let cursor = 0;
+    let key = 0;
+
+    const pushText = (value: string) => {
+      if (!value) return;
+
+      out.push(
+        <Fragment key={`t-${key++}`}>
+          {renderText ? renderText(value) : value}
+        </Fragment>,
+      );
+    };
+
+    while (cursor < text.length) {
+      const at = text.indexOf("@", cursor);
+
+      if (at === -1) break;
+
+      const match = sorted.find((person) =>
+        lower.startsWith(person.name.toLowerCase(), at + 1),
+      );
+
+      if (!match) {
+        cursor = at + 1;
+        continue;
+      }
+
+      pushText(text.slice(segmentStart, at));
+
+      out.push(
+        <mark
+          key={`m-${key++}`}
+          className={cn(
+            "rounded-md px-1 py-px font-semibold",
+            match.id === currentUserId
+              ? "bg-primary text-primary-foreground"
+              : "bg-primary/15 text-primary",
+          )}
+        >
+          @{text.slice(at + 1, at + 1 + match.name.length)}
+        </mark>,
+      );
+
+      cursor = at + 1 + match.name.length;
+      segmentStart = cursor;
+    }
+
+    pushText(text.slice(segmentStart));
+
+    return out;
+  }, [text, people, currentUserId, renderText]);
+
 
   return (
-    <span className={className}>
-      {parts.map((part, index) =>
-        part.startsWith("@") ? (
-          <span
-            key={index}
-            className="font-medium text-primary"
-          >
-            {part}
-          </span>
-        ) : (
-          <span key={index}>{part}</span>
-        ),
+    <span
+      dir="auto"
+      className={cn(
+        "whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+        className,
       )}
+    >
+      {nodes}
     </span>
   );
 }
@@ -135,10 +214,16 @@ export function MentionTextarea({
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
 
+    const words = needle.split(/\s+/u).filter(Boolean);
+
     return people
-      .filter((person) =>
-        needle ? person.name.toLowerCase().includes(needle) : true,
-      )
+      .filter((person) => {
+        if (words.length === 0) return true;
+
+        const name = person.name.toLowerCase();
+
+        return words.every((word) => name.includes(word));
+      })
       .slice(0, 8);
   }, [people, query]);
 
@@ -154,7 +239,10 @@ export function MentionTextarea({
 
   function syncFromCaret(text: string, caret: number) {
     const before = text.slice(0, caret);
-    const match = /(^|\s)@([\p{L}\p{N}._'-]*)$/u.exec(before);
+    const match =
+      /(^|\s)@([\p{L}\p{N}._'-]*(?:[ \u00A0][\p{L}\p{N}._'-]+){0,2})$/u.exec(
+        before,
+      );
 
     if (!match) {
       if (open) closeMenu();
@@ -243,7 +331,7 @@ export function MentionTextarea({
                   </AvatarFallback>
                 </Avatar>
 
-                <span className="min-w-0 flex-1 truncate">{person.name}</span>
+                <span dir="auto" className="min-w-0 flex-1 truncate">{person.name}</span>
               </button>
             ))}
           </div>
