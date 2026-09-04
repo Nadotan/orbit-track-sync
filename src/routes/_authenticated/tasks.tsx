@@ -43,6 +43,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   MentionPeopleProvider,
+  MentionText,
   MentionTextarea,
   extractMentionIds,
   useMentionPeople,
@@ -3715,6 +3716,7 @@ function TasksPage() {
   return (
     <MentionPeopleProvider
       people={currentWorkspace.people}
+      currentUserId={currentUser.id}
     >
     <div className="mx-auto w-full max-w-6xl space-y-5 pb-28 md:pb-10">
       {projectPageId ? (
@@ -6670,10 +6672,19 @@ function ProjectActivityPanel({
                 </div>
 
                 <p className="mt-1.5 text-xs sm:text-sm">
-                  <LinkifiedText
+                  <MentionText
                     text={
                       update.body
                     }
+                    renderText={(
+                      value,
+                    ) => (
+                      <LinkifiedText
+                        text={
+                          value
+                        }
+                      />
+                    )}
                   />
                 </p>
               </div>
