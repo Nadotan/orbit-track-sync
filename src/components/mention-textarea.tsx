@@ -22,26 +22,40 @@ export interface MentionPerson {
   avatarUrl?: string | null;
 }
 
-const MentionPeopleContext =
-  createContext<MentionPerson[]>([]);
+const MentionPeopleContext = createContext<{
+  people: MentionPerson[];
+  currentUserId?: string | null;
+}>({ people: [] });
 
 export function MentionPeopleProvider({
   people,
+  currentUserId,
   children,
 }: {
   people: MentionPerson[];
+  currentUserId?: string | null;
   children: React.ReactNode;
 }) {
+  const value = useMemo(
+    () => ({ people, currentUserId }),
+    [people, currentUserId],
+  );
+
   return (
-    <MentionPeopleContext.Provider value={people}>
+    <MentionPeopleContext.Provider value={value}>
       {children}
     </MentionPeopleContext.Provider>
   );
 }
 
 export function useMentionPeople() {
-  return useContext(MentionPeopleContext);
+  return useContext(MentionPeopleContext).people;
 }
+
+export function useMentionCurrentUserId() {
+  return useContext(MentionPeopleContext).currentUserId ?? null;
+}
+
 
 interface MentionTextareaProps {
   value: string;
