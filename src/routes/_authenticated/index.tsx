@@ -54,6 +54,7 @@ import {
   formatDuration,
   formatHours,
 } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { getMyOpenTasks } from "@/lib/tasks.functions";
 import type { ClockTaskOption } from "@/lib/tasks.functions";
@@ -970,7 +971,7 @@ function TrackerPage() {
           setDialogOpen
         }
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl">
+        <DialogContent className="max-h-[85vh] gap-3 overflow-y-auto rounded-3xl p-5 sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               What did you work on?
