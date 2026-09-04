@@ -370,7 +370,13 @@ export function MentionTextarea({
         autoFocus={autoFocus}
         placeholder={placeholder}
         value={value}
-        className={cn("resize-none rounded-2xl pb-11", className)}
+        dir="auto"
+        className={cn(
+          sharedClass,
+          "relative z-0 bg-clip-padding text-transparent caret-primary selection:bg-primary/25 selection:text-transparent",
+        )}
+        onScroll={syncScroll}
+
         onChange={(event) => {
           onChange(event.target.value);
           syncFromCaret(event.target.value, event.target.selectionStart ?? 0);
