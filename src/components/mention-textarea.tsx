@@ -104,12 +104,14 @@ export function MentionText({
   people: peopleProp,
   currentUserId: currentUserIdProp,
   className,
+  markClassName,
   renderText,
 }: {
   text: string;
   people?: MentionPerson[];
   currentUserId?: string | null;
   className?: string;
+  markClassName?: string;
   renderText?: (value: string) => React.ReactNode;
 }) {
   const contextPeople = useMentionPeople();
@@ -160,6 +162,7 @@ export function MentionText({
             match.id === currentUserId
               ? "bg-primary text-primary-foreground"
               : "bg-primary/15 text-primary",
+            markClassName,
           )}
         >
           @{text.slice(at + 1, at + 1 + match.name.length)}
@@ -173,7 +176,7 @@ export function MentionText({
     pushText(text.slice(segmentStart));
 
     return out;
-  }, [text, people, currentUserId, renderText]);
+  }, [text, people, currentUserId, renderText, markClassName]);
 
 
   return (
@@ -290,8 +293,32 @@ export function MentionTextarea({
     });
   }
 
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  function syncScroll() {
+    const overlay = overlayRef.current;
+    const element = textareaRef.current;
+
+    if (!overlay || !element) return;
+
+    overlay.scrollTop = element.scrollTop;
+    overlay.scrollLeft = element.scrollLeft;
+  }
+
+  useEffect(() => {
+    syncScroll();
+  }, [value]);
+
+  const sharedClass = cn(
+    "flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm md:text-sm",
+    "resize-none rounded-2xl pb-11",
+    className,
+  );
+
+
   return (
     <div className="relative">
+
       {open && matches.length > 0 && (
         <div
           ref={listRef}
@@ -346,7 +373,13 @@ export function MentionTextarea({
         autoFocus={autoFocus}
         placeholder={placeholder}
         value={value}
-        className={cn("resize-none rounded-2xl pb-11", className)}
+        dir="auto"
+        className={cn(
+          sharedClass,
+          "relative z-0 bg-clip-padding text-transparent caret-primary selection:bg-primary/25 selection:text-transparent",
+        )}
+        onScroll={syncScroll}
+
         onChange={(event) => {
           onChange(event.target.value);
           syncFromCaret(event.target.value, event.target.selectionStart ?? 0);
@@ -378,6 +411,24 @@ export function MentionTextarea({
           }
         }}
       />
+
+      <div
+        ref={overlayRef}
+        aria-hidden
+        dir="auto"
+        className={cn(
+          sharedClass,
+          "pointer-events-none absolute inset-0 z-10 overflow-hidden whitespace-pre-wrap break-words border-transparent bg-transparent text-foreground shadow-none [overflow-wrap:anywhere]",
+        )}
+      >
+        <MentionText
+          text={value + "\n"}
+          people={people}
+          currentUserId={null}
+          markClassName="rounded-[6px] bg-primary/20 px-0 py-0 font-normal text-primary"
+        />
+      </div>
+
 
       <button
         type="button"

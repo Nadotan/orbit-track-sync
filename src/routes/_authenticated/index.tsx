@@ -54,6 +54,7 @@ import {
   formatDuration,
   formatHours,
 } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { getMyOpenTasks } from "@/lib/tasks.functions";
 import type { ClockTaskOption } from "@/lib/tasks.functions";
@@ -162,6 +163,16 @@ function TrackerPage() {
       string[]
     >(
       [],
+    );
+
+  const [
+    activeTaskId,
+    setActiveTaskId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
     );
 
   const [
@@ -960,7 +971,7 @@ function TrackerPage() {
           setDialogOpen
         }
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl">
+        <DialogContent className="max-h-[85vh] gap-3 overflow-y-auto rounded-3xl p-5 sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               What did you work on?
@@ -976,223 +987,157 @@ function TrackerPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <Label>
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
                 Tasks worked on
               </Label>
 
-              {selectedTaskIds.length >
-                0 && (
-                <Badge
-                  variant="secondary"
-                  className="rounded-full"
-                >
-                  {
-                    selectedTaskIds.length
-                  }{" "}
-                  selected
+              {selectedTaskIds.length > 0 && (
+                <Badge variant="secondary" className="rounded-full text-[11px]">
+                  {selectedTaskIds.length} selected
                 </Badge>
               )}
             </div>
 
             {tasksLoading ? (
-              <div className="flex h-12 items-center gap-2 rounded-2xl border border-input px-4 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
+              <div className="flex h-10 items-center gap-2 rounded-full border border-input px-4 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" />
                 Loading your tasks…
               </div>
-            ) : taskOptions.length >
-              0 ? (
-              <div className="max-h-52 space-y-1 overflow-y-auto rounded-2xl border border-border p-2">
-                {taskOptions.map(
-                  (
-                    task,
-                  ) => {
-                    const checked =
-                      selectedTaskIds.includes(
-                        task.id,
-                      );
+            ) : taskOptions.length > 0 ? (
+              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+                {taskOptions.map((task) => {
+                  const checked = selectedTaskIds.includes(task.id);
 
-                    return (
-                      <label
-                        key={
-                          task.id
-                        }
-                        className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-muted"
-                      >
-                        <Checkbox
-                          checked={
-                            checked
-                          }
-                          onCheckedChange={() =>
-                            toggleTask(
-                              task.id,
-                            )
-                          }
-                        />
-
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">
-                            {task.projectName
-                              ? `${task.projectName} - ${task.title}`
-                              : task.title}
-                          </p>
-
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            Due{" "}
-                            {
-                              task.deadline
-                            }
-                          </p>
-                        </div>
-                      </label>
-                    );
-                  },
-                )}
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => {
+                        toggleTask(task.id);
+                        setActiveTaskId(checked ? null : task.id);
+                      }}
+                      className={cn(
+                        "max-w-full truncate rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                        checked
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-muted/40 text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {task.projectName
+                        ? `${task.projectName} · ${task.title}`
+                        : task.title}
+                    </button>
+                  );
+                })}
               </div>
             ) : tasksLoaded ? (
-              <p className="rounded-2xl bg-muted/50 p-4 text-sm text-muted-foreground">
-                You have no open tasks assigned to you. Write one general work
-                update below.
+              <p className="rounded-2xl bg-muted/50 p-3 text-xs text-muted-foreground">
+                No open tasks assigned to you — write one general update below.
               </p>
             ) : null}
-
-            {taskOptions.length >
-              0 && (
-              <p className="text-xs text-muted-foreground">
-                You can select more than one task. Each selected task gets its
-                own work update.
-              </p>
-            )}
           </div>
 
-          {selectedTasks.length ===
-          0 ? (
-            <div className="space-y-2 rounded-2xl border border-border p-4">
+          {selectedTasks.length === 0 ? (
+            <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <Label htmlFor="general-clock-update">
+                <Label
+                  htmlFor="general-clock-update"
+                  className="text-xs uppercase tracking-wide text-muted-foreground"
+                >
                   General work update
                 </Label>
 
-                <WordCounter
-                  value={
-                    generalUpdate
-                  }
-                />
+                <WordCounter value={generalUpdate} />
               </div>
 
               <MentionTextarea
                 id="general-clock-update"
                 autoFocus
-                rows={6}
-                people={
-                  mentionablePeople
-                }
-                className="bg-muted/50 p-4 pb-11 text-base leading-relaxed shadow-inner focus-visible:ring-2"
-                placeholder="Describe what you worked on, what changed, decisions you made, results, and what should happen next… Type @ to tag a teammate."
-                value={
-                  generalUpdate
-                }
-                onChange={
-                  setGeneralUpdate
-                }
+                rows={4}
+                people={mentionablePeople}
+                className="bg-muted/50 p-3 pb-11 text-sm leading-relaxed shadow-inner focus-visible:ring-2"
+                placeholder="What did you work on? Type @ to tag a teammate."
+                value={generalUpdate}
+                onChange={setGeneralUpdate}
               />
-
             </div>
           ) : (
-            <div className="space-y-4">
-              {selectedTasks.map(
-                (
-                  task,
-                  index,
-                ) => {
-                  const draft =
-                    taskDrafts[
-                      task.id
-                    ] ?? {
-                      body:
-                        "",
+            (() => {
+              const active =
+                selectedTasks.find((task) => task.id === activeTaskId) ??
+                selectedTasks[0]!;
 
-                      mentionedUserIds:
-                        [],
-                    };
+              const draft = taskDrafts[active.id] ?? {
+                body: "",
+                mentionedUserIds: [],
+              };
 
-                  const words =
-                    countWords(
-                      draft.body,
-                    );
+              const words = countWords(draft.body);
 
-                  return (
-                    <div
-                      key={
-                        task.id
-                      }
-                      className="space-y-4 rounded-2xl border border-border p-4"
-                    >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <p className="font-semibold">
-                            {task.projectName
-                              ? `${task.projectName} - ${task.title}`
-                              : task.title}
-                          </p>
+              return (
+                <div className="space-y-2">
+                  {selectedTasks.length > 1 && (
+                    <div className="flex gap-1 overflow-x-auto rounded-full bg-muted/60 p-1">
+                      {selectedTasks.map((task, index) => {
+                        const done =
+                          countWords(taskDrafts[task.id]?.body ?? "") >=
+                          CLOCK_UPDATE_MIN_WORDS;
 
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            Update{" "}
-                            {index +
-                              1}{" "}
-                            of{" "}
-                            {
-                              selectedTasks.length
-                            }
-                          </p>
-                        </div>
-
-                        <WordCounter
-                          value={
-                            draft.body
-                          }
-                        />
-                      </div>
-
-                      <MentionTextarea
-                        autoFocus={
-                          index ===
-                          0
-                        }
-                        rows={6}
-                        people={
-                          mentionablePeople
-                        }
-                        className="bg-muted/50 p-4 pb-11 text-base leading-relaxed shadow-inner focus-visible:ring-2"
-                        placeholder="Describe exactly what you did on this task, progress made, decisions, results, and next steps… Type @ to tag a teammate."
-                        value={
-                          draft.body
-                        }
-                        onChange={(
-                          next,
-                        ) =>
-                          setTaskBody(
-                            task.id,
-                            next,
-                          )
-                        }
-                      />
-
-
-                      {words >=
-                        CLOCK_UPDATE_MIN_WORDS && (
-                        <p className="flex items-center gap-1.5 text-xs text-success">
-                          <Check className="size-3.5" />
-                          Minimum length reached
-                        </p>
-                      )}
+                        return (
+                          <button
+                            key={task.id}
+                            type="button"
+                            onClick={() => setActiveTaskId(task.id)}
+                            className={cn(
+                              "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                              task.id === active.id
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {done && (
+                              <Check className="size-3 text-success" />
+                            )}
+                            Task {index + 1}
+                          </button>
+                        );
+                      })}
                     </div>
-                  );
-                },
-              )}
-            </div>
-          )}
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 truncate text-sm font-semibold">
+                      {active.projectName
+                        ? `${active.projectName} · ${active.title}`
+                        : active.title}
+                    </p>
+
+                    <WordCounter value={draft.body} />
+                  </div>
+
+                  <MentionTextarea
+                    key={active.id}
+                    autoFocus
+                    rows={4}
+                    people={mentionablePeople}
+                    className="bg-muted/50 p-3 pb-11 text-sm leading-relaxed shadow-inner focus-visible:ring-2"
+                    placeholder="What did you do on this task, and what is next? Type @ to tag a teammate."
+                    value={draft.body}
+                    onChange={(next) => setTaskBody(active.id, next)}
+                  />
+
+                  {words >= CLOCK_UPDATE_MIN_WORDS && (
+                    <p className="flex items-center gap-1.5 text-xs text-success">
+                      <Check className="size-3.5" />
+                      Minimum length reached
+                    </p>
+                  )}
+                </div>
+              );
+            })()
+          )
 
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
