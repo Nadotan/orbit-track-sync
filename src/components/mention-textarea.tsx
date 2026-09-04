@@ -1,4 +1,5 @@
 import {
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -177,6 +178,7 @@ export function MentionText({
 
   return (
     <span
+      dir="auto"
       className={cn(
         "whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
         className,
@@ -320,7 +322,7 @@ export function MentionTextarea({
                   </AvatarFallback>
                 </Avatar>
 
-                <span className="min-w-0 flex-1 truncate">{person.name}</span>
+                <span dir="auto" className="min-w-0 flex-1 truncate">{person.name}</span>
               </button>
             ))}
           </div>
