@@ -120,8 +120,20 @@ export function MentionText({
     const sorted = [...people].sort((a, b) => b.name.length - a.name.length);
     const lower = text.toLowerCase();
     const out: React.ReactNode[] = [];
+
+    let segmentStart = 0;
     let cursor = 0;
     let key = 0;
+
+    const pushText = (value: string) => {
+      if (!value) return;
+
+      out.push(
+        <Fragment key={`t-${key++}`}>
+          {renderText ? renderText(value) : value}
+        </Fragment>,
+      );
+    };
 
     while (cursor < text.length) {
       const at = text.indexOf("@", cursor);
@@ -137,19 +149,7 @@ export function MentionText({
         continue;
       }
 
-      const plain = text.slice(0, at).slice(out.length ? undefined : undefined);
-      void plain;
-
-      const before = text.slice(cursorStart(out, cursor, at), at);
-      void before;
-
-      out.push(
-        <Fragment key={`t-${key++}`}>
-          {renderText
-            ? renderText(text.slice(lastEnd(out, cursor), at))
-            : text.slice(lastEnd(out, cursor), at)}
-        </Fragment>,
-      );
+      pushText(text.slice(segmentStart, at));
 
       out.push(
         <mark
@@ -169,14 +169,11 @@ export function MentionText({
       segmentStart = cursor;
     }
 
-    out.push(
-      <Fragment key={`t-${key++}`}>
-        {renderText ? renderText(text.slice(segmentStart)) : text.slice(segmentStart)}
-      </Fragment>,
-    );
+    pushText(text.slice(segmentStart));
 
     return out;
   }, [text, people, currentUserId, renderText]);
+
 
   return (
     <span
