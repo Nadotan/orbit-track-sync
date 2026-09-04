@@ -409,6 +409,19 @@ export function MentionTextarea({
         }}
       />
 
+      <div
+        ref={overlayRef}
+        aria-hidden
+        dir="auto"
+        className={cn(
+          sharedClass,
+          "pointer-events-none absolute inset-0 z-10 overflow-hidden whitespace-pre-wrap break-words border-transparent bg-transparent text-foreground shadow-none [overflow-wrap:anywhere]",
+        )}
+      >
+        <MentionText text={value + "\n"} people={people} />
+      </div>
+
+
       <button
         type="button"
         aria-label="Tag people"
