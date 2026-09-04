@@ -165,6 +165,16 @@ function TrackerPage() {
     );
 
   const [
+    activeTaskId,
+    setActiveTaskId,
+  ] =
+    useState<
+      string | null
+    >(
+      null,
+    );
+
+  const [
     taskDrafts,
     setTaskDrafts,
   ] =
