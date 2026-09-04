@@ -3716,7 +3716,7 @@ function TasksPage() {
   return (
     <MentionPeopleProvider
       people={currentWorkspace.people}
-      currentUserId={currentUser.id}
+      currentUserId={currentWorkspace.currentUserId}
     >
     <div className="mx-auto w-full max-w-6xl space-y-5 pb-28 md:pb-10">
       {projectPageId ? (
