@@ -1244,9 +1244,131 @@ export async function runReminderSweep() {
     }
   }
 
+  const overdue =
+    await runOverdueMentionReminders();
+
   return {
     rsvpReminders,
+
+    overdueMentionReminders:
+      overdue.overdueMentionReminders,
   };
+}
+
+/**
+ * Pushes an "overdue" alert to everyone who was tagged
+ * on a task once that task passes its deadline.
+ *
+ * Each tagged person is notified once per task.
+ */
+export async function runOverdueMentionReminders() {
+  const today = new Date()
+    .toISOString()
+    .slice(0, 10);
+
+  let sent = 0;
+
+  const { data: tasks, error: tasksError } =
+    await supabaseAdmin
+      .from("tasks")
+      .select("id, title, deadline, status")
+      .lt("deadline", today)
+      .neq("status", "Done")
+      .is("deleted_at", null)
+      .is("archived_at", null)
+      .limit(200);
+
+  if (tasksError) {
+    console.error(
+      "[push] Failed to load overdue tasks",
+      tasksError,
+    );
+
+    return { overdueMentionReminders: 0 };
+  }
+
+  for (const task of tasks ?? []) {
+    const { data: mentions } =
+      await supabaseAdmin
+        .from("user_notifications")
+        .select("user_id")
+        .eq("task_id", task.id)
+        .eq("title", "You were mentioned");
+
+    const mentionedIds = Array.from(
+      new Set(
+        (mentions ?? []).map(
+          (row: { user_id: string }) =>
+            row.user_id,
+        ),
+      ),
+    );
+
+    if (mentionedIds.length === 0) {
+      continue;
+    }
+
+    const kind = `task_overdue:${task.id}`;
+
+    const { data: alreadySent } =
+      await supabaseAdmin
+        .from("push_reminders_sent")
+        .select("user_id")
+        .eq("kind", kind)
+        .in("user_id", mentionedIds);
+
+    const done = new Set(
+      (alreadySent ?? []).map(
+        (row: { user_id: string }) =>
+          row.user_id,
+      ),
+    );
+
+    const pending = mentionedIds.filter(
+      (id) => !done.has(id),
+    );
+
+    if (pending.length === 0) {
+      continue;
+    }
+
+    const delivery =
+      await sendPushToUsersDetailed(pending, {
+        title: "Task overdue",
+
+        body: `${task.title} passed its deadline and you're tagged on it.`,
+
+        url: "/tasks",
+
+        tag: kind,
+      });
+
+    sent += delivery.sentDevices;
+
+    if (delivery.successfulUserIds.length > 0) {
+      const { error: insertError } =
+        await supabaseAdmin
+          .from("push_reminders_sent")
+          .insert(
+            delivery.successfulUserIds.map(
+              (userId) => ({
+                user_id: userId,
+                meeting_id: null,
+                kind,
+              }),
+            ),
+          );
+
+      if (insertError) {
+        console.error(
+          "[push] Failed to record overdue reminders",
+          insertError,
+        );
+      }
+    }
+  }
+
+  return { overdueMentionReminders: sent };
 }
 
 /**
