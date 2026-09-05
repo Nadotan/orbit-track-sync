@@ -954,11 +954,12 @@ function LinkifiedText({
             )
           ) {
             return (
-              <span
+              <MentionText
                 key={`${index}-${part.slice(0, 12)}`}
-              >
-                {part}
-              </span>
+                text={
+                  part
+                }
+              />
             );
           }
 
