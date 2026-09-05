@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-export const CLOCK_UPDATE_MIN_WORDS = 30;
+export const CLOCK_UPDATE_MIN_WORDS = 12;
 
 function countWords(value: string) {
   const trimmed = value.trim();
