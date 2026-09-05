@@ -1137,7 +1137,7 @@ function TrackerPage() {
                 </div>
               );
             })()
-          )
+          )}
 
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
