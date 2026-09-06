@@ -734,6 +734,48 @@ export const saveClockSession =
               notificationError,
             );
           }
+
+
+          try {
+            const {
+              sendPushToUsers,
+            } =
+              await import(
+                "./push.server"
+              );
+
+            await sendPushToUsers(
+              uniqueStrings(
+                mentionNotifications.map(
+                  (notification) =>
+                    notification.user_id,
+                ),
+              ),
+              {
+                title:
+                  "You were mentioned",
+
+                body:
+                  `${actorName} mentioned you in a Clock update.`,
+
+                url:
+                  data.updates.length >
+                  0
+                    ? "/tasks"
+                    : "/",
+
+                tag:
+                  `clock-mention-${timeEntry.id}`,
+              },
+            );
+          } catch (
+            pushError
+          ) {
+            console.error(
+              "[clock] Failed to send mention push notifications",
+              pushError,
+            );
+          }
         }
 
         await admin

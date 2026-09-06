@@ -3090,6 +3090,27 @@ export const addWorkUpdate = createServerFn({
             mentionError,
           );
         }
+
+        await safeTaskPush(
+          validIds,
+          context.userId,
+          {
+            title:
+              "You were mentioned",
+
+            body:
+              `${actorName} mentioned you in an update on ${
+                taskForNotification?.title ??
+                "a project"
+              }: ${excerpt}`,
+
+            url:
+              "/tasks",
+
+            tag:
+              `mention-${update.id}`,
+          },
+        );
       }
     }
 
