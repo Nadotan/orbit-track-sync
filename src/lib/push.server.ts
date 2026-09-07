@@ -1247,11 +1247,101 @@ export async function runReminderSweep() {
   const overdue =
     await runOverdueMentionReminders();
 
+  const clockRunning =
+    await runClockRunningReminderSweep();
+
+  const {
+    runAttendanceClockReminderSweep,
+  } = await import(
+    "./attendance-clock-reminders.server"
+  );
+
+  const attendanceClock =
+    await runAttendanceClockReminderSweep();
+
   return {
     rsvpReminders,
 
     overdueMentionReminders:
       overdue.overdueMentionReminders,
+
+    clockRunningReminders:
+      clockRunning.clockRunningReminders,
+
+    clockStartReminders:
+      attendanceClock.clockStartReminders,
+  };
+}
+
+/**
+ * Server-side fallback for long-running Clocks.
+ *
+ * Browser timers can be suspended when a PWA is closed or backgrounded,
+ * so the recurring reminder sweep also checks every active Clock.
+ */
+export async function runClockRunningReminderSweep() {
+  const {
+    data: timers,
+    error,
+  } = await supabaseAdmin
+    .from("active_timers")
+    .select("user_id, started_at, last_reminded_at");
+
+  if (error) {
+    console.error(
+      "[push] Failed to load active Clocks for reminders",
+      error,
+    );
+
+    return {
+      clockRunningReminders: 0,
+    };
+  }
+
+  const now = Date.now();
+  const dueUserIds = (timers ?? [])
+    .filter((timer) => {
+      const base = timer.last_reminded_at ?? timer.started_at;
+      const baseMs = new Date(base).getTime();
+
+      return (
+        Number.isFinite(baseMs) &&
+        now >= baseMs + THREE_HOURS_MS
+      );
+    })
+    .map((timer) => timer.user_id);
+
+  if (dueUserIds.length === 0) {
+    return {
+      clockRunningReminders: 0,
+    };
+  }
+
+  const {
+    filterUsersByPreference,
+  } = await import(
+    "./preferences.server"
+  );
+
+  const enabledUserIds =
+    await filterUsersByPreference(
+      dueUserIds,
+      "clock_reminders",
+    );
+
+  const results = await Promise.all(
+    enabledUserIds.map((userId) =>
+      sendClockRunningReminder(userId),
+    ),
+  );
+
+  return {
+    clockRunningReminders:
+      results.reduce(
+        (total, result) =>
+          total + result.sent,
+        0,
+      ),
   };
 }
 
@@ -1346,18 +1436,21 @@ export async function runOverdueMentionReminders() {
     sent += delivery.sentDevices;
 
     if (delivery.successfulUserIds.length > 0) {
+      const reminderRows: any[] =
+        delivery.successfulUserIds.map(
+          (userId) => ({
+            user_id: userId,
+            meeting_id: null,
+            task_id: task.id,
+            task_deadline: task.deadline,
+            kind,
+          }),
+        );
+
       const { error: insertError } =
-        await supabaseAdmin
+        await (supabaseAdmin as any)
           .from("push_reminders_sent")
-          .insert(
-            delivery.successfulUserIds.map(
-              (userId) => ({
-                user_id: userId,
-                meeting_id: null,
-                kind,
-              }),
-            ),
-          );
+          .insert(reminderRows);
 
       if (insertError) {
         console.error(
