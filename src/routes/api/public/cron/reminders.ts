@@ -12,7 +12,22 @@ export const Route = createFileRoute("/api/public/cron/reminders")({
         const secret = process.env["CRON_SECRET"];
         const provided = request.headers.get("x-cron-secret");
 
-        if (!secret || provided !== secret) {
+        const publishableKey =
+          process.env["SUPABASE_PUBLISHABLE_KEY"] ??
+          process.env["SUPABASE_ANON_KEY"];
+
+        const scheduledKey =
+          request.headers.get("apikey");
+
+        const validCronSecret =
+          Boolean(secret) &&
+          provided === secret;
+
+        const validScheduledKey =
+          Boolean(publishableKey) &&
+          scheduledKey === publishableKey;
+
+        if (!validCronSecret && !validScheduledKey) {
           return new Response("Unauthorized", {
             status: 401,
           });
