@@ -1437,7 +1437,7 @@ export async function runOverdueMentionReminders() {
 
     if (delivery.successfulUserIds.length > 0) {
       const { error: insertError } =
-        await supabaseAdmin
+        await (supabaseAdmin as any)
           .from("push_reminders_sent")
           .insert(
             delivery.successfulUserIds.map(
