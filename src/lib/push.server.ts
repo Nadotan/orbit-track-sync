@@ -1436,20 +1436,21 @@ export async function runOverdueMentionReminders() {
     sent += delivery.sentDevices;
 
     if (delivery.successfulUserIds.length > 0) {
+      const reminderRows: any[] =
+        delivery.successfulUserIds.map(
+          (userId) => ({
+            user_id: userId,
+            meeting_id: null,
+            task_id: task.id,
+            task_deadline: task.deadline,
+            kind,
+          }),
+        );
+
       const { error: insertError } =
         await (supabaseAdmin as any)
           .from("push_reminders_sent")
-          .insert(
-            delivery.successfulUserIds.map(
-              (userId) => ({
-                user_id: userId,
-                meeting_id: null,
-                task_id: task.id,
-                task_deadline: task.deadline,
-                kind,
-              }),
-            ),
-          );
+          .insert(reminderRows);
 
       if (insertError) {
         console.error(
