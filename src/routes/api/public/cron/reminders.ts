@@ -18,10 +18,27 @@ export const Route = createFileRoute("/api/public/cron/reminders")({
           });
         }
 
-        const { runReminderSweep } = await import("@/lib/push.server");
-        const result = await runReminderSweep();
+        try {
+          const { runReminderSweep } = await import("@/lib/push.server");
+          const result = await runReminderSweep();
 
-        return Response.json(result);
+          return Response.json(result);
+        } catch (error) {
+          console.error(
+            "[cron] Reminder sweep failed",
+            error,
+          );
+
+          return Response.json(
+            {
+              error:
+                "Reminder sweep failed",
+            },
+            {
+              status: 500,
+            },
+          );
+        }
       },
     },
   },
