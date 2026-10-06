@@ -1764,3 +1764,68 @@ export const broadcastPush =
         };
       },
     );
+async function assertPushAdmin(context: any) {
+  const { data: adminRole } = await context.supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", context.userId)
+    .eq("role", "admin")
+    .maybeSingle();
+
+  if (!adminRole) {
+    throw new Error("Forbidden");
+  }
+}
+
+export interface PushTemplate {
+  id: string;
+  name: string;
+  title: string;
+  body: string;
+}
+
+const pushTemplateSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(1).max(60),
+  title: z.string().trim().min(1).max(80),
+  body: z.string().trim().min(1).max(300),
+});
+
+export const listPushTemplates = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<PushTemplate[]> => {
+    await assertPushAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await (supabaseAdmin as any)
+      .from("push_templates")
+      .select("id, name, title, body")
+      .order("name");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PushTemplate[];
+  });
+
+export const savePushTemplate = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator(pushTemplateSchema)
+  .handler(async ({ data, context }): Promise<PushTemplate> => {
+    await assertPushAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const row = { name: data.name, title: data.title, body: data.body };
+    const query = data.id
+      ? (supabaseAdmin as any).from("push_templates").update(row).eq("id", data.id)
+      : (supabaseAdmin as any).from("push_templates").insert({ ...row, created_by: context.userId });
+    const { data: saved, error } = await query.select("id, name, title, body").single();
+    if (error) throw new Error(error.message);
+    return saved as PushTemplate;
+  });
+
+export const deletePushTemplate = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator(z.object({ id: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    await assertPushAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await (supabaseAdmin as any).from("push_templates").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
