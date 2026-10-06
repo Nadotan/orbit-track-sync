@@ -62,8 +62,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatDateTime, formatHours } from "@/lib/format";
 import {
   broadcastPush,
+  deletePushTemplate,
   getPushAdminStatus,
+  listPushTemplates,
+  savePushTemplate,
   type PushAdminUserHealth,
+  type PushTemplate,
 } from "@/lib/push.functions";
 import { useStore } from "@/lib/store";
 import type { Meeting, Profile, Rsvp } from "@/lib/types";
@@ -2245,6 +2249,15 @@ function AdminPushPanel() {
             </p>
           </div>
         )}
+
+        <PushTemplatePicker
+          title={title}
+          body={body}
+          onUse={(template) => {
+            setTitle(template.title);
+            setBody(template.body);
+          }}
+        />
 
         <div className="space-y-2">
           <Label htmlFor="push-title">Title</Label>
