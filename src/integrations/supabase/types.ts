@@ -455,6 +455,27 @@ export type Database = {
           },
         ]
       }
+      scheduler_secrets: {
+        Row: {
+          created_at: string
+          name: string
+          secret: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          name: string
+          secret: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          name?: string
+          secret?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       task_assignees: {
         Row: {
           assigned_at: string
