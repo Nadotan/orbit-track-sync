@@ -62,8 +62,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatDateTime, formatHours } from "@/lib/format";
 import {
   broadcastPush,
+  deletePushTemplate,
   getPushAdminStatus,
+  listPushTemplates,
+  savePushTemplate,
   type PushAdminUserHealth,
+  type PushTemplate,
 } from "@/lib/push.functions";
 import { useStore } from "@/lib/store";
 import type { Meeting, Profile, Rsvp } from "@/lib/types";
@@ -2246,6 +2250,15 @@ function AdminPushPanel() {
           </div>
         )}
 
+        <PushTemplatePicker
+          title={title}
+          body={body}
+          onUse={(template) => {
+            setTitle(template.title);
+            setBody(template.body);
+          }}
+        />
+
         <div className="space-y-2">
           <Label htmlFor="push-title">Title</Label>
           <Input
@@ -2342,5 +2355,142 @@ function AdminPushPanel() {
         </p>
       </CardContent>
     </Card>
+  );
+}
+function PushTemplatePicker({
+  title,
+  body,
+  onUse,
+}: {
+  title: string;
+  body: string;
+  onUse: (template: PushTemplate) => void;
+}) {
+  const list = useServerFn(listPushTemplates);
+  const save = useServerFn(savePushTemplate);
+  const remove = useServerFn(deletePushTemplate);
+
+  const [templates, setTemplates] = useState<PushTemplate[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    list()
+      .then(setTemplates)
+      .catch(() => toast.error("Could not load push templates"));
+  }, [list]);
+
+  const active = templates.find((t) => t.id === activeId) ?? null;
+  const canSave = title.trim().length > 0 && body.trim().length > 0 && !saving;
+
+  async function saveTemplate(asNew: boolean) {
+    const suggested = !asNew && active ? active.name : title.trim().slice(0, 60);
+    const name = window.prompt("Template name", suggested)?.trim();
+    if (!name) return;
+
+    setSaving(true);
+    try {
+      const saved = await save({
+        data: {
+          ...(!asNew && active ? { id: active.id } : {}),
+          name: name.slice(0, 60),
+          title: title.trim(),
+          body: body.trim(),
+        },
+      });
+      setTemplates((current) =>
+        [...current.filter((t) => t.id !== saved.id), saved].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      );
+      setActiveId(saved.id);
+      toast.success(asNew || !active ? "Template saved" : "Template updated");
+    } catch {
+      toast.error("Could not save the template");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteTemplate(template: PushTemplate) {
+    if (!window.confirm(`Delete "${template.name}"?`)) return;
+    try {
+      await remove({ data: { id: template.id } });
+      setTemplates((current) => current.filter((t) => t.id !== template.id));
+      if (activeId === template.id) setActiveId(null);
+      toast.success("Template deleted");
+    } catch {
+      toast.error("Could not delete the template");
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <Label>Templates</Label>
+        <div className="flex gap-2">
+          {active && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              disabled={!canSave}
+              onClick={() => void saveTemplate(false)}
+            >
+              Update
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-full"
+            disabled={!canSave}
+            onClick={() => void saveTemplate(true)}
+          >
+            Save as template
+          </Button>
+        </div>
+      </div>
+
+      {templates.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Write a title and description, then save it to reuse it in one tap.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {templates.map((template) => (
+            <div
+              key={template.id}
+              className={`flex items-center rounded-full border text-sm transition-colors ${
+                template.id === activeId
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-background hover:bg-muted"
+              }`}
+            >
+              <button
+                type="button"
+                className="max-w-[12rem] truncate py-1.5 pl-3 pr-1"
+                title={`${template.title} — ${template.body}`}
+                onClick={() => {
+                  setActiveId(template.id);
+                  onUse(template);
+                }}
+              >
+                {template.name}
+              </button>
+              <button
+                type="button"
+                aria-label={`Delete ${template.name}`}
+                className="px-2 py-1.5 text-muted-foreground hover:text-destructive"
+                onClick={() => void deleteTemplate(template)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
