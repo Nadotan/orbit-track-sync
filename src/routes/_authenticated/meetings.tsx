@@ -7,6 +7,7 @@ import {
   CircleCheck,
   CircleX,
   Clock,
+  GraduationCap,
   History,
   Loader2,
   Lock,
@@ -137,6 +138,7 @@ function MeetingsPage() {
   const [workshopSaving, setWorkshopSaving] = useState(false);
 
   const isAdmin = currentUser.role === "Admin";
+  const isMentor = currentUser.role === "Mentor";
 
   useEffect(() => {
     let active = true;
@@ -169,7 +171,10 @@ function MeetingsPage() {
 
   const { upcoming, past } = useMemo(() => {
     const mine = meetings.filter(
-      (m) => m.teamId === "general" || currentUser.teamIds.includes(m.teamId),
+      (m) =>
+        isMentor ||
+        m.teamId === "general" ||
+        currentUser.teamIds.includes(m.teamId),
     );
     const up: { m: Meeting; when: Date }[] = [];
     const old: { m: Meeting; when: Date }[] = [];
@@ -184,7 +189,7 @@ function MeetingsPage() {
 
     return { upcoming: up, past: old };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetings, currentUser.teamIds]);
+  }, [meetings, currentUser.teamIds, isMentor]);
 
   const list = tab === "upcoming" ? upcoming : past;
   const openMeeting = meetings.find((m) => m.id === openId) ?? null;
@@ -255,7 +260,9 @@ function MeetingsPage() {
 
   function breakdown(meeting: Meeting) {
     const audience = profiles.filter(
-      (p) => meeting.teamId === "general" || p.teamIds.includes(meeting.teamId),
+      (p) =>
+        p.role !== "Mentor" &&
+        (meeting.teamId === "general" || p.teamIds.includes(meeting.teamId)),
     );
 
     const status = (p: Profile) =>
@@ -265,6 +272,9 @@ function MeetingsPage() {
       attending: audience.filter((p) => status(p) === "Attending"),
       declined: audience.filter((p) => status(p) === "Declined"),
       pending: audience.filter((p) => !status(p)),
+      mentors: profiles.filter(
+        (p) => p.role === "Mentor" && status(p) === "Attending",
+      ),
     };
   }
 
@@ -457,7 +467,7 @@ function MeetingsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {list.map(({ m, when }) => {
           const mine = rsvpFor(m.id);
-          const { attending } = breakdown(m);
+          const { attending, mentors } = breakdown(m);
           const rec = m.recurrence ?? "none";
 
           return (
@@ -563,7 +573,44 @@ function MeetingsPage() {
                 )}
               </div>
 
-              {tab === "upcoming" ? (
+              {mentors.length > 0 && (
+                <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3">
+                  <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
+                    <GraduationCap className="size-3.5" /> {mentors.length} mentor
+                    {mentors.length === 1 ? "" : "s"} coming
+                  </p>
+
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {mentors.map((p) => p.name).join(", ")}
+                  </p>
+                </div>
+              )}
+
+              {tab === "upcoming" && isMentor ? (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    className="w-full rounded-full"
+                    disabled={Boolean(m.locked)}
+                    variant={mine?.status === "Attending" ? "default" : "outline"}
+                    onClick={() =>
+                      respond(
+                        m.id,
+                        mine?.status === "Attending" ? "Declined" : "Attending",
+                      )
+                    }
+                  >
+                    {mine?.status === "Attending" ? (
+                      <>
+                        <Check className="size-4" /> I'm coming · tap to cancel
+                      </>
+                    ) : (
+                      <>
+                        <GraduationCap className="size-4" /> I'm coming
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : tab === "upcoming" ? (
                 <div
                   className="grid grid-cols-2 gap-2"
                   onClick={(e) => e.stopPropagation()}
@@ -631,6 +678,7 @@ function MeetingsPage() {
             <MeetingDetail
               meeting={openMeeting}
               isAdmin={isAdmin}
+              isMentor={isMentor}
               when={occurrenceOf(openMeeting, startOfToday)}
               teamLabel={teamName(
                 openMeeting.teamId === "general" ? "general" : openMeeting.teamId,
@@ -814,6 +862,7 @@ function PersonList({
 function MeetingDetail({
   meeting,
   isAdmin,
+  isMentor,
   when,
   teamLabel,
   groups,
@@ -822,9 +871,15 @@ function MeetingDetail({
 }: {
   meeting: Meeting;
   isAdmin: boolean;
+  isMentor: boolean;
   when: Date;
   teamLabel: string;
-  groups: { attending: Profile[]; declined: Profile[]; pending: Profile[] };
+  groups: {
+    attending: Profile[];
+    declined: Profile[];
+    pending: Profile[];
+    mentors: Profile[];
+  };
   onToggleLock: () => void;
   onEdit: () => void;
 }) {
@@ -873,6 +928,16 @@ function MeetingDetail({
 
       <div className="mt-5 space-y-3">
         <PersonList title="Attending" people={groups.attending} tone="success" />
+
+        <PersonList title="Mentors coming" people={groups.mentors} tone="success" />
+
+        {isMentor && !isAdmin && (
+          <PersonList
+            title="Not attending"
+            people={groups.declined}
+            tone="destructive"
+          />
+        )}
 
         {isAdmin && (
           <>
