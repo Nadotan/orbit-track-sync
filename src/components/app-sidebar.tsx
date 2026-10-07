@@ -156,9 +156,10 @@ export function AppSidebar() {
                   (
                     item,
                   ) =>
-                    !item.admin ||
+                    (item.url !== "/" || currentUser.role !== "Mentor") &&
+        (!item.admin ||
                     currentUser.role ===
-                      "Admin",
+                      "Admin"),
                 )
                 .map(
                   (
