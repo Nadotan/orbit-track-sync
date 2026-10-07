@@ -286,6 +286,15 @@ export async function getAttendanceClockPromptForUser(
 ): Promise<AttendanceClockPromptResult> {
   const admin = supabaseAdmin as any;
 
+  const { mentorUserIds } = await import("./push.server");
+
+  if ((await mentorUserIds()).has(userId)) {
+    return {
+      prompt: null,
+      nextCheckAt: null,
+    };
+  }
+
   const timeZone = appTimeZone();
   const now = Date.now();
   const today = localDate(now, timeZone);
