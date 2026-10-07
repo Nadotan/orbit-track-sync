@@ -598,6 +598,23 @@ export async function audienceForMeeting(
   );
 }
 
+/** Mentors skip meeting RSVP reminders and Clock reminders. */
+export async function mentorUserIds() {
+  const { data, error } = await (supabaseAdmin as any)
+    .from("user_roles")
+    .select("user_id")
+    .eq("role", "mentor");
+
+  if (error) {
+    console.error("[push] Failed to load mentors", error);
+    return new Set<string>();
+  }
+
+  return new Set<string>(
+    (data ?? []).map((row: { user_id: string }) => row.user_id),
+  );
+}
+
 export async function adminUserIds() {
   const {
     data,
@@ -1079,6 +1096,9 @@ export async function runReminderSweep() {
     };
   }
 
+  const mentors =
+    await mentorUserIds();
+
   for (
     const meeting of
     meetings ??
@@ -1168,6 +1188,7 @@ export async function runReminderSweep() {
     const pending =
       audience.filter(
         (id) =>
+          !mentors.has(id) &&
           !answered.has(
             id,
           ) &&

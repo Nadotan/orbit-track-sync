@@ -669,6 +669,9 @@ export async function logAttendanceClockCatchUpForUser(
 export async function runAttendanceClockReminderSweep() {
   const admin = supabaseAdmin as any;
 
+  const { mentorUserIds } = await import("./push.server");
+  const mentors = await mentorUserIds();
+
   const timeZone = appTimeZone();
   const now = Date.now();
 
@@ -873,6 +876,7 @@ export async function runAttendanceClockReminderSweep() {
       of attendeeIds
     ) {
       if (
+        mentors.has(userId) ||
         !enabledUsers.has(
           userId,
         ) ||
