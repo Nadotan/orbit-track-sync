@@ -55,12 +55,32 @@ export const getAdminDirectory = createServerFn({ method: "GET" })
     };
   });
 
+/** IDs of every mentor, so members can see a Mentors section in meetings. */
+export const getMentorIds = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
+
+    const { data, error } = await (supabaseAdmin as any)
+      .from("user_roles")
+      .select("user_id")
+      .eq("role", "mentor");
+
+    if (error) {
+      throw new Error("Unable to load mentors.");
+    }
+
+    return (data ?? []).map((row: { user_id: string }) => row.user_id) as string[];
+  });
+
 /** Admin-only role assignment. Role changes never happen from the browser. */
 export const setUserRole = createServerFn({ method: "POST" })
   .validator(
     z.object({
       userId: z.string().uuid(),
-      role: z.enum(["admin", "user"]),
+      role: z.enum(["admin", "user", "mentor"]),
     }),
   )
   .middleware([requireSupabaseAuth])
