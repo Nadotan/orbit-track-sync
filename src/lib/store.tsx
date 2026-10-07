@@ -18,6 +18,7 @@ import { completeOnboardingProfile } from "./profile.functions";
 import { signAvatarPaths, signAvatarPath } from "./avatars";
 import {
   getAdminDirectory,
+  getMentorIds,
   setUserRole,
 } from "./admin.functions";
 import {
@@ -251,6 +252,25 @@ async function fetchDb(
       ),
   );
 
+  for (const role of roles.data ?? []) {
+    if (
+      (role.role as string) === "mentor" &&
+      !roleMap.has(role.user_id)
+    ) {
+      roleMap.set(role.user_id, "Mentor");
+    }
+  }
+
+  try {
+    for (const mentorId of await getMentorIds()) {
+      if (!roleMap.has(mentorId)) {
+        roleMap.set(mentorId, "Mentor");
+      }
+    }
+  } catch {
+    // Mentor list is optional; meetings fall back to no Mentors section.
+  }
+
   const emailMap = new Map<
     string,
     string
@@ -282,6 +302,13 @@ async function fetchDb(
           roleMap.set(
             entry.userId,
             "Admin",
+          );
+        } else if (
+          (entry.role as string) === "mentor"
+        ) {
+          roleMap.set(
+            entry.userId,
+            "Mentor",
           );
         }
       }
@@ -1177,7 +1204,9 @@ export function AppStoreProvider({
               role:
                 role === "Admin"
                   ? "admin"
-                  : "user",
+                  : role === "Mentor"
+                    ? "mentor"
+                    : "user",
             },
           });
         } catch (error) {
