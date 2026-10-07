@@ -174,6 +174,7 @@ function AuthenticatedShell() {
   const {
     loading,
     needsOnboarding,
+    currentUser,
   } =
     useStore();
 
@@ -212,6 +213,15 @@ function AuthenticatedShell() {
         });
       } else if (
         !needsOnboarding &&
+        currentUser.role === "Mentor" &&
+        (pathname === "/" || pathname === "/admin")
+      ) {
+        navigate({
+          to: "/meetings",
+          replace: true,
+        });
+      }  else if (
+        !needsOnboarding &&
         pathname ===
           "/onboarding"
       ) {
@@ -229,6 +239,7 @@ function AuthenticatedShell() {
       needsOnboarding,
       pathname,
       navigate,
+      currentUser.role,
     ],
   );
 

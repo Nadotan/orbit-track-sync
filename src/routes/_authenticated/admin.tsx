@@ -350,12 +350,20 @@ function AdminPage() {
     return ids.size;
   }, [timeEntries, store.activeSession]);
 
+  const attendees = profiles.filter((profile) => profile.role !== "Mentor");
+  const mentorIds = new Set(
+    profiles
+      .filter((profile) => profile.role === "Mentor")
+      .map((profile) => profile.id),
+  );
+  const memberRsvps = rsvps.filter((rsvp) => !mentorIds.has(rsvp.userId));
+
   const now = new Date();
   const next7Meetings = meetings.filter((meeting) =>
     meetingMatchesPeriod(meeting, "next7", now),
   );
   const next7Summaries = buildMeetingSummaries(
-    profiles,
+    attendees,
     next7Meetings,
     rsvps,
     "all",
@@ -373,7 +381,7 @@ function AdminPage() {
     meetingMatchesPeriod(meeting, queryPeriod, now),
   );
   const querySummaries = buildMeetingSummaries(
-    profiles,
+    attendees,
     queryMeetings,
     rsvps,
     queryTeam,
@@ -503,7 +511,7 @@ function AdminPage() {
 
             <CardContent className="md:px-0">
               <div className="space-y-3 md:hidden">
-                {profiles.map((profile) => {
+                {attendees.map((profile) => {
                   const entries = timeEntries.filter(
                     (entry) => entry.userId === profile.id,
                   );
@@ -621,7 +629,7 @@ function AdminPage() {
                   </TableHeader>
 
                   <TableBody>
-                    {profiles.map((profile) => {
+                    {attendees.map((profile) => {
                       const entries = timeEntries.filter(
                         (entry) => entry.userId === profile.id,
                       );
@@ -842,7 +850,7 @@ function AdminPage() {
                         <Select
                           value={profile.role}
                           onValueChange={(value) =>
-                            setRole(profile.id, value as "Admin" | "User")
+                            setRole(profile.id, value as "Admin" | "User" | "Mentor")
                           }
                         >
                           <SelectTrigger className="w-full sm:w-28">
@@ -850,6 +858,7 @@ function AdminPage() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="User">User</SelectItem>
+                            <SelectItem value="Mentor">Mentor</SelectItem>
                             <SelectItem value="Admin">Admin</SelectItem>
                           </SelectContent>
                         </Select>
@@ -1018,7 +1027,7 @@ function AdminPage() {
                   <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
                     <Badge variant="secondary">
                       {
-                        rsvps.filter(
+                        memberRsvps.filter(
                           (rsvp) =>
                             rsvp.meetingId === meeting.id &&
                             rsvp.status === "Attending",

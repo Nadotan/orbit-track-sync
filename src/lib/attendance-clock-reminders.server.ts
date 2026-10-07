@@ -286,6 +286,15 @@ export async function getAttendanceClockPromptForUser(
 ): Promise<AttendanceClockPromptResult> {
   const admin = supabaseAdmin as any;
 
+  const { mentorUserIds } = await import("./push.server");
+
+  if ((await mentorUserIds()).has(userId)) {
+    return {
+      prompt: null,
+      nextCheckAt: null,
+    };
+  }
+
   const timeZone = appTimeZone();
   const now = Date.now();
   const today = localDate(now, timeZone);
@@ -669,6 +678,9 @@ export async function logAttendanceClockCatchUpForUser(
 export async function runAttendanceClockReminderSweep() {
   const admin = supabaseAdmin as any;
 
+  const { mentorUserIds } = await import("./push.server");
+  const mentors = await mentorUserIds();
+
   const timeZone = appTimeZone();
   const now = Date.now();
 
@@ -873,6 +885,7 @@ export async function runAttendanceClockReminderSweep() {
       of attendeeIds
     ) {
       if (
+        mentors.has(userId) ||
         !enabledUsers.has(
           userId,
         ) ||

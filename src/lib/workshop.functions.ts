@@ -400,12 +400,25 @@ export const setWorkshopStatus =
                       ),
                     );
 
+                  const {
+                    mentorUserIds,
+                  } =
+                    await import(
+                      "./push.server"
+                    );
+
+                  const mentorIds =
+                    await mentorUserIds();
+
                   const reminderUserIds =
                     optedInIds.filter(
                       (
                         userId,
                       ) =>
                         !runningUserIds.has(
+                          userId,
+                        ) &&
+                        !mentorIds.has(
                           userId,
                         ),
                     );

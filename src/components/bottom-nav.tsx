@@ -111,9 +111,10 @@ export function BottomNav() {
       (
         item,
       ) =>
-        !item.admin ||
+        (item.url !== "/" || currentUser.role !== "Mentor") &&
+        (!item.admin ||
         currentUser.role ===
-          "Admin",
+          "Admin"),
     );
 
   return (
