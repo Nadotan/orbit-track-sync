@@ -1483,6 +1483,10 @@ export function AppStoreProvider({
                   existing?.role ??
                   currentUser.role,
 
+                roles:
+                  existing?.roles ??
+                  currentUser.roles,
+
                 teamId:
                   updatedProfile.team_id,
 
