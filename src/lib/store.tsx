@@ -277,8 +277,9 @@ async function fetchDb(
    * Admins load them through a secured server action.
    */
   if (
-    roleMap.get(currentUserId) ===
-    "Admin"
+    roleMap
+      .get(currentUserId)
+      ?.has("Admin")
   ) {
     try {
       const directory =
@@ -295,14 +296,14 @@ async function fetchDb(
         if (
           entry.role === "admin"
         ) {
-          roleMap.set(
+          addRole(
             entry.userId,
             "Admin",
           );
         } else if (
           (entry.role as string) === "mentor"
         ) {
-          roleMap.set(
+          addRole(
             entry.userId,
             "Mentor",
           );
@@ -313,10 +314,36 @@ async function fetchDb(
     }
   }
 
+  const rolesOf = (
+    id: string,
+  ): Profile["role"][] => {
+    const set = roleMap.get(id);
+
+    if (!set || set.size === 0) {
+      return ["User"];
+    }
+
+    const ordered: Profile["role"][] = [];
+
+    if (set.has("Admin")) {
+      ordered.push("Admin");
+    }
+
+    if (set.has("Mentor")) {
+      ordered.push("Mentor");
+    }
+
+    if (ordered.length === 0) {
+      ordered.push("User");
+    }
+
+    return ordered;
+  };
+
   const roleOf = (
     id: string,
   ): Profile["role"] =>
-    roleMap.get(id) ?? "User";
+    rolesOf(id)[0];
 
   /*
    * Avatars are stored in a private bucket, so object paths
