@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-export type TaskRole = "admin" | "team_lead" | "user";
+export type TaskRole = "admin" | "team_lead" | "mentor" | "user";
 export type TaskStatus = "To Do" | "In Progress" | "Blocked" | "Done";
 export type ProjectStatus = TaskStatus | null;
 export type TaskPriority = "Low" | "Medium" | "High" | "Critical";
@@ -194,6 +194,24 @@ const teamLeadSchema = z.object({
 function normalizeRole(role: string | null | undefined): TaskRole {
   if (role === "admin") return "admin";
   if (role === "team_lead") return "team_lead";
+  if (role === "mentor") return "mentor";
+  return "user";
+}
+
+const ROLE_PRIORITY: TaskRole[] = [
+  "admin",
+  "team_lead",
+  "mentor",
+  "user",
+];
+
+function highestRole(roles: string[]): TaskRole {
+  const normalized = roles.map(normalizeRole);
+
+  for (const role of ROLE_PRIORITY) {
+    if (normalized.includes(role)) return role;
+  }
+
   return "user";
 }
 
