@@ -138,7 +138,7 @@ function MeetingsPage() {
   const [workshopSaving, setWorkshopSaving] = useState(false);
 
   const isAdmin = currentUser.role === "Admin";
-  const isMentor = currentUser.role === "Mentor";
+  const isMentor = currentUser.roles.includes("Mentor");
 
   useEffect(() => {
     let active = true;
