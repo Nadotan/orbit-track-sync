@@ -372,6 +372,7 @@ async function fetchDb(
         emailMap.get(profile.id) ??
         "",
       role: roleOf(profile.id),
+      roles: rolesOf(profile.id),
       teamId: profile.team_id,
       teamIds:
         membershipMap.get(profile.id) ??
@@ -597,6 +598,8 @@ export function AppStoreProvider({
           session.user.email ?? "",
 
         role: "User",
+
+        roles: ["User"],
 
         teamId: null,
 
@@ -1213,9 +1216,9 @@ export function AppStoreProvider({
 
 
 
-    setRole: (
+    setRoles: (
       targetUserId,
-      role,
+      nextRoles,
     ) => {
       void (async () => {
         try {
@@ -1224,12 +1227,16 @@ export function AppStoreProvider({
               userId:
                 targetUserId,
 
-              role:
-                role === "Admin"
-                  ? "admin"
-                  : role === "Mentor"
-                    ? "mentor"
-                    : "user",
+              roles:
+                nextRoles.map(
+                  (role) =>
+                    role === "Admin"
+                      ? ("admin" as const)
+                      : role ===
+                          "Mentor"
+                        ? ("mentor" as const)
+                        : ("user" as const),
+                ),
             },
           });
         } catch (error) {
