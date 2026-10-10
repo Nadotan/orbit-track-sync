@@ -119,9 +119,9 @@ export interface AppStore extends Db {
 
 
 
-  setRole: (
+  setRoles: (
     userId: string,
-    role: Profile["role"],
+    roles: Profile["role"][],
   ) => void;
 
   createTeam: (name: string) => void;
@@ -233,39 +233,35 @@ async function fetchDb(
    */
   const roleMap = new Map<
     string,
-    Profile["role"]
-  >(
-    (roles.data ?? [])
-      .filter(
-        (role) =>
-          role.role === "admin",
-      )
-      .map(
-        (role) =>
-          [
-            role.user_id,
-            "Admin" as const,
-          ] satisfies [
-            string,
-            Profile["role"],
-          ],
-      ),
-  );
+    Set<Profile["role"]>
+  >();
+
+  const addRole = (
+    userId: string,
+    role: Profile["role"],
+  ) => {
+    const set =
+      roleMap.get(userId) ??
+      new Set<Profile["role"]>();
+
+    set.add(role);
+
+    roleMap.set(userId, set);
+  };
 
   for (const role of roles.data ?? []) {
-    if (
-      (role.role as string) === "mentor" &&
-      !roleMap.has(role.user_id)
+    if (role.role === "admin") {
+      addRole(role.user_id, "Admin");
+    } else if (
+      (role.role as string) === "mentor"
     ) {
-      roleMap.set(role.user_id, "Mentor");
+      addRole(role.user_id, "Mentor");
     }
   }
 
   try {
     for (const mentorId of await getMentorIds()) {
-      if (!roleMap.has(mentorId)) {
-        roleMap.set(mentorId, "Mentor");
-      }
+      addRole(mentorId, "Mentor");
     }
   } catch {
     // Mentor list is optional; meetings fall back to no Mentors section.
