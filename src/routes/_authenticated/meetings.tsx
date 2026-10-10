@@ -138,7 +138,7 @@ function MeetingsPage() {
   const [workshopSaving, setWorkshopSaving] = useState(false);
 
   const isAdmin = currentUser.role === "Admin";
-  const isMentor = currentUser.role === "Mentor";
+  const isMentor = currentUser.roles.includes("Mentor");
 
   useEffect(() => {
     let active = true;
@@ -261,7 +261,7 @@ function MeetingsPage() {
   function breakdown(meeting: Meeting) {
     const audience = profiles.filter(
       (p) =>
-        p.role !== "Mentor" &&
+        !p.roles.includes("Mentor") &&
         (meeting.teamId === "general" || p.teamIds.includes(meeting.teamId)),
     );
 
@@ -273,7 +273,7 @@ function MeetingsPage() {
       declined: audience.filter((p) => status(p) === "Declined"),
       pending: audience.filter((p) => !status(p)),
       mentors: profiles.filter(
-        (p) => p.role === "Mentor" && status(p) === "Attending",
+        (p) => p.roles.includes("Mentor") && status(p) === "Attending",
       ),
     };
   }

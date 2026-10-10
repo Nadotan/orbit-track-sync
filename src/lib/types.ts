@@ -10,6 +10,7 @@ export interface Profile {
   name: string;
   email: string;
   role: Role;
+  roles: Role[];
   teamId: string | null;
   teamIds: string[];
   avatarUrl: string | null;

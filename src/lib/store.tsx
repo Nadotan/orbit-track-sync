@@ -119,9 +119,9 @@ export interface AppStore extends Db {
 
 
 
-  setRole: (
+  setRoles: (
     userId: string,
-    role: Profile["role"],
+    roles: Profile["role"][],
   ) => void;
 
   createTeam: (name: string) => void;
@@ -233,39 +233,35 @@ async function fetchDb(
    */
   const roleMap = new Map<
     string,
-    Profile["role"]
-  >(
-    (roles.data ?? [])
-      .filter(
-        (role) =>
-          role.role === "admin",
-      )
-      .map(
-        (role) =>
-          [
-            role.user_id,
-            "Admin" as const,
-          ] satisfies [
-            string,
-            Profile["role"],
-          ],
-      ),
-  );
+    Set<Profile["role"]>
+  >();
+
+  const addRole = (
+    userId: string,
+    role: Profile["role"],
+  ) => {
+    const set =
+      roleMap.get(userId) ??
+      new Set<Profile["role"]>();
+
+    set.add(role);
+
+    roleMap.set(userId, set);
+  };
 
   for (const role of roles.data ?? []) {
-    if (
-      (role.role as string) === "mentor" &&
-      !roleMap.has(role.user_id)
+    if (role.role === "admin") {
+      addRole(role.user_id, "Admin");
+    } else if (
+      (role.role as string) === "mentor"
     ) {
-      roleMap.set(role.user_id, "Mentor");
+      addRole(role.user_id, "Mentor");
     }
   }
 
   try {
     for (const mentorId of await getMentorIds()) {
-      if (!roleMap.has(mentorId)) {
-        roleMap.set(mentorId, "Mentor");
-      }
+      addRole(mentorId, "Mentor");
     }
   } catch {
     // Mentor list is optional; meetings fall back to no Mentors section.
@@ -281,8 +277,9 @@ async function fetchDb(
    * Admins load them through a secured server action.
    */
   if (
-    roleMap.get(currentUserId) ===
-    "Admin"
+    roleMap
+      .get(currentUserId)
+      ?.has("Admin")
   ) {
     try {
       const directory =
@@ -299,14 +296,14 @@ async function fetchDb(
         if (
           entry.role === "admin"
         ) {
-          roleMap.set(
+          addRole(
             entry.userId,
             "Admin",
           );
         } else if (
           (entry.role as string) === "mentor"
         ) {
-          roleMap.set(
+          addRole(
             entry.userId,
             "Mentor",
           );
@@ -317,10 +314,47 @@ async function fetchDb(
     }
   }
 
+  const rolesOf = (
+    id: string,
+  ): Profile["role"][] => {
+    const set = roleMap.get(id);
+
+    if (!set || set.size === 0) {
+      return ["User"];
+    }
+
+    const ordered: Profile["role"][] = [];
+
+    if (set.has("Admin")) {
+      ordered.push("Admin");
+    }
+
+    if (set.has("Mentor")) {
+      ordered.push("Mentor");
+    }
+
+    if (ordered.length === 0) {
+      ordered.push("User");
+    }
+
+    return ordered;
+  };
+
   const roleOf = (
     id: string,
-  ): Profile["role"] =>
-    roleMap.get(id) ?? "User";
+  ): Profile["role"] => {
+    const set = roleMap.get(id);
+
+    if (set?.has("Admin")) {
+      return "Admin";
+    }
+
+    if (set?.has("Mentor")) {
+      return "Mentor";
+    }
+
+    return "User";
+  };
 
   /*
    * Avatars are stored in a private bucket, so object paths
@@ -349,6 +383,7 @@ async function fetchDb(
         emailMap.get(profile.id) ??
         "",
       role: roleOf(profile.id),
+      roles: rolesOf(profile.id),
       teamId: profile.team_id,
       teamIds:
         membershipMap.get(profile.id) ??
@@ -574,6 +609,8 @@ export function AppStoreProvider({
           session.user.email ?? "",
 
         role: "User",
+
+        roles: ["User"],
 
         teamId: null,
 
@@ -1190,9 +1227,9 @@ export function AppStoreProvider({
 
 
 
-    setRole: (
+    setRoles: (
       targetUserId,
-      role,
+      nextRoles,
     ) => {
       void (async () => {
         try {
@@ -1201,12 +1238,16 @@ export function AppStoreProvider({
               userId:
                 targetUserId,
 
-              role:
-                role === "Admin"
-                  ? "admin"
-                  : role === "Mentor"
-                    ? "mentor"
-                    : "user",
+              roles:
+                nextRoles.map(
+                  (role) =>
+                    role === "Admin"
+                      ? ("admin" as const)
+                      : role ===
+                          "Mentor"
+                        ? ("mentor" as const)
+                        : ("user" as const),
+                ),
             },
           });
         } catch (error) {
@@ -1398,6 +1439,9 @@ export function AppStoreProvider({
                     role:
                       currentUser.role,
 
+                    roles:
+                      currentUser.roles,
+
                     teamId:
                       updatedProfile.team_id,
 
@@ -1438,6 +1482,10 @@ export function AppStoreProvider({
                 role:
                   existing?.role ??
                   currentUser.role,
+
+                roles:
+                  existing?.roles ??
+                  currentUser.roles,
 
                 teamId:
                   updatedProfile.team_id,

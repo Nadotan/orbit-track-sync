@@ -8,6 +8,7 @@ import {
   CalendarPlus,
   ChevronDown,
   ChevronRight,
+  ChevronsUpDown,
   Clock,
   Copy,
   Search,
@@ -280,7 +281,7 @@ function AdminPage() {
     timeEntries,
     teamName,
     setUserTeams,
-    setRole,
+    setRoles,
     createTeam,
     createMeeting,
     deleteMeeting,
@@ -350,10 +351,12 @@ function AdminPage() {
     return ids.size;
   }, [timeEntries, store.activeSession]);
 
-  const attendees = profiles.filter((profile) => profile.role !== "Mentor");
+  const attendees = profiles.filter(
+    (profile) => !profile.roles.includes("Mentor"),
+  );
   const mentorIds = new Set(
     profiles
-      .filter((profile) => profile.role === "Mentor")
+      .filter((profile) => profile.roles.includes("Mentor"))
       .map((profile) => profile.id),
   );
   const memberRsvps = rsvps.filter((rsvp) => !mentorIds.has(rsvp.userId));
@@ -847,21 +850,42 @@ function AdminPage() {
                           Role
                         </Label>
 
-                        <Select
-                          value={profile.role}
-                          onValueChange={(value) =>
-                            setRole(profile.id, value as "Admin" | "User" | "Mentor")
-                          }
-                        >
-                          <SelectTrigger className="w-full sm:w-28">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="User">User</SelectItem>
-                            <SelectItem value="Mentor">Mentor</SelectItem>
-                            <SelectItem value="Admin">Admin</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className="w-full justify-between sm:w-40"
+                            >
+                              <span className="truncate">
+                                {profile.roles.join(" + ")}
+                              </span>
+                              <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-44 space-y-1 p-2" align="end">
+                            {(["User", "Mentor", "Admin"] as const).map((role) => {
+                              const checked = profile.roles.includes(role);
+                              return (
+                                <label
+                                  key={role}
+                                  className="flex cursor-pointer items-center gap-2 text-sm"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(value) => {
+                                      const next = value
+                                        ? [...profile.roles, role]
+                                        : profile.roles.filter((r) => r !== role);
+                                      if (next.length === 0) return;
+                                      setRoles(profile.id, next);
+                                    }}
+                                  />
+                                  <span>{role}</span>
+                                </label>
+                              );
+                            })}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </div>
                   </div>

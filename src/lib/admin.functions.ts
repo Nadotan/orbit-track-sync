@@ -80,7 +80,9 @@ export const setUserRole = createServerFn({ method: "POST" })
   .validator(
     z.object({
       userId: z.string().uuid(),
-      role: z.enum(["admin", "user", "mentor"]),
+      roles: z
+        .array(z.enum(["admin", "user", "mentor"]))
+        .min(1),
     }),
   )
   .middleware([requireSupabaseAuth])
@@ -102,10 +104,12 @@ export const setUserRole = createServerFn({ method: "POST" })
 
     const { error: insertError } = await supabaseAdmin
       .from("user_roles")
-      .insert({
-        user_id: data.userId,
-        role: data.role,
-      });
+      .insert(
+        data.roles.map((role) => ({
+          user_id: data.userId,
+          role,
+        })),
+      );
 
     if (insertError) {
       throw new Error("Unable to update the role.");
