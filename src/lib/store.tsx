@@ -342,8 +342,19 @@ async function fetchDb(
 
   const roleOf = (
     id: string,
-  ): Profile["role"] =>
-    rolesOf(id)[0];
+  ): Profile["role"] => {
+    const set = roleMap.get(id);
+
+    if (set?.has("Admin")) {
+      return "Admin";
+    }
+
+    if (set?.has("Mentor")) {
+      return "Mentor";
+    }
+
+    return "User";
+  };
 
   /*
    * Avatars are stored in a private bucket, so object paths
@@ -1427,6 +1438,9 @@ export function AppStoreProvider({
 
                     role:
                       currentUser.role,
+
+                    roles:
+                      currentUser.roles,
 
                     teamId:
                       updatedProfile.team_id,
