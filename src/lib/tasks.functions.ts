@@ -229,8 +229,7 @@ async function getAccess(admin: any, userId: string): Promise<Access> {
     admin
       .from("user_roles")
       .select("role")
-      .eq("user_id", userId)
-      .maybeSingle(),
+      .eq("user_id", userId),
 
     admin
       .from("team_members")
@@ -259,7 +258,11 @@ async function getAccess(admin: any, userId: string): Promise<Access> {
   );
 
   return {
-    role: normalizeRole(roleResult.data?.role),
+    role: highestRole(
+      (roleResult.data ?? []).map(
+        (row: any) => row.role as string,
+      ),
+    ),
 
     teamIds:
       membershipTeamIds.length > 0
@@ -274,7 +277,8 @@ function canManageScope(access: Access, teamId: string | null) {
   if (access.role === "admin") return true;
 
   return (
-    access.role === "team_lead" &&
+    (access.role === "team_lead" ||
+      access.role === "mentor") &&
     teamId !== null &&
     access.teamIds.includes(teamId)
   );
@@ -283,7 +287,11 @@ function canManageScope(access: Access, teamId: string | null) {
 function assertCanManageScope(access: Access, teamId: string | null) {
   if (canManageScope(access, teamId)) return;
 
-  if (access.role === "team_lead" && teamId === null) {
+  if (
+    (access.role === "team_lead" ||
+      access.role === "mentor") &&
+    teamId === null
+  ) {
     throw new Error("Only admins can manage General tasks and projects.");
   }
 
