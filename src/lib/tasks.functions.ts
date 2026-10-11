@@ -3176,7 +3176,7 @@ export const setTeamLeadRole = createServerFn({
     }
 
     const {
-      data: currentRole,
+      data: currentRoles,
       error: roleError,
     } = await admin
       .from("user_roles")
@@ -3184,16 +3184,17 @@ export const setTeamLeadRole = createServerFn({
       .eq(
         "user_id",
         data.userId,
-      )
-      .maybeSingle();
+      );
 
     if (roleError) {
       throw new Error(roleError.message);
     }
 
     if (
-      currentRole?.role ===
-      "admin"
+      (currentRoles ?? []).some(
+        (row: any) =>
+          row.role === "admin",
+      )
     ) {
       throw new Error(
         "Admin roles must be changed from the Admin Dashboard.",
@@ -3217,6 +3218,10 @@ export const setTeamLeadRole = createServerFn({
       }
     }
 
+    /*
+     * Toggle only the team_lead row so other roles
+     * (mentor, etc.) are preserved.
+     */
     const {
       error: deleteError,
     } = await admin
@@ -3225,28 +3230,52 @@ export const setTeamLeadRole = createServerFn({
       .eq(
         "user_id",
         data.userId,
-      );
+      )
+      .eq("role", "team_lead");
 
     if (deleteError) {
       throw new Error(deleteError.message);
     }
 
-    const {
-      error: insertError,
-    } = await admin
-      .from("user_roles")
-      .insert({
-        user_id:
-          data.userId,
+    const remainingRoles = (
+      currentRoles ?? []
+    ).filter(
+      (row: any) =>
+        row.role !== "team_lead",
+    );
 
-        role:
-          data.enabled
-            ? "team_lead"
-            : "user",
+    const rowsToInsert: {
+      user_id: string;
+      role: string;
+    }[] = [];
+
+    if (data.enabled) {
+      rowsToInsert.push({
+        user_id: data.userId,
+        role: "team_lead",
       });
+    }
 
-    if (insertError) {
-      throw new Error(insertError.message);
+    if (
+      !data.enabled &&
+      remainingRoles.length === 0
+    ) {
+      rowsToInsert.push({
+        user_id: data.userId,
+        role: "user",
+      });
+    }
+
+    if (rowsToInsert.length > 0) {
+      const {
+        error: insertError,
+      } = await admin
+        .from("user_roles")
+        .insert(rowsToInsert);
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
     }
 
     return {
