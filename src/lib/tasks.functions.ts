@@ -710,11 +710,21 @@ export const getTasksWorkspace = createServerFn({
 
     const roleMap = new Map<string, TaskRole>();
 
+    const rolesByUser = new Map<string, string[]>();
+
     for (const role of roles) {
-      roleMap.set(
-        role.user_id,
-        normalizeRole(role.role),
-      );
+      const list =
+        rolesByUser.get(role.user_id) ?? [];
+
+      list.push(role.role);
+
+      rolesByUser.set(role.user_id, list);
+    }
+
+    const roleMap = new Map<string, TaskRole>();
+
+    for (const [userId, userRoles] of rolesByUser) {
+      roleMap.set(userId, highestRole(userRoles));
     }
 
     const membershipMap = new Map<string, string[]>();
