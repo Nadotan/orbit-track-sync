@@ -441,6 +441,10 @@ function roleLabel(
     return "Team Lead";
   }
 
+  if (role === "mentor") {
+    return "Mentor";
+  }
+
   return "User";
 }
 
@@ -2117,8 +2121,10 @@ function TasksPage() {
     currentWorkspace.role ===
       "admin" ||
     (
-      currentWorkspace.role ===
-        "team_lead" &&
+      (currentWorkspace.role ===
+        "team_lead" ||
+        currentWorkspace.role ===
+          "mentor") &&
       managerTeams.length >
         0
     );
@@ -3825,8 +3831,10 @@ function TasksPage() {
             )}
           </div>
 
-          {currentWorkspace.role ===
-            "team_lead" &&
+          {(currentWorkspace.role ===
+            "team_lead" ||
+            currentWorkspace.role ===
+              "mentor") &&
             managerTeams.length ===
               0 && (
               <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 text-sm">
@@ -3834,7 +3842,7 @@ function TasksPage() {
                   <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
 
                   <p>
-                    You are a Team Lead, but you are not assigned to a team yet.
+                    You are a {roleLabel(currentWorkspace.role)}, but you are not assigned to a team yet.
                   </p>
                 </div>
               </div>
@@ -8344,10 +8352,12 @@ function TaskForm({
                         }
                       </p>
 
-                      {person.role ===
-                        "team_lead" && (
+                      {(person.role ===
+                        "team_lead" ||
+                        person.role ===
+                          "mentor") && (
                         <p className="text-[10px] text-primary">
-                          Team Lead
+                          {roleLabel(person.role)}
                         </p>
                       )}
                     </div>

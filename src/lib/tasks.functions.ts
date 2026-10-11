@@ -229,8 +229,7 @@ async function getAccess(admin: any, userId: string): Promise<Access> {
     admin
       .from("user_roles")
       .select("role")
-      .eq("user_id", userId)
-      .maybeSingle(),
+      .eq("user_id", userId),
 
     admin
       .from("team_members")
@@ -259,7 +258,11 @@ async function getAccess(admin: any, userId: string): Promise<Access> {
   );
 
   return {
-    role: normalizeRole(roleResult.data?.role),
+    role: highestRole(
+      (roleResult.data ?? []).map(
+        (row: any) => row.role as string,
+      ),
+    ),
 
     teamIds:
       membershipTeamIds.length > 0
@@ -274,7 +277,8 @@ function canManageScope(access: Access, teamId: string | null) {
   if (access.role === "admin") return true;
 
   return (
-    access.role === "team_lead" &&
+    (access.role === "team_lead" ||
+      access.role === "mentor") &&
     teamId !== null &&
     access.teamIds.includes(teamId)
   );
@@ -283,7 +287,11 @@ function canManageScope(access: Access, teamId: string | null) {
 function assertCanManageScope(access: Access, teamId: string | null) {
   if (canManageScope(access, teamId)) return;
 
-  if (access.role === "team_lead" && teamId === null) {
+  if (
+    (access.role === "team_lead" ||
+      access.role === "mentor") &&
+    teamId === null
+  ) {
     throw new Error("Only admins can manage General tasks and projects.");
   }
 
@@ -700,13 +708,21 @@ export const getTasksWorkspace = createServerFn({
     const assignments = assignmentsResult.data ?? [];
     const updates = updatesResult.data ?? [];
 
-    const roleMap = new Map<string, TaskRole>();
+    const rolesByUser = new Map<string, string[]>();
 
     for (const role of roles) {
-      roleMap.set(
-        role.user_id,
-        normalizeRole(role.role),
-      );
+      const list =
+        rolesByUser.get(role.user_id) ?? [];
+
+      list.push(role.role);
+
+      rolesByUser.set(role.user_id, list);
+    }
+
+    const roleMap = new Map<string, TaskRole>();
+
+    for (const [userId, userRoles] of rolesByUser) {
+      roleMap.set(userId, highestRole(userRoles));
     }
 
     const membershipMap = new Map<string, string[]>();
@@ -3160,7 +3176,7 @@ export const setTeamLeadRole = createServerFn({
     }
 
     const {
-      data: currentRole,
+      data: currentRoles,
       error: roleError,
     } = await admin
       .from("user_roles")
@@ -3168,16 +3184,17 @@ export const setTeamLeadRole = createServerFn({
       .eq(
         "user_id",
         data.userId,
-      )
-      .maybeSingle();
+      );
 
     if (roleError) {
       throw new Error(roleError.message);
     }
 
     if (
-      currentRole?.role ===
-      "admin"
+      (currentRoles ?? []).some(
+        (row: any) =>
+          row.role === "admin",
+      )
     ) {
       throw new Error(
         "Admin roles must be changed from the Admin Dashboard.",
@@ -3201,6 +3218,10 @@ export const setTeamLeadRole = createServerFn({
       }
     }
 
+    /*
+     * Toggle only the team_lead row so other roles
+     * (mentor, etc.) are preserved.
+     */
     const {
       error: deleteError,
     } = await admin
@@ -3209,28 +3230,52 @@ export const setTeamLeadRole = createServerFn({
       .eq(
         "user_id",
         data.userId,
-      );
+      )
+      .eq("role", "team_lead");
 
     if (deleteError) {
       throw new Error(deleteError.message);
     }
 
-    const {
-      error: insertError,
-    } = await admin
-      .from("user_roles")
-      .insert({
-        user_id:
-          data.userId,
+    const remainingRoles = (
+      currentRoles ?? []
+    ).filter(
+      (row: any) =>
+        row.role !== "team_lead",
+    );
 
-        role:
-          data.enabled
-            ? "team_lead"
-            : "user",
+    const rowsToInsert: {
+      user_id: string;
+      role: string;
+    }[] = [];
+
+    if (data.enabled) {
+      rowsToInsert.push({
+        user_id: data.userId,
+        role: "team_lead",
       });
+    }
 
-    if (insertError) {
-      throw new Error(insertError.message);
+    if (
+      !data.enabled &&
+      remainingRoles.length === 0
+    ) {
+      rowsToInsert.push({
+        user_id: data.userId,
+        role: "user",
+      });
+    }
+
+    if (rowsToInsert.length > 0) {
+      const {
+        error: insertError,
+      } = await admin
+        .from("user_roles")
+        .insert(rowsToInsert);
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
     }
 
     return {
