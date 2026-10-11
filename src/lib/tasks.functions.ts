@@ -708,8 +708,6 @@ export const getTasksWorkspace = createServerFn({
     const assignments = assignmentsResult.data ?? [];
     const updates = updatesResult.data ?? [];
 
-    const roleMap = new Map<string, TaskRole>();
-
     const rolesByUser = new Map<string, string[]>();
 
     for (const role of roles) {
