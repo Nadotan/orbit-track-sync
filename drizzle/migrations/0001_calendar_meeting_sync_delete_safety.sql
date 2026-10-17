@@ -1,0 +1,3 @@
+DROP TRIGGER calendar_event_meeting_sync ON public.calendar_events;
+CREATE TRIGGER calendar_event_meeting_sync BEFORE INSERT OR UPDATE OF title,start_date,start_time,all_day,team_id,is_meeting ON public.calendar_events FOR EACH ROW EXECUTE FUNCTION public.sync_calendar_meeting();
+CREATE TRIGGER calendar_event_meeting_delete AFTER DELETE ON public.calendar_events FOR EACH ROW EXECUTE FUNCTION public.sync_calendar_meeting();
