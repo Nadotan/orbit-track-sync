@@ -41,6 +41,135 @@ export type Database = {
         }
         Relationships: []
       }
+      calendar_events: {
+        Row: {
+          all_day: boolean
+          calendar_id: string
+          created_at: string
+          created_by: string
+          description: string
+          end_date: string
+          end_time: string
+          id: string
+          is_meeting: boolean
+          location: string
+          meeting_id: string | null
+          start_date: string
+          start_time: string
+          team_id: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          all_day?: boolean
+          calendar_id: string
+          created_at?: string
+          created_by: string
+          description?: string
+          end_date: string
+          end_time?: string
+          id?: string
+          is_meeting?: boolean
+          location?: string
+          meeting_id?: string | null
+          start_date: string
+          start_time?: string
+          team_id?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          all_day?: boolean
+          calendar_id?: string
+          created_at?: string
+          created_by?: string
+          description?: string
+          end_date?: string
+          end_time?: string
+          id?: string
+          is_meeting?: boolean
+          location?: string
+          meeting_id?: string | null
+          start_date?: string
+          start_time?: string
+          team_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_events_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: true
+            referencedRelation: "meetings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_events_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_visibility: {
+        Row: {
+          calendar_id: string
+          hidden: boolean
+          user_id: string
+        }
+        Insert: {
+          calendar_id: string
+          hidden?: boolean
+          user_id: string
+        }
+        Update: {
+          calendar_id?: string
+          hidden?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_visibility_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendars: {
+        Row: {
+          color: string
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       meetings: {
         Row: {
           created_at: string
