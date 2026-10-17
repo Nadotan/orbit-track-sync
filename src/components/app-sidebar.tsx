@@ -5,6 +5,7 @@ import {
 
 import {
   CalendarDays,
+  CalendarRange,
   Clock3,
   Hourglass,
   LayoutDashboard,
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/avatar";
 
 const items = [
+  { title: "Calendar", url: "/calendar", icon: CalendarRange, admin: false },
   {
     title:
       "Time Tracker",

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { canManageCalendar, calendarEventSchema, eventOccursOn } from "./calendar";
 
 describe("calendar permissions", () => {
