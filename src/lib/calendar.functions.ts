@@ -82,7 +82,9 @@ export const saveCalendarEvent = createServerFn({ method: "POST" })
         if (userIds.length) {
           const { error } = await admin.from("user_notifications").insert(userIds.map((userId) => ({ user_id: userId, kind: "meeting", title: "New meeting scheduled", message: `${data.title} · ${data.startDate} at ${data.startTime}`, created_by: context.userId })));
           if (error) console.error("Calendar meeting notification failed", error.message);
-          await sendPushToUsers(userIds, { title: "New meeting scheduled", body: `${data.title} · ${data.startDate} at ${data.startTime}`, url: "/meetings", tag: `meeting-${result.data.meeting_id}` });
+          const { filterUsersByPreference } = await import("./preferences.server");
+          const pushAudience = await filterUsersByPreference(userIds, "new_meeting_notifications");
+          await sendPushToUsers(pushAudience, { title: "New meeting scheduled", body: `${data.title} · ${data.startDate} at ${data.allDay ? "09:00" : data.startTime}`, url: "/meetings", tag: `meeting-${result.data.meeting_id}` });
         }
       } catch (error) { console.error("Calendar meeting notification failed", error); }
     }
