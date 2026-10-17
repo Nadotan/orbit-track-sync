@@ -5,6 +5,7 @@ import {
 
 import {
   CalendarDays,
+  CalendarRange,
   Clock3,
   Hourglass,
   LayoutDashboard,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/utils";
 
 const items = [
+  { title: "Calendar", url: "/calendar", icon: CalendarRange, admin: false },
   {
     title:
       "Clock",
