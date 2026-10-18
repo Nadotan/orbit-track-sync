@@ -13,9 +13,9 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthCallbackRouteImport } from './routes/auth-callback'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
-import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedCalendarRouteImport } from './routes/_authenticated/calendar'
+import { Route as AuthenticatedClockRouteImport } from './routes/_authenticated/clock'
 import { Route as AuthenticatedCountdownsRouteImport } from './routes/_authenticated/countdowns'
 import { Route as AuthenticatedMeetingsRouteImport } from './routes/_authenticated/meetings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
@@ -45,11 +45,6 @@ const SignUpRoute = SignUpRouteImport.update({
   path: '/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -58,6 +53,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
 const AuthenticatedCalendarRoute = AuthenticatedCalendarRouteImport.update({
   id: '/calendar',
   path: '/calendar',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedClockRoute = AuthenticatedClockRouteImport.update({
+  id: '/clock',
+  path: '/clock',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedCountdownsRoute = AuthenticatedCountdownsRouteImport.update({
@@ -107,12 +107,13 @@ const ApiPublicCronRemindersRoute = ApiPublicCronRemindersRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AuthenticatedIndexRoute
+  '/': typeof AuthenticatedRouteWithChildren
   '/auth-callback': typeof AuthCallbackRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calendar': typeof AuthenticatedCalendarRoute
+  '/clock': typeof AuthenticatedClockRoute
   '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
@@ -124,11 +125,13 @@ export interface FileRoutesByFullPath {
   '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof AuthenticatedRouteWithChildren
   '/auth-callback': typeof AuthCallbackRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calendar': typeof AuthenticatedCalendarRoute
+  '/clock': typeof AuthenticatedClockRoute
   '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
@@ -137,7 +140,6 @@ export interface FileRoutesByTo {
   '/tasks': typeof AuthenticatedTasksRoute
   '/tracker': typeof AuthenticatedTrackerRoute
   '/api/timer-closed': typeof ApiTimerClosedRoute
-  '/': typeof AuthenticatedIndexRoute
   '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
 export interface FileRoutesById {
@@ -148,6 +150,7 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/calendar': typeof AuthenticatedCalendarRoute
+  '/_authenticated/clock': typeof AuthenticatedClockRoute
   '/_authenticated/countdowns': typeof AuthenticatedCountdownsRoute
   '/_authenticated/meetings': typeof AuthenticatedMeetingsRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
@@ -156,7 +159,6 @@ export interface FileRoutesById {
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
   '/_authenticated/tracker': typeof AuthenticatedTrackerRoute
   '/api/timer-closed': typeof ApiTimerClosedRoute
-  '/_authenticated/': typeof AuthenticatedIndexRoute
   '/api/public/cron/reminders': typeof ApiPublicCronRemindersRoute
 }
 export interface FileRouteTypes {
@@ -168,6 +170,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/admin'
     | '/calendar'
+    | '/clock'
     | '/countdowns'
     | '/meetings'
     | '/onboarding'
@@ -179,11 +182,13 @@ export interface FileRouteTypes {
     | '/api/public/cron/reminders'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/auth-callback'
     | '/sign-in'
     | '/sign-up'
     | '/admin'
     | '/calendar'
+    | '/clock'
     | '/countdowns'
     | '/meetings'
     | '/onboarding'
@@ -192,7 +197,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/tracker'
     | '/api/timer-closed'
-    | '/'
     | '/api/public/cron/reminders'
   id:
     | '__root__'
@@ -202,6 +206,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/_authenticated/admin'
     | '/_authenticated/calendar'
+    | '/_authenticated/clock'
     | '/_authenticated/countdowns'
     | '/_authenticated/meetings'
     | '/_authenticated/onboarding'
@@ -210,7 +215,6 @@ export interface FileRouteTypes {
     | '/_authenticated/tasks'
     | '/_authenticated/tracker'
     | '/api/timer-closed'
-    | '/_authenticated/'
     | '/api/public/cron/reminders'
   fileRoutesById: FileRoutesById
 }
@@ -253,13 +257,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/': {
-      id: '/_authenticated/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/admin': {
       id: '/_authenticated/admin'
       path: '/admin'
@@ -272,6 +269,13 @@ declare module '@tanstack/react-router' {
       path: '/calendar'
       fullPath: '/calendar'
       preLoaderRoute: typeof AuthenticatedCalendarRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/clock': {
+      id: '/_authenticated/clock'
+      path: '/clock'
+      fullPath: '/clock'
+      preLoaderRoute: typeof AuthenticatedClockRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/countdowns': {
@@ -343,6 +347,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedCalendarRoute: typeof AuthenticatedCalendarRoute
+  AuthenticatedClockRoute: typeof AuthenticatedClockRoute
   AuthenticatedCountdownsRoute: typeof AuthenticatedCountdownsRoute
   AuthenticatedMeetingsRoute: typeof AuthenticatedMeetingsRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
@@ -350,12 +355,12 @@ interface AuthenticatedRouteChildren {
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
   AuthenticatedTrackerRoute: typeof AuthenticatedTrackerRoute
-  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedCalendarRoute: AuthenticatedCalendarRoute,
+  AuthenticatedClockRoute: AuthenticatedClockRoute,
   AuthenticatedCountdownsRoute: AuthenticatedCountdownsRoute,
   AuthenticatedMeetingsRoute: AuthenticatedMeetingsRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
@@ -363,7 +368,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
   AuthenticatedTrackerRoute: AuthenticatedTrackerRoute,
-  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

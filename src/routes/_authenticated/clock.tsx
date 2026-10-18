@@ -59,7 +59,7 @@ import { useStore } from "@/lib/store";
 import { getMyOpenTasks } from "@/lib/tasks.functions";
 import type { ClockTaskOption } from "@/lib/tasks.functions";
 
-export const Route = createFileRoute("/_authenticated/")({
+export const Route = createFileRoute("/_authenticated/clock")({
   head: () => ({
     meta: [
       {
