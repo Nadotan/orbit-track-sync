@@ -1,5 +1,9 @@
 # Roadmap
 
+- [ ] Inspect running usage and redundant background requests.
+- [ ] Reduce unnecessary requests without changing app behavior or reminder timing.
+- [ ] Test the optimized flows and document measurement limits.
+
 - [x] Add shared, hideable calendars and calendar events.
 - [x] Restrict calendar changes to team leads, mentors, and admins; connect events to meetings.
 - [x] Verify calendar permissions and the calendar-to-meeting flow.
