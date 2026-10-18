@@ -1,7 +1,4 @@
-import {
-  Link,
-  useRouterState,
-} from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 
 import {
   CalendarDays,
@@ -26,9 +23,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-import {
-  useStore,
-} from "@/lib/store";
+import { useStore } from "@/lib/store";
 
 import {
   Avatar,
@@ -36,94 +31,53 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar";
 
+import { CLOCK_ENABLED } from "@/lib/feature-flags";
+
 const items = [
-  { title: "Calendar", url: "/calendar", icon: CalendarRange, admin: false },
   {
-    title:
-      "Time Tracker",
-
-    url:
-      "/",
-
-    icon:
-      Clock3,
-
-    admin:
-      false,
+    title: "Calendar",
+    url: "/calendar",
+    icon: CalendarRange,
+    admin: false,
   },
-
   {
-    title:
-      "Meetings Hub",
-
-    url:
-      "/meetings",
-
-    icon:
-      CalendarDays,
-
-    admin:
-      false,
+    title: "Time Tracker",
+    url: "/clock",
+    icon: Clock3,
+    admin: false,
   },
-
   {
-    title:
-      "Tasks",
-
-    url:
-      "/tasks",
-
-    icon:
-      ListTodo,
-
-    admin:
-      false,
+    title: "Meetings Hub",
+    url: "/meetings",
+    icon: CalendarDays,
+    admin: false,
   },
-
   {
-    title:
-      "Countdowns",
-
-    url:
-      "/countdowns",
-
-    icon:
-      Hourglass,
-
-    admin:
-      false,
+    title: "Tasks",
+    url: "/tasks",
+    icon: ListTodo,
+    admin: false,
   },
-
   {
-    title:
-      "Admin Dashboard",
-
-    url:
-      "/admin",
-
-    icon:
-      LayoutDashboard,
-
-    admin:
-      true,
+    title: "Countdowns",
+    url: "/countdowns",
+    icon: Hourglass,
+    admin: false,
+  },
+  {
+    title: "Admin Dashboard",
+    url: "/admin",
+    icon: LayoutDashboard,
+    admin: true,
   },
 ];
 
 export function AppSidebar() {
-  const {
-    currentUser,
-    teamName,
-  } =
-    useStore();
+  const { currentUser, teamName } = useStore();
 
-  const currentPath =
-    useRouterState({
-      select:
-        (router) =>
-          router
-            .location
-            .pathname,
-    });
+  const currentPath = useRouterState({
+    select: (router) => router.location.pathname,
+  });
 
   return (
     <Sidebar collapsible="icon">
@@ -147,56 +101,35 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>
-            Workspace
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
 
           <SidebarGroupContent>
             <SidebarMenu>
               {items
                 .filter(
-                  (
-                    item,
-                  ) =>
-                    (item.url !== "/" || currentUser.role !== "Mentor") &&
-        (!item.admin ||
-                    currentUser.role ===
-                      "Admin"),
+                  (item) =>
+                    (CLOCK_ENABLED || item.url !== "/clock") &&
+                    (item.url !== "/clock" ||
+                      currentUser.role !== "Mentor") &&
+                    (!item.admin || currentUser.role === "Admin"),
                 )
-                .map(
-                  (
-                    item,
-                  ) => (
-                    <SidebarMenuItem
-                      key={
-                        item.title
-                      }
+                .map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={currentPath === item.url}
                     >
-                      <SidebarMenuButton
-                        asChild
-                        isActive={
-                          currentPath ===
-                          item.url
-                        }
+                      <Link
+                        to={item.url}
+                        className="flex items-center gap-2"
                       >
-                        <Link
-                          to={
-                            item.url
-                          }
-                          className="flex items-center gap-2"
-                        >
-                          <item.icon className="size-4 shrink-0" />
+                        <item.icon className="size-4 shrink-0" />
 
-                          <span>
-                            {
-                              item.title
-                            }
-                          </span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ),
-                )}
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -207,43 +140,26 @@ export function AppSidebar() {
           <Avatar className="size-8 shrink-0">
             {currentUser.avatarUrl && (
               <AvatarImage
-                src={
-                  currentUser.avatarUrl
-                }
-                alt={
-                  currentUser.name
-                }
+                src={currentUser.avatarUrl}
+                alt={currentUser.name}
               />
             )}
 
             <AvatarFallback className="bg-sidebar-primary text-xs text-sidebar-primary-foreground">
               {currentUser.name
                 .split(" ")
-                .map(
-                  (
-                    name,
-                  ) =>
-                    name[0],
-                )
+                .map((name) => name[0])
                 .join("")}
             </AvatarFallback>
           </Avatar>
 
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
             <p className="truncate text-sm font-medium text-sidebar-accent-foreground">
-              {
-                currentUser.name
-              }
+              {currentUser.name}
             </p>
 
             <p className="truncate text-xs text-sidebar-foreground/60">
-              {
-                currentUser.role
-              }{" "}
-              ·{" "}
-              {teamName(
-                currentUser.teamId,
-              )}
+              {currentUser.role} · {teamName(currentUser.teamId)}
             </p>
           </div>
         </div>

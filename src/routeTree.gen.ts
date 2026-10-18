@@ -16,6 +16,7 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedCalendarRouteImport } from './routes/_authenticated/calendar'
+import { Route as AuthenticatedClockRouteImport } from './routes/_authenticated/clock'
 import { Route as AuthenticatedCountdownsRouteImport } from './routes/_authenticated/countdowns'
 import { Route as AuthenticatedMeetingsRouteImport } from './routes/_authenticated/meetings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
@@ -58,6 +59,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
 const AuthenticatedCalendarRoute = AuthenticatedCalendarRouteImport.update({
   id: '/calendar',
   path: '/calendar',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedClockRoute = AuthenticatedClockRouteImport.update({
+  id: '/clock',
+  path: '/clock',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedCountdownsRoute = AuthenticatedCountdownsRouteImport.update({
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calendar': typeof AuthenticatedCalendarRoute
+  '/clock': typeof AuthenticatedClockRoute
   '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calendar': typeof AuthenticatedCalendarRoute
+  '/clock': typeof AuthenticatedClockRoute
   '/countdowns': typeof AuthenticatedCountdownsRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
@@ -148,6 +156,7 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/calendar': typeof AuthenticatedCalendarRoute
+  '/_authenticated/clock': typeof AuthenticatedClockRoute
   '/_authenticated/countdowns': typeof AuthenticatedCountdownsRoute
   '/_authenticated/meetings': typeof AuthenticatedMeetingsRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
@@ -168,6 +177,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/admin'
     | '/calendar'
+    | '/clock'
     | '/countdowns'
     | '/meetings'
     | '/onboarding'
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/admin'
     | '/calendar'
+    | '/clock'
     | '/countdowns'
     | '/meetings'
     | '/onboarding'
@@ -202,6 +213,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/_authenticated/admin'
     | '/_authenticated/calendar'
+    | '/_authenticated/clock'
     | '/_authenticated/countdowns'
     | '/_authenticated/meetings'
     | '/_authenticated/onboarding'
@@ -274,6 +286,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCalendarRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/clock': {
+      id: '/_authenticated/clock'
+      path: '/clock'
+      fullPath: '/clock'
+      preLoaderRoute: typeof AuthenticatedClockRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/countdowns': {
       id: '/_authenticated/countdowns'
       path: '/countdowns'
@@ -343,6 +362,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedCalendarRoute: typeof AuthenticatedCalendarRoute
+  AuthenticatedClockRoute: typeof AuthenticatedClockRoute
   AuthenticatedCountdownsRoute: typeof AuthenticatedCountdownsRoute
   AuthenticatedMeetingsRoute: typeof AuthenticatedMeetingsRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
@@ -356,6 +376,7 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedCalendarRoute: AuthenticatedCalendarRoute,
+  AuthenticatedClockRoute: AuthenticatedClockRoute,
   AuthenticatedCountdownsRoute: AuthenticatedCountdownsRoute,
   AuthenticatedMeetingsRoute: AuthenticatedMeetingsRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,

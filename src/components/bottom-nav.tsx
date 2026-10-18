@@ -1,7 +1,4 @@
-import {
-  Link,
-  useRouterState,
-} from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 
 import {
   CalendarDays,
@@ -12,167 +9,101 @@ import {
   ListTodo,
 } from "lucide-react";
 
-import {
-  useStore,
-} from "@/lib/store";
+import { useStore } from "@/lib/store";
 
-import {
-  cn,
-} from "@/lib/utils";
+import { cn } from "@/lib/utils";
+
+import { CLOCK_ENABLED } from "@/lib/feature-flags";
 
 const items = [
-  { title: "Calendar", url: "/calendar", icon: CalendarRange, admin: false },
   {
-    title:
-      "Clock",
-
-    url:
-      "/",
-
-    icon:
-      Clock3,
-
-    admin:
-      false,
+    title: "Calendar",
+    url: "/calendar",
+    icon: CalendarRange,
+    admin: false,
   },
-
   {
-    title:
-      "Meetings",
-
-    url:
-      "/meetings",
-
-    icon:
-      CalendarDays,
-
-    admin:
-      false,
+    title: "Clock",
+    url: "/clock",
+    icon: Clock3,
+    admin: false,
   },
-
   {
-    title:
-      "Tasks",
-
-    url:
-      "/tasks",
-
-    icon:
-      ListTodo,
-
-    admin:
-      false,
+    title: "Meetings",
+    url: "/meetings",
+    icon: CalendarDays,
+    admin: false,
   },
-
   {
-    title:
-      "Countdowns",
-
-    url:
-      "/countdowns",
-
-    icon:
-      Hourglass,
-
-    admin:
-      false,
+    title: "Tasks",
+    url: "/tasks",
+    icon: ListTodo,
+    admin: false,
   },
-
   {
-    title:
-      "Admin",
-
-    url:
-      "/admin",
-
-    icon:
-      LayoutDashboard,
-
-    admin:
-      true,
+    title: "Countdowns",
+    url: "/countdowns",
+    icon: Hourglass,
+    admin: false,
+  },
+  {
+    title: "Admin",
+    url: "/admin",
+    icon: LayoutDashboard,
+    admin: true,
   },
 ];
 
 export function BottomNav() {
-  const {
-    currentUser,
-  } =
-    useStore();
+  const { currentUser } = useStore();
 
-  const currentPath =
-    useRouterState({
-      select:
-        (router) =>
-          router
-            .location
-            .pathname,
-    });
+  const currentPath = useRouterState({
+    select: (router) => router.location.pathname,
+  });
 
-  const visible =
-    items.filter(
-      (
-        item,
-      ) =>
-        (item.url !== "/" || currentUser.role !== "Mentor") &&
-        (!item.admin ||
-        currentUser.role ===
-          "Admin"),
-    );
+  const visible = items.filter(
+    (item) =>
+      (CLOCK_ENABLED || item.url !== "/clock") &&
+      (item.url !== "/clock" || currentUser.role !== "Mentor") &&
+      (!item.admin || currentUser.role === "Admin"),
+  );
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
       <ul
         className="grid"
         style={{
-          gridTemplateColumns:
-            `repeat(${visible.length}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))`,
         }}
       >
-        {visible.map(
-          (
-            item,
-          ) => {
-            const active =
-              currentPath ===
-              item.url;
+        {visible.map((item) => {
+          const active = currentPath === item.url;
 
-            return (
-              <li
-                key={
-                  item.url
-                }
+          return (
+            <li key={item.url}>
+              <Link
+                to={item.url}
+                className={cn(
+                  "flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors",
+                  active
+                    ? "text-primary"
+                    : "text-muted-foreground",
+                )}
               >
-                <Link
-                  to={
-                    item.url
-                  }
+                <span
                   className={cn(
-                    "flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors",
-
-                    active
-                      ? "text-primary"
-                      : "text-muted-foreground",
+                    "grid h-8 w-12 place-items-center rounded-full transition-colors",
+                    active && "bg-accent text-accent-foreground",
                   )}
                 >
-                  <span
-                    className={cn(
-                      "grid h-8 w-12 place-items-center rounded-full transition-colors",
+                  <item.icon className="size-5" />
+                </span>
 
-                      active &&
-                        "bg-accent text-accent-foreground",
-                    )}
-                  >
-                    <item.icon className="size-5" />
-                  </span>
-
-                  {
-                    item.title
-                  }
-                </Link>
-              </li>
-            );
-          },
-        )}
+                {item.title}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );
