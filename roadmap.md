@@ -1,8 +1,8 @@
 # Roadmap
 
-- [ ] Add shared, hideable calendars and calendar events.
-- [ ] Restrict calendar changes to team leads, mentors, and admins; connect events to meetings.
-- [ ] Verify calendar permissions and the calendar-to-meeting flow.
+- [x] Add shared, hideable calendars and calendar events.
+- [x] Restrict calendar changes to team leads, mentors, and admins; connect events to meetings.
+- [x] Verify calendar permissions and the calendar-to-meeting flow.
 
 - [x] Trace push registration and delivery health.
 - [x] Trace tagged-user notification paths.
