@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { CLOCK_ENABLED } from "@/lib/feature-flags";
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -81,6 +82,14 @@ export const Route = createFileRoute("/_authenticated/clock")({
       },
     ],
   }),
+  beforeLoad: () => {
+    if (!CLOCK_ENABLED) {
+      throw redirect({
+        to: "/meetings",
+        replace: true,
+      });
+    }
+  },
   component: TrackerPage,
 });
 
