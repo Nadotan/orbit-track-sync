@@ -1,5 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { queryOptions, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Suspense, useState } from "react";
 import {
@@ -23,6 +27,7 @@ import {
   Loader2,
   MapPin,
   MoreHorizontal,
+  PanelLeft,
   Pencil,
   Plus,
   Trash2,
@@ -48,6 +53,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -75,51 +86,133 @@ const calendarQuery = queryOptions({
   queryFn: () => getCalendarData(),
 });
 
-type CalendarData = Awaited<ReturnType<typeof getCalendarData>>;
-type CalendarEvent = CalendarData["events"][number];
-type Calendar = CalendarData["calendars"][number];
+type CalendarData = Awaited<
+  ReturnType<typeof getCalendarData>
+>;
 
-const dateKey = (date: Date) => format(date, "yyyy-MM-dd");
+type CalendarEvent =
+  CalendarData["events"][number];
 
-const fromKey = (key: string) => new Date(`${key}T12:00:00`);
+type Calendar =
+  CalendarData["calendars"][number];
 
-export const Route = createFileRoute("/_authenticated/calendar")({
-  head: () => ({
-    meta: [
-      {
-        title: "Calendar · POM",
-      },
-      {
-        name: "description",
-        content: "Your POM calendars, events, and team meetings in one place.",
-      },
-      {
-        property: "og:title",
-        content: "Calendar · POM",
-      },
-      {
-        property: "og:description",
-        content: "Plan together with shared calendars and connected team meetings.",
-      },
-      {
-        property: "og:type",
-        content: "website",
-      },
-      {
-        name: "twitter:card",
-        content: "summary",
-      },
-    ],
-  }),
+const dateKey = (date: Date) =>
+  format(date, "yyyy-MM-dd");
 
-  component: CalendarRoute,
-});
+const fromKey = (key: string) =>
+  new Date(`${key}T12:00:00`);
+
+const WEEK_START_HOUR = 6;
+const WEEK_END_HOUR = 24;
+const HOUR_HEIGHT = 56;
+
+const WEEK_HOURS = Array.from(
+  {
+    length:
+      WEEK_END_HOUR -
+      WEEK_START_HOUR,
+  },
+  (_, index) =>
+    WEEK_START_HOUR +
+    index,
+);
+
+const timeMinutes = (
+  time: string,
+) => {
+  const [
+    hours,
+    minutes,
+  ] =
+    time
+      .split(":")
+      .map(Number);
+
+  return (
+    hours * 60 +
+    minutes
+  );
+};
+
+const minutesTime = (
+  minutes: number,
+) => {
+  const safe =
+    Math.max(
+      0,
+      Math.min(
+        minutes,
+        23 * 60 + 59,
+      ),
+    );
+
+  return `${String(
+    Math.floor(
+      safe / 60,
+    ),
+  ).padStart(
+    2,
+    "0",
+  )}:${String(
+    safe % 60,
+  ).padStart(
+    2,
+    "0",
+  )}`;
+};
+
+export const Route =
+  createFileRoute(
+    "/_authenticated/calendar",
+  )({
+    head: () => ({
+      meta: [
+        {
+          title:
+            "Calendar · POM",
+        },
+        {
+          name:
+            "description",
+          content:
+            "Your POM calendars, events, and team meetings in one place.",
+        },
+        {
+          property:
+            "og:title",
+          content:
+            "Calendar · POM",
+        },
+        {
+          property:
+            "og:description",
+          content:
+            "Plan together with shared calendars and connected team meetings.",
+        },
+        {
+          property:
+            "og:type",
+          content:
+            "website",
+        },
+        {
+          name:
+            "twitter:card",
+          content:
+            "summary",
+        },
+      ],
+    }),
+
+    component:
+      CalendarRoute,
+  });
 
 function CalendarRoute() {
   return (
     <Suspense
       fallback={
-        <div className="grid min-h-96 place-items-center">
+        <div className="grid h-full place-items-center">
           <Loader2 className="size-6 animate-spin text-primary" />
         </div>
       }
@@ -130,246 +223,593 @@ function CalendarRoute() {
 }
 
 function CalendarPage() {
-  const { data } = useSuspenseQuery(calendarQuery);
+  const {
+    data,
+  } =
+    useSuspenseQuery(
+      calendarQuery,
+    );
 
-  const queryClient = useQueryClient();
+  const queryClient =
+    useQueryClient();
 
-  const { teams, refresh } = useStore();
+  const {
+    teams,
+    refresh,
+  } =
+    useStore();
 
-  const saveCalendarFn = useServerFn(saveCalendar);
-  const deleteCalendarFn = useServerFn(deleteCalendar);
-  const saveEventFn = useServerFn(saveCalendarEvent);
-  const deleteEventFn = useServerFn(deleteCalendarEvent);
-  const visibilityFn = useServerFn(setCalendarVisibility);
+  const saveCalendarFn =
+    useServerFn(
+      saveCalendar,
+    );
 
-  const [anchor, setAnchor] = useState(() => new Date());
+  const deleteCalendarFn =
+    useServerFn(
+      deleteCalendar,
+    );
 
-  const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
+  const saveEventFn =
+    useServerFn(
+      saveCalendarEvent,
+    );
 
-  const [view, setView] = useState<"month" | "week" | "agenda">("month");
+  const deleteEventFn =
+    useServerFn(
+      deleteCalendarEvent,
+    );
 
-  const [calendarEditor, setCalendarEditor] = useState<{
-    id?: string;
-    name: string;
-    color: CalendarColor;
-  } | null>(null);
+  const visibilityFn =
+    useServerFn(
+      setCalendarVisibility,
+    );
 
-  const [eventEditor, setEventEditor] = useState<CalendarEventInput | null>(null);
+  const [
+    anchor,
+    setAnchor,
+  ] =
+    useState(
+      () =>
+        new Date(),
+    );
 
-  const [detail, setDetail] = useState<CalendarEvent | null>(null);
+  const [
+    selectedDate,
+    setSelectedDate,
+  ] =
+    useState(
+      () =>
+        dateKey(
+          new Date(),
+        ),
+    );
 
-  const [busy, setBusy] = useState(false);
+  const [
+    view,
+    setView,
+  ] =
+    useState<
+      | "month"
+      | "week"
+      | "agenda"
+    >(
+      "month",
+    );
 
-  const [confirmation, setConfirmation] = useState<{
-    type: "calendar" | "event";
-    id: string;
-    name: string;
-  } | null>(null);
+  const [
+    desktopSidebarOpen,
+    setDesktopSidebarOpen,
+  ] =
+    useState(
+      false,
+    );
 
-  const [hiddenOverride, setHiddenOverride] = useState<string[] | null>(null);
+  const [
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+  ] =
+    useState(
+      false,
+    );
 
-  const hidden = hiddenOverride ?? data.hiddenIds;
+  const [
+    calendarEditor,
+    setCalendarEditor,
+  ] =
+    useState<{
+      id?: string;
+      name: string;
+      color:
+        CalendarColor;
+    } | null>(
+      null,
+    );
 
-  const visibleEvents = data.events.filter(
-    (event) => !hidden.includes(event.calendar_id),
-  );
+  const [
+    eventEditor,
+    setEventEditor,
+  ] =
+    useState<
+      CalendarEventInput | null
+    >(
+      null,
+    );
 
-  const calendarOf = (id: string) =>
-    data.calendars.find((calendar) => calendar.id === id);
+  const [
+    detail,
+    setDetail,
+  ] =
+    useState<
+      CalendarEvent | null
+    >(
+      null,
+    );
 
-  const colorOf = (id: string) =>
+  const [
+    busy,
+    setBusy,
+  ] =
+    useState(
+      false,
+    );
+
+  const [
+    confirmation,
+    setConfirmation,
+  ] =
+    useState<{
+      type:
+        | "calendar"
+        | "event";
+      id: string;
+      name: string;
+    } | null>(
+      null,
+    );
+
+  const [
+    hiddenOverride,
+    setHiddenOverride,
+  ] =
+    useState<
+      string[] | null
+    >(
+      null,
+    );
+
+  const hidden =
+    hiddenOverride ??
+    data.hiddenIds;
+
+  const visibleEvents =
+    data.events.filter(
+      (
+        event,
+      ) =>
+        !hidden.includes(
+          event.calendar_id,
+        ),
+    );
+
+  const calendarOf = (
+    id: string,
+  ) =>
+    data.calendars.find(
+      (
+        calendar,
+      ) =>
+        calendar.id ===
+        id,
+    );
+
+  const colorOf = (
+    id: string,
+  ) =>
     calendarColorClasses[
-      (calendarOf(id)?.color ?? "primary") as CalendarColor
+      (
+        calendarOf(
+          id,
+        )?.color ??
+        "primary"
+      ) as CalendarColor
     ];
 
-  const days =
-    view === "week"
-      ? eachDayOfInterval({
-          start: startOfWeek(anchor, {
-            weekStartsOn: 0,
-          }),
-          end: endOfWeek(anchor, {
-            weekStartsOn: 0,
-          }),
-        })
-      : eachDayOfInterval({
-          start: startOfWeek(startOfMonth(anchor)),
-          end: endOfWeek(endOfMonth(anchor)),
-        });
+  const monthDays =
+    eachDayOfInterval({
+      start:
+        startOfWeek(
+          startOfMonth(
+            anchor,
+          ),
+        ),
 
-  const agendaEvents = visibleEvents.filter(
-    (event) =>
-      event.end_date >= dateKey(startOfMonth(anchor)) &&
-      event.start_date <= dateKey(endOfMonth(anchor)),
-  );
+      end:
+        endOfWeek(
+          endOfMonth(
+            anchor,
+          ),
+        ),
+    });
 
-  const selectedEvents = visibleEvents.filter((event) =>
-    eventOccursOn(event, selectedDate),
-  );
+  const weekDays =
+    eachDayOfInterval({
+      start:
+        startOfWeek(
+          anchor,
+        ),
+
+      end:
+        endOfWeek(
+          anchor,
+        ),
+    });
+
+  const agendaEvents =
+    visibleEvents
+      .filter(
+        (
+          event,
+        ) =>
+          event.end_date >=
+            dateKey(
+              startOfMonth(
+                anchor,
+              ),
+            ) &&
+          event.start_date <=
+            dateKey(
+              endOfMonth(
+                anchor,
+              ),
+            ),
+      )
+      .sort(
+        (
+          a,
+          b,
+        ) =>
+          `${a.start_date}-${a.start_time}`.localeCompare(
+            `${b.start_date}-${b.start_time}`,
+          ),
+      );
+
+  const selectedEvents =
+    visibleEvents.filter(
+      (
+        event,
+      ) =>
+        eventOccursOn(
+          event,
+          selectedDate,
+        ),
+    );
 
   const periodTitle =
-    view === "week"
-      ? `${format(startOfWeek(anchor), "MMM d")} – ${format(
-          endOfWeek(anchor),
+    view ===
+    "week"
+      ? `${format(
+          startOfWeek(
+            anchor,
+          ),
+          "MMM d",
+        )} – ${format(
+          endOfWeek(
+            anchor,
+          ),
           "MMM d, yyyy",
         )}`
-      : format(anchor, "MMMM yyyy");
+      : format(
+          anchor,
+          "MMMM yyyy",
+        );
 
   async function reload() {
-    await queryClient.invalidateQueries({
-      queryKey: calendarQuery.queryKey,
-    });
+    await queryClient
+      .invalidateQueries({
+        queryKey:
+          calendarQuery.queryKey,
+      });
 
     refresh();
   }
 
   async function perform(
-    action: () => Promise<unknown>,
-    success: string,
+    action:
+      () =>
+        Promise<unknown>,
+    success:
+      string,
   ) {
-    if (busy) {
+    if (
+      busy
+    ) {
       return;
     }
 
-    setBusy(true);
+    setBusy(
+      true,
+    );
 
     try {
       await action();
 
       await reload();
 
-      toast.success(success);
+      toast.success(
+        success,
+      );
 
       return true;
-    } catch (error) {
+    } catch (
+      error
+    ) {
       toast.error(
-        error instanceof Error
+        error instanceof
+          Error
           ? error.message
           : "Could not save your changes.",
       );
 
       return false;
     } finally {
-      setBusy(false);
+      setBusy(
+        false,
+      );
     }
   }
 
-  function newEvent(day = selectedDate) {
+  function newEvent(
+    day =
+      selectedDate,
+    requestedStartTime?:
+      string,
+  ) {
     const calendar =
-      data.calendars.find((item) => !hidden.includes(item.id)) ??
+      data.calendars.find(
+        (
+          item,
+        ) =>
+          !hidden.includes(
+            item.id,
+          ),
+      ) ??
       data.calendars[0];
 
-    if (!calendar) {
+    if (
+      !calendar
+    ) {
       setCalendarEditor({
-        name: "",
-        color: "primary",
+        name:
+          "",
+        color:
+          "primary",
       });
 
       return;
     }
 
-    const now = new Date();
+    const now =
+      new Date();
 
-    const startHour =
-      day === dateKey(now)
+    const smartHour =
+      day ===
+      dateKey(
+        now,
+      )
         ? Math.min(
-            Math.max(now.getHours() + 1, 7),
+            Math.max(
+              now.getHours() +
+                1,
+              7,
+            ),
             22,
           )
         : 9;
 
-    const startTime = `${String(startHour).padStart(2, "0")}:00`;
+    const startTime =
+      requestedStartTime ??
+      `${String(
+        smartHour,
+      ).padStart(
+        2,
+        "0",
+      )}:00`;
 
-    const endTime = `${String(
-      Math.min(startHour + 1, 23),
-    ).padStart(2, "0")}:00`;
+    const endTime =
+      minutesTime(
+        timeMinutes(
+          startTime,
+        ) +
+          60,
+      );
 
-    setSelectedDate(day);
+    setSelectedDate(
+      day,
+    );
 
     setEventEditor({
-      calendarId: calendar.id,
-      title: "",
-      description: "",
-      location: "",
-      startDate: day,
-      endDate: day,
+      calendarId:
+        calendar.id,
+
+      title:
+        "",
+
+      description:
+        "",
+
+      location:
+        "",
+
+      startDate:
+        day,
+
+      endDate:
+        day,
+
       startTime,
+
       endTime,
-      allDay: false,
-      teamId: null,
-      isMeeting: false,
+
+      allDay:
+        false,
+
+      teamId:
+        null,
+
+      isMeeting:
+        false,
     });
   }
 
-  function editEvent(event: CalendarEvent) {
-    setDetail(null);
+  function editEvent(
+    event:
+      CalendarEvent,
+  ) {
+    setDetail(
+      null,
+    );
 
     setEventEditor({
-      id: event.id,
-      calendarId: event.calendar_id,
-      title: event.title,
-      description: event.description,
-      location: event.location,
-      startDate: event.start_date,
-      endDate: event.end_date,
-      startTime: event.start_time,
-      endTime: event.end_time,
-      allDay: event.all_day,
-      teamId: event.team_id,
-      isMeeting: event.is_meeting,
+      id:
+        event.id,
+
+      calendarId:
+        event.calendar_id,
+
+      title:
+        event.title,
+
+      description:
+        event.description,
+
+      location:
+        event.location,
+
+      startDate:
+        event.start_date,
+
+      endDate:
+        event.end_date,
+
+      startTime:
+        event.start_time,
+
+      endTime:
+        event.end_time,
+
+      allDay:
+        event.all_day,
+
+      teamId:
+        event.team_id,
+
+      isMeeting:
+        event.is_meeting,
     });
   }
 
-  function move(direction: number) {
+  function move(
+    direction:
+      number,
+  ) {
     const next =
-      view === "week"
-        ? addWeeks(anchor, direction)
-        : addMonths(anchor, direction);
+      view ===
+      "week"
+        ? addWeeks(
+            anchor,
+            direction,
+          )
+        : addMonths(
+            anchor,
+            direction,
+          );
 
-    setAnchor(next);
-    setSelectedDate(dateKey(next));
+    setAnchor(
+      next,
+    );
+
+    setSelectedDate(
+      dateKey(
+        next,
+      ),
+    );
   }
 
-  async function toggleCalendar(calendar: Calendar) {
-    const next = hidden.includes(calendar.id)
-      ? hidden.filter((id) => id !== calendar.id)
-      : [...hidden, calendar.id];
+  async function toggleCalendar(
+    calendar:
+      Calendar,
+  ) {
+    const next =
+      hidden.includes(
+        calendar.id,
+      )
+        ? hidden.filter(
+            (
+              id,
+            ) =>
+              id !==
+              calendar.id,
+          )
+        : [
+            ...hidden,
+            calendar.id,
+          ];
 
-    setHiddenOverride(next);
+    setHiddenOverride(
+      next,
+    );
 
     try {
       await visibilityFn({
         data: {
-          calendarId: calendar.id,
-          hidden: next.includes(calendar.id),
+          calendarId:
+            calendar.id,
+
+          hidden:
+            next.includes(
+              calendar.id,
+            ),
         },
       });
 
-      await queryClient.invalidateQueries({
-        queryKey: calendarQuery.queryKey,
-      });
+      await queryClient
+        .invalidateQueries({
+          queryKey:
+            calendarQuery.queryKey,
+        });
     } catch {
-      toast.error("Could not save calendar visibility.");
+      toast.error(
+        "Could not save calendar visibility.",
+      );
     } finally {
-      setHiddenOverride(null);
+      setHiddenOverride(
+        null,
+      );
     }
   }
 
   function EventRow({
     event,
   }: {
-    event: CalendarEvent;
+    event:
+      CalendarEvent;
   }) {
     return (
       <Button
         variant="ghost"
-        className="h-auto w-full justify-start gap-3 rounded-xl px-2 py-3 text-left"
-        onClick={() => setDetail(event)}
+        className="h-auto w-full justify-start gap-3 rounded-xl px-2 py-2.5 text-left"
+        onClick={() =>
+          setDetail(
+            event,
+          )
+        }
       >
         <span
           className={cn(
-            "h-10 w-1 shrink-0 rounded-full",
-            colorOf(event.calendar_id).dot,
+            "h-9 w-1 shrink-0 rounded-full",
+            colorOf(
+              event.calendar_id,
+            ).dot,
           )}
         />
 
@@ -378,14 +818,21 @@ function CalendarPage() {
             dir="auto"
             className="block truncate font-medium"
           >
-            {event.title}
+            {
+              event.title
+            }
           </span>
 
-          <span className="mt-1 block text-xs font-normal text-muted-foreground">
+          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
             {event.all_day
               ? "All day"
               : `${event.start_time} – ${event.end_time}`}{" "}
-            · {calendarOf(event.calendar_id)?.name}
+            ·{" "}
+            {
+              calendarOf(
+                event.calendar_id,
+              )?.name
+            }
           </span>
         </span>
 
@@ -396,398 +843,589 @@ function CalendarPage() {
     );
   }
 
-  return (
-    <div className="mx-auto max-w-[1600px] space-y-4">
-      <header className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-          <div className="mr-1 flex items-center gap-2">
-            <div className="grid size-10 place-items-center rounded-xl bg-accent text-primary">
-              <CalendarDays className="size-5" />
-            </div>
+  function calendarSidebar(
+    closeOnSelect =
+      false,
+  ) {
+    const miniDays =
+      eachDayOfInterval({
+        start:
+          startOfWeek(
+            startOfMonth(
+              anchor,
+            ),
+          ),
 
-            <h1 className="hidden text-xl font-semibold sm:block">
-              Calendar
-            </h1>
-          </div>
+        end:
+          endOfWeek(
+            endOfMonth(
+              anchor,
+            ),
+          ),
+      });
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl"
-            onClick={() => {
-              setAnchor(new Date());
-              setSelectedDate(dateKey(new Date()));
-            }}
-          >
-            Today
-          </Button>
-
-          <div className="flex">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-full"
-              aria-label="Previous period"
-              onClick={() => move(-1)}
-            >
-              <ChevronLeft />
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-full"
-              aria-label="Next period"
-              onClick={() => move(1)}
-            >
-              <ChevronRight />
-            </Button>
-          </div>
-
-          <h2 className="min-w-0 text-lg font-semibold sm:text-2xl">
-            {periodTitle}
-          </h2>
-        </div>
-
-        <div className="ml-auto flex rounded-xl border border-border bg-background p-1">
-          {(["month", "week", "agenda"] as const).map((mode) => (
-            <Button
-              key={mode}
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "rounded-lg capitalize",
-                view === mode &&
-                  "bg-accent text-accent-foreground shadow-sm",
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="shrink-0 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-semibold">
+              {format(
+                anchor,
+                "MMMM yyyy",
               )}
-              onClick={() => setView(mode)}
-            >
-              {mode === "agenda"
-                ? "Schedule"
-                : mode}
-            </Button>
-          ))}
-        </div>
-      </header>
+            </span>
 
-      <div className="grid gap-6 lg:grid-cols-[210px_minmax(0,1fr)]">
-        <aside className="min-w-0 space-y-5">
-          <div className="hidden lg:block">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-semibold">
-                {format(anchor, "MMMM yyyy")}
-              </span>
+            <div className="flex">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8 rounded-full"
+                aria-label="Previous mini-calendar month"
+                onClick={() =>
+                  setAnchor(
+                    addMonths(
+                      anchor,
+                      -1,
+                    ),
+                  )
+                }
+              >
+                <ChevronLeft />
+              </Button>
 
-              <div className="flex">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Previous mini-calendar month"
-                  onClick={() =>
-                    setAnchor(
-                      addMonths(anchor, -1),
-                    )
-                  }
-                >
-                  <ChevronLeft />
-                </Button>
-
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Next mini-calendar month"
-                  onClick={() =>
-                    setAnchor(
-                      addMonths(anchor, 1),
-                    )
-                  }
-                >
-                  <ChevronRight />
-                </Button>
-              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8 rounded-full"
+                aria-label="Next mini-calendar month"
+                onClick={() =>
+                  setAnchor(
+                    addMonths(
+                      anchor,
+                      1,
+                    ),
+                  )
+                }
+              >
+                <ChevronRight />
+              </Button>
             </div>
+          </div>
 
-            <div className="grid grid-cols-7 gap-y-1">
-              {[
-                "S",
-                "M",
-                "T",
-                "W",
-                "T",
-                "F",
-                "S",
-              ].map((day, index) => (
+          <div className="grid grid-cols-7 gap-y-1">
+            {[
+              "S",
+              "M",
+              "T",
+              "W",
+              "T",
+              "F",
+              "S",
+            ].map(
+              (
+                day,
+                index,
+              ) => (
                 <span
-                  key={index}
+                  key={
+                    index
+                  }
                   className="py-1 text-center text-[10px] text-muted-foreground"
                 >
-                  {day}
+                  {
+                    day
+                  }
                 </span>
-              ))}
+              ),
+            )}
 
-              {eachDayOfInterval({
-                start: startOfWeek(
-                  startOfMonth(anchor),
-                ),
-                end: endOfWeek(
-                  endOfMonth(anchor),
-                ),
-              }).map((day) => (
-                <Button
-                  key={dateKey(day)}
-                  variant="ghost"
-                  className={cn(
-                    "h-7 w-full rounded-full p-0 text-xs",
-                    !isSameMonth(
+            {miniDays.map(
+              (
+                day,
+              ) => {
+                const key =
+                  dateKey(
+                    day,
+                  );
+
+                return (
+                  <Button
+                    key={
+                      key
+                    }
+                    variant="ghost"
+                    className={cn(
+                      "h-7 w-full rounded-full p-0 text-xs",
+
+                      !isSameMonth(
+                        day,
+                        anchor,
+                      ) &&
+                        "text-muted-foreground/40",
+
+                      selectedDate ===
+                        key &&
+                        "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+                    )}
+                    onClick={() => {
+                      setSelectedDate(
+                        key,
+                      );
+
+                      setAnchor(
+                        day,
+                      );
+
+                      if (
+                        closeOnSelect
+                      ) {
+                        setMobileSidebarOpen(
+                          false,
+                        );
+                      }
+                    }}
+                  >
+                    {format(
                       day,
-                      anchor,
-                    ) &&
-                      "text-muted-foreground/40",
-                    selectedDate ===
-                      dateKey(day) &&
-                      "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-                  )}
-                  onClick={() => {
-                    setSelectedDate(
-                      dateKey(day),
-                    );
+                      "d",
+                    )}
+                  </Button>
+                );
+              },
+            )}
+          </div>
+        </div>
 
-                    setAnchor(day);
-                  }}
-                >
-                  {format(day, "d")}
-                </Button>
-              ))}
-            </div>
+        <div className="min-h-0 flex-1 overflow-y-auto border-t border-border px-3 py-4">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              My calendars
+            </h2>
+
+            {data.canManage && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-7"
+                aria-label="Add calendar"
+                onClick={() =>
+                  setCalendarEditor({
+                    name:
+                      "",
+                    color:
+                      "primary",
+                  })
+                }
+              >
+                <Plus className="size-4" />
+              </Button>
+            )}
           </div>
 
-          <section>
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                My calendars
-              </h2>
-
-              {data.canManage && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Add calendar"
-                  onClick={() =>
-                    setCalendarEditor({
-                      name: "",
-                      color: "primary",
-                    })
+          <div className="space-y-1">
+            {data.calendars.map(
+              (
+                calendar,
+              ) => (
+                <div
+                  key={
+                    calendar.id
                   }
+                  className="flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 hover:bg-muted/60"
                 >
-                  <Plus />
-                </Button>
-              )}
-            </div>
+                  <Checkbox
+                    checked={
+                      !hidden.includes(
+                        calendar.id,
+                      )
+                    }
+                    aria-label={`Show ${calendar.name}`}
+                    onCheckedChange={() =>
+                      void toggleCalendar(
+                        calendar,
+                      )
+                    }
+                  />
 
-            <div className="flex flex-wrap gap-2 lg:block lg:space-y-1">
-              {data.calendars.map(
-                (calendar) => (
-                  <div
-                    key={calendar.id}
-                    className="flex min-w-0 items-center gap-2 rounded-xl border border-border px-2 py-2 transition-colors hover:bg-muted/50 lg:border-0"
-                  >
-                    <Checkbox
-                      checked={
-                        !hidden.includes(
-                          calendar.id,
-                        )
-                      }
-                      aria-label={`Show ${calendar.name}`}
-                      onCheckedChange={() =>
-                        void toggleCalendar(
-                          calendar,
-                        )
-                      }
-                    />
+                  <span
+                    className={cn(
+                      "size-2.5 shrink-0 rounded-full",
 
-                    <span
-                      className={cn(
-                        "size-2 shrink-0 rounded-full",
-                        colorOf(
-                          calendar.id,
-                        ).dot,
-                      )}
-                    />
-
-                    <span
-                      dir="auto"
-                      className="min-w-0 flex-1 truncate text-sm"
-                    >
-                      {calendar.name}
-                    </span>
-
-                    {data.canManage && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-6 shrink-0"
-                        aria-label={`Edit ${calendar.name}`}
-                        onClick={() =>
-                          setCalendarEditor({
-                            id: calendar.id,
-                            name:
-                              calendar.name,
-                            color:
-                              calendar.color as CalendarColor,
-                          })
-                        }
-                      >
-                        <MoreHorizontal />
-                      </Button>
+                      colorOf(
+                        calendar.id,
+                      ).dot,
                     )}
-                  </div>
-                ),
-              )}
-            </div>
+                  />
+
+                  <span
+                    dir="auto"
+                    className="min-w-0 flex-1 truncate text-sm"
+                  >
+                    {
+                      calendar.name
+                    }
+                  </span>
+
+                  {data.canManage && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 shrink-0"
+                      aria-label={`Edit ${calendar.name}`}
+                      onClick={() =>
+                        setCalendarEditor({
+                          id:
+                            calendar.id,
+
+                          name:
+                            calendar.name,
+
+                          color:
+                            calendar.color as CalendarColor,
+                        })
+                      }
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  )}
+                </div>
+              ),
+            )}
 
             {!data.calendars.length && (
-              <p className="py-2 text-sm text-muted-foreground">
+              <p className="px-2 py-4 text-sm text-muted-foreground">
                 No calendars yet.
               </p>
             )}
-          </section>
+          </div>
 
-          <section className="hidden border-t border-border pt-5 lg:block">
-            <div className="mb-2 flex items-center justify-between">
+          <div className="mt-5 border-t border-border pt-4">
+            <div className="mb-1 flex items-center justify-between px-1">
               <h2 className="text-sm font-semibold">
                 {format(
-                  fromKey(selectedDate),
+                  fromKey(
+                    selectedDate,
+                  ),
                   "EEE, MMM d",
                 )}
               </h2>
 
               <span className="text-xs text-muted-foreground">
-                {selectedEvents.length} events
+                {
+                  selectedEvents.length
+                }
               </span>
             </div>
 
             {selectedEvents.map(
-              (event) => (
+              (
+                event,
+              ) => (
                 <EventRow
-                  key={event.id}
-                  event={event}
+                  key={
+                    event.id
+                  }
+                  event={
+                    event
+                  }
                 />
               ),
             )}
 
             {!selectedEvents.length && (
-              <p className="py-4 text-xs text-muted-foreground">
-                A clear day.
+              <p className="px-2 py-4 text-xs text-muted-foreground">
+                No events on this day.
               </p>
             )}
-          </section>
-        </aside>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-        <section className="surface-card min-w-0 overflow-hidden">
-          {!data.calendars.length ? (
-            <div className="flex min-h-[460px] flex-col items-center justify-center gap-4 p-6 text-center">
-              <CalendarPlus className="size-12 text-primary/50" />
-
-              <h3 className="text-lg font-semibold">
-                A place for every plan
-              </h3>
-
-              {data.canManage ? (
-                <Button
-                  onClick={() =>
-                    setCalendarEditor({
-                      name: "",
-                      color: "primary",
-                    })
-                  }
-                >
-                  <Plus />
-                  Add your first calendar
-                </Button>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Your team's calendars will appear here.
-                </p>
-              )}
-            </div>
-          ) : view === "agenda" ? (
-            <div className="min-h-[460px] divide-y divide-border px-4 sm:px-6">
-              {agendaEvents.map(
-                (event) => (
-                  <div
-                    key={event.id}
-                    className="flex items-center gap-4 py-2"
-                  >
-                    <div className="w-14 shrink-0 text-center">
-                      <span className="block text-xs text-muted-foreground">
-                        {format(
-                          fromKey(
-                            event.start_date,
-                          ),
-                          "EEE",
-                        )}
-                      </span>
-
-                      <span className="text-2xl font-semibold">
-                        {format(
-                          fromKey(
-                            event.start_date,
-                          ),
-                          "d",
-                        )}
-                      </span>
-                    </div>
-
-                    <EventRow event={event} />
-                  </div>
-                ),
-              )}
-
-              {!agendaEvents.length && (
-                <p className="py-16 text-center text-sm text-muted-foreground">
-                  No events this month.
-                </p>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-7 border-b border-border">
-                {[
-                  "Sun",
-                  "Mon",
-                  "Tue",
-                  "Wed",
-                  "Thu",
-                  "Fri",
-                  "Sat",
-                ].map((day) => (
-                  <div
-                    key={day}
-                    className="py-3 text-center text-[10px] font-medium text-muted-foreground sm:text-xs"
-                  >
-                    {day}
-                  </div>
-                ))}
-              </div>
-
+  function monthView() {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-card">
+        <div className="grid h-8 shrink-0 grid-cols-7 border-b border-border">
+          {[
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat",
+          ].map(
+            (
+              day,
+            ) => (
               <div
-                className={cn(
-                  "grid grid-cols-7",
-                  view === "week" &&
-                    "min-h-[480px]",
-                )}
+                key={
+                  day
+                }
+                className="grid place-items-center text-[10px] font-medium text-muted-foreground sm:text-xs"
               >
-                {days.map((day) => {
-                  const key =
-                    dateKey(day);
+                {
+                  day
+                }
+              </div>
+            ),
+          )}
+        </div>
 
-                  const events =
-                    visibleEvents.filter(
-                      (event) =>
-                        eventOccursOn(
-                          event,
+        <div
+          className="grid min-h-0 flex-1 grid-cols-7"
+          style={{
+            gridTemplateRows:
+              `repeat(${monthDays.length / 7}, minmax(0, 1fr))`,
+          }}
+        >
+          {monthDays.map(
+            (
+              day,
+            ) => {
+              const key =
+                dateKey(
+                  day,
+                );
+
+              const events =
+                visibleEvents.filter(
+                  (
+                    event,
+                  ) =>
+                    eventOccursOn(
+                      event,
+                      key,
+                    ),
+                );
+
+              const today =
+                key ===
+                dateKey(
+                  new Date(),
+                );
+
+              return (
+                <div
+                  key={
+                    key
+                  }
+                  className={cn(
+                    "group min-h-0 min-w-0 overflow-hidden border-b border-r border-border p-1 transition-colors last:border-r-0 sm:p-1.5",
+
+                    !isSameMonth(
+                      day,
+                      anchor,
+                    ) &&
+                      "bg-muted/20",
+
+                    key ===
+                      selectedDate &&
+                      "bg-accent/20",
+                  )}
+                >
+                  <div className="mb-0.5 flex items-center justify-between">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={format(
+                        day,
+                        "MMMM d, yyyy",
+                      )}
+                      className={cn(
+                        "size-6 rounded-full p-0 text-[10px] sm:size-7 sm:text-xs",
+
+                        today &&
+                          "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+
+                        !isSameMonth(
+                          day,
+                          anchor,
+                        ) &&
+                          "text-muted-foreground/45",
+                      )}
+                      onClick={() =>
+                        setSelectedDate(
                           key,
+                        )
+                      }
+                      onDoubleClick={() =>
+                        data.canManage &&
+                        newEvent(
+                          key,
+                        )
+                      }
+                    >
+                      {format(
+                        day,
+                        "d",
+                      )}
+                    </Button>
+
+                    {data.canManage && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="hidden size-5 rounded-full text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 sm:inline-flex"
+                        aria-label={`Add event on ${format(
+                          day,
+                          "MMMM d",
+                        )}`}
+                        onClick={() =>
+                          newEvent(
+                            key,
+                          )
+                        }
+                      >
+                        <Plus className="size-3" />
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="hidden space-y-0.5 sm:block">
+                    {events
+                      .slice(
+                        0,
+                        3,
+                      )
+                      .map(
+                        (
+                          event,
+                        ) => (
+                          <Button
+                            key={
+                              event.id
+                            }
+                            variant="ghost"
+                            title={
+                              event.title
+                            }
+                            className={cn(
+                              "h-5 w-full justify-start overflow-hidden rounded-md border-l-[3px] px-1.5 py-0 text-left text-[10px] font-medium",
+
+                              colorOf(
+                                event.calendar_id,
+                              ).event,
+                            )}
+                            onClick={() =>
+                              setDetail(
+                                event,
+                              )
+                            }
+                          >
+                            <span
+                              className="truncate"
+                              dir="auto"
+                            >
+                              {!event.all_day && (
+                                <span className="font-normal">
+                                  {
+                                    event.start_time
+                                  }{" "}
+                                </span>
+                              )}
+
+                              {
+                                event.title
+                              }
+                            </span>
+                          </Button>
                         ),
+                      )}
+
+                    {events.length >
+                      3 && (
+                      <Button
+                        variant="ghost"
+                        className="h-4 w-full justify-start p-0 text-[10px] text-muted-foreground"
+                        onClick={() => {
+                          setSelectedDate(
+                            key,
+                          );
+
+                          setAnchor(
+                            day,
+                          );
+
+                          setView(
+                            "week",
+                          );
+                        }}
+                      >
+                        +
+                        {events.length -
+                          3}{" "}
+                        more
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-0.5 px-0.5 sm:hidden">
+                    {events
+                      .slice(
+                        0,
+                        5,
+                      )
+                      .map(
+                        (
+                          event,
+                        ) => (
+                          <button
+                            key={
+                              event.id
+                            }
+                            type="button"
+                            aria-label={
+                              event.title
+                            }
+                            className={cn(
+                              "h-1.5 min-w-3 flex-1 rounded-full",
+
+                              colorOf(
+                                event.calendar_id,
+                              ).dot,
+                            )}
+                            onClick={() =>
+                              setDetail(
+                                event,
+                              )
+                            }
+                          />
+                        ),
+                      )}
+                  </div>
+                </div>
+              );
+            },
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function weekView() {
+    const gridHeight =
+      (
+        WEEK_END_HOUR -
+        WEEK_START_HOUR
+      ) *
+      HOUR_HEIGHT;
+
+    return (
+      <div className="h-full overflow-auto bg-card">
+        <div className="min-w-[760px]">
+          <div className="sticky top-0 z-20 bg-card">
+            <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-border">
+              <div className="border-r border-border" />
+
+              {weekDays.map(
+                (
+                  day,
+                ) => {
+                  const key =
+                    dateKey(
+                      day,
                     );
 
                   const today =
@@ -797,217 +1435,716 @@ function CalendarPage() {
                     );
 
                   return (
-                    <div
-                      key={key}
+                    <button
+                      key={
+                        key
+                      }
+                      type="button"
                       className={cn(
-                        "group min-w-0 border-b border-r border-border p-1 transition-colors last:border-r-0 sm:p-2",
-
-                        view === "month"
-                          ? "min-h-[96px] sm:min-h-[132px]"
-                          : "min-h-[420px]",
-
-                        !isSameMonth(
-                          day,
-                          anchor,
-                        ) &&
-                          "bg-muted/20",
+                        "border-r border-border py-2 text-center last:border-r-0",
 
                         key ===
                           selectedDate &&
-                          "bg-accent/15",
+                          "bg-accent/20",
                       )}
+                      onClick={() =>
+                        setSelectedDate(
+                          key,
+                        )
+                      }
                     >
-                      <div className="mb-1 flex items-center justify-between">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={format(
-                            day,
-                            "MMMM d, yyyy",
-                          )}
-                          className={cn(
-                            "size-7 rounded-full p-0 text-xs",
-
-                            today &&
-                              "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-
-                            !isSameMonth(
-                              day,
-                              anchor,
-                            ) &&
-                              "text-muted-foreground/50",
-                          )}
-                          onClick={() =>
-                            setSelectedDate(
-                              key,
-                            )
-                          }
-                          onDoubleClick={() =>
-                            data.canManage &&
-                            newEvent(
-                              key,
-                            )
-                          }
-                        >
-                          {format(
-                            day,
-                            "d",
-                          )}
-                        </Button>
-
-                        {data.canManage && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="hidden size-5 rounded-full text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 sm:inline-flex"
-                            aria-label={`Add event on ${format(
-                              day,
-                              "MMMM d",
-                            )}`}
-                            onClick={() =>
-                              newEvent(
-                                key,
-                              )
-                            }
-                          >
-                            <Plus className="size-3" />
-                          </Button>
+                      <span className="block text-[10px] uppercase text-muted-foreground">
+                        {format(
+                          day,
+                          "EEE",
                         )}
-                      </div>
+                      </span>
 
-                      <div className="space-y-1">
-                        {events
-                          .slice(
-                            0,
-                            view === "week"
-                              ? 20
-                              : 3,
-                          )
-                          .map(
-                            (event) => (
-                              <Button
-                                key={
-                                  event.id
-                                }
-                                variant="ghost"
-                                title={
-                                  event.title
-                                }
-                                className={cn(
-                                  "h-auto min-h-5 w-full justify-start gap-1 overflow-hidden rounded-lg border-l-[3px] px-1.5 py-1 text-left text-[9px] font-medium sm:text-[11px]",
-                                  colorOf(
-                                    event.calendar_id,
-                                  ).event,
-                                )}
-                                onClick={() =>
-                                  setDetail(
-                                    event,
-                                  )
-                                }
-                              >
-                                <span
-                                  className="min-w-0 truncate"
-                                  dir="auto"
-                                >
-                                  {!event.all_day && (
-                                    <span className="hidden font-normal sm:inline">
-                                      {
-                                        event.start_time
-                                      }{" "}
-                                    </span>
-                                  )}
+                      <span
+                        className={cn(
+                          "mx-auto mt-1 grid size-8 place-items-center rounded-full text-sm font-semibold",
 
-                                  {
-                                    event.title
-                                  }
-                                </span>
+                          today &&
+                            "bg-primary text-primary-foreground",
+                        )}
+                      >
+                        {format(
+                          day,
+                          "d",
+                        )}
+                      </span>
+                    </button>
+                  );
+                },
+              )}
+            </div>
 
-                                {event.is_meeting && (
-                                  <Users className="hidden size-3 shrink-0 lg:inline" />
-                                )}
-                              </Button>
-                            ),
-                          )}
+            <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-border">
+              <div className="border-r border-border px-1 py-2 text-right text-[9px] text-muted-foreground">
+                all-day
+              </div>
 
-                        {view ===
-                          "month" &&
-                          events.length >
-                            3 && (
+              {weekDays.map(
+                (
+                  day,
+                ) => {
+                  const key =
+                    dateKey(
+                      day,
+                    );
+
+                  const allDayEvents =
+                    visibleEvents.filter(
+                      (
+                        event,
+                      ) =>
+                        eventOccursOn(
+                          event,
+                          key,
+                        ) &&
+                        (
+                          event.all_day ||
+                          event.start_date !==
+                            event.end_date
+                        ),
+                    );
+
+                  return (
+                    <div
+                      key={
+                        key
+                      }
+                      className="min-h-9 space-y-0.5 border-r border-border p-1 last:border-r-0"
+                    >
+                      {allDayEvents
+                        .slice(
+                          0,
+                          2,
+                        )
+                        .map(
+                          (
+                            event,
+                          ) => (
                             <Button
+                              key={
+                                event.id
+                              }
                               variant="ghost"
-                              className="h-5 w-full p-0 text-[9px] text-muted-foreground sm:text-xs"
-                              onClick={() => {
-                                setSelectedDate(
-                                  key,
-                                );
+                              className={cn(
+                                "h-5 w-full justify-start truncate rounded-md border-l-[3px] px-1 text-[10px]",
 
-                                setView(
-                                  "week",
-                                );
-
-                                setAnchor(
-                                  day,
-                                );
-                              }}
+                                colorOf(
+                                  event.calendar_id,
+                                ).event,
+                              )}
+                              onClick={() =>
+                                setDetail(
+                                  event,
+                                )
+                              }
                             >
-                              +
-                              {events.length -
-                                3}{" "}
-                              more
+                              {
+                                event.title
+                              }
                             </Button>
-                          )}
-                      </div>
+                          ),
+                        )}
+
+                      {allDayEvents.length >
+                        2 && (
+                        <span className="block px-1 text-[9px] text-muted-foreground">
+                          +
+                          {allDayEvents.length -
+                            2}
+                        </span>
+                      )}
                     </div>
                   );
-                })}
-              </div>
-            </>
-          )}
-        </section>
-      </div>
+                },
+              )}
+            </div>
+          </div>
 
-      {view !== "agenda" && (
-        <section className="border-t border-border pt-4 lg:hidden">
-          <h2 className="mb-2 text-sm font-semibold">
-            {format(
-              fromKey(selectedDate),
-              "EEEE, MMMM d",
+          <div
+            className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))]"
+            style={{
+              height:
+                gridHeight,
+            }}
+          >
+            <div className="relative border-r border-border">
+              {WEEK_HOURS.map(
+                (
+                  hour,
+                ) => (
+                  <span
+                    key={
+                      hour
+                    }
+                    className="absolute right-2 -translate-y-1/2 text-[9px] text-muted-foreground"
+                    style={{
+                      top:
+                        (
+                          hour -
+                          WEEK_START_HOUR
+                        ) *
+                        HOUR_HEIGHT,
+                    }}
+                  >
+                    {`${String(
+                      hour,
+                    ).padStart(
+                      2,
+                      "0",
+                    )}:00`}
+                  </span>
+                ),
+              )}
+            </div>
+
+            {weekDays.map(
+              (
+                day,
+              ) => {
+                const key =
+                  dateKey(
+                    day,
+                  );
+
+                const timedEvents =
+                  visibleEvents.filter(
+                    (
+                      event,
+                    ) =>
+                      !event.all_day &&
+                      event.start_date ===
+                        key &&
+                      event.end_date ===
+                        key,
+                  );
+
+                return (
+                  <div
+                    key={
+                      key
+                    }
+                    className={cn(
+                      "relative border-r border-border last:border-r-0",
+
+                      key ===
+                        selectedDate &&
+                        "bg-accent/10",
+                    )}
+                    onClick={(
+                      event,
+                    ) => {
+                      if (
+                        !data.canManage
+                      ) {
+                        return;
+                      }
+
+                      const rect =
+                        event.currentTarget
+                          .getBoundingClientRect();
+
+                      const offset =
+                        Math.max(
+                          0,
+                          Math.min(
+                            event.clientY -
+                              rect.top,
+                            gridHeight -
+                              1,
+                          ),
+                        );
+
+                      const halfHours =
+                        Math.floor(
+                          offset /
+                            (
+                              HOUR_HEIGHT /
+                              2
+                            ),
+                        );
+
+                      const minutes =
+                        WEEK_START_HOUR *
+                          60 +
+                        halfHours *
+                          30;
+
+                      newEvent(
+                        key,
+                        minutesTime(
+                          minutes,
+                        ),
+                      );
+                    }}
+                  >
+                    {WEEK_HOURS.map(
+                      (
+                        hour,
+                      ) => (
+                        <div
+                          key={
+                            hour
+                          }
+                          className="absolute inset-x-0 border-t border-border/80"
+                          style={{
+                            top:
+                              (
+                                hour -
+                                WEEK_START_HOUR
+                              ) *
+                              HOUR_HEIGHT,
+                          }}
+                        />
+                      ),
+                    )}
+
+                    {timedEvents.map(
+                      (
+                        event,
+                      ) => {
+                        const start =
+                          Math.max(
+                            timeMinutes(
+                              event.start_time,
+                            ),
+                            WEEK_START_HOUR *
+                              60,
+                          );
+
+                        const end =
+                          Math.min(
+                            timeMinutes(
+                              event.end_time,
+                            ),
+                            WEEK_END_HOUR *
+                              60,
+                          );
+
+                        if (
+                          end <=
+                          start
+                        ) {
+                          return null;
+                        }
+
+                        const top =
+                          (
+                            (
+                              start -
+                              WEEK_START_HOUR *
+                                60
+                            ) /
+                            60
+                          ) *
+                          HOUR_HEIGHT;
+
+                        const height =
+                          Math.max(
+                            (
+                              (
+                                end -
+                                start
+                              ) /
+                              60
+                            ) *
+                              HOUR_HEIGHT,
+                            24,
+                          );
+
+                        return (
+                          <Button
+                            key={
+                              event.id
+                            }
+                            variant="ghost"
+                            className={cn(
+                              "absolute inset-x-1 z-10 h-auto justify-start overflow-hidden rounded-lg border-l-[3px] px-1.5 py-1 text-left text-[10px] shadow-sm",
+
+                              colorOf(
+                                event.calendar_id,
+                              ).event,
+                            )}
+                            style={{
+                              top,
+                              height,
+                            }}
+                            onClick={(
+                              click,
+                            ) => {
+                              click.stopPropagation();
+
+                              setDetail(
+                                event,
+                              );
+                            }}
+                          >
+                            <span className="min-w-0">
+                              <span
+                                className="block truncate font-semibold"
+                                dir="auto"
+                              >
+                                {
+                                  event.title
+                                }
+                              </span>
+
+                              <span className="block truncate text-[9px] font-normal opacity-80">
+                                {
+                                  event.start_time
+                                }{" "}
+                                –{" "}
+                                {
+                                  event.end_time
+                                }
+                              </span>
+                            </span>
+                          </Button>
+                        );
+                      },
+                    )}
+                  </div>
+                );
+              },
             )}
-          </h2>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-          {selectedEvents.map(
-            (event) => (
-              <EventRow
-                key={event.id}
-                event={event}
-              />
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border bg-background px-2 sm:gap-2 sm:px-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden rounded-full lg:inline-flex"
+          aria-label={
+            desktopSidebarOpen
+              ? "Hide calendars"
+              : "Show calendars"
+          }
+          onClick={() =>
+            setDesktopSidebarOpen(
+              (
+                open,
+              ) =>
+                !open,
+            )
+          }
+        >
+          <PanelLeft className="size-5" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full lg:hidden"
+          aria-label="Show calendars"
+          onClick={() =>
+            setMobileSidebarOpen(
+              true,
+            )
+          }
+        >
+          <PanelLeft className="size-5" />
+        </Button>
+
+        <div className="hidden items-center gap-2 sm:flex">
+          <div className="grid size-8 place-items-center rounded-lg bg-accent text-primary">
+            <CalendarDays className="size-4" />
+          </div>
+
+          <span className="font-display text-base font-semibold">
+            Calendar
+          </span>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-1 h-8 rounded-lg px-2.5"
+          onClick={() => {
+            const today =
+              new Date();
+
+            setAnchor(
+              today,
+            );
+
+            setSelectedDate(
+              dateKey(
+                today,
+              ),
+            );
+          }}
+        >
+          Today
+        </Button>
+
+        <div className="flex">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-full"
+            aria-label="Previous period"
+            onClick={() =>
+              move(
+                -1,
+              )
+            }
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 rounded-full"
+            aria-label="Next period"
+            onClick={() =>
+              move(
+                1,
+              )
+            }
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+
+        <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold sm:text-lg">
+          {
+            periodTitle
+          }
+        </h1>
+
+        <div className="hidden rounded-xl border border-border bg-muted/35 p-1 sm:flex">
+          {(
+            [
+              "month",
+              "week",
+              "agenda",
+            ] as const
+          ).map(
+            (
+              mode,
+            ) => (
+              <Button
+                key={
+                  mode
+                }
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-7 rounded-lg px-3 capitalize",
+
+                  view ===
+                    mode &&
+                    "bg-background text-foreground shadow-sm",
+                )}
+                onClick={() =>
+                  setView(
+                    mode,
+                  )
+                }
+              >
+                {mode ===
+                "agenda"
+                  ? "Schedule"
+                  : mode}
+              </Button>
             ),
           )}
+        </div>
 
-          {!selectedEvents.length && (
-            <p className="py-4 text-sm text-muted-foreground">
-              No events on this day.
-            </p>
+        <Select
+          value={
+            view
+          }
+          onValueChange={(
+            value,
+          ) =>
+            setView(
+              value as typeof view,
+            )
+          }
+        >
+          <SelectTrigger
+            className="h-8 w-[94px] rounded-lg sm:hidden"
+            aria-label="Calendar view"
+          >
+            <SelectValue />
+          </SelectTrigger>
+
+          <SelectContent>
+            <SelectItem value="month">
+              Month
+            </SelectItem>
+
+            <SelectItem value="week">
+              Week
+            </SelectItem>
+
+            <SelectItem value="agenda">
+              Schedule
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        {desktopSidebarOpen && (
+          <aside className="hidden w-64 shrink-0 border-r border-border bg-background lg:block">
+            {calendarSidebar()}
+          </aside>
+        )}
+
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          {!data.calendars.length ? (
+            <div className="grid h-full place-items-center bg-card p-6 text-center">
+              <div>
+                <CalendarPlus className="mx-auto size-12 text-primary/45" />
+
+                <h2 className="mt-4 text-lg font-semibold">
+                  A place for every plan
+                </h2>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Create a calendar to start planning with your team.
+                </p>
+
+                {data.canManage && (
+                  <Button
+                    className="mt-4"
+                    onClick={() =>
+                      setCalendarEditor({
+                        name:
+                          "",
+                        color:
+                          "primary",
+                      })
+                    }
+                  >
+                    <Plus />
+                    Add calendar
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : view ===
+            "month" ? (
+            monthView()
+          ) : view ===
+            "week" ? (
+            weekView()
+          ) : (
+            <div className="h-full overflow-y-auto bg-card">
+              <div className="mx-auto max-w-3xl divide-y divide-border px-3 sm:px-6">
+                {agendaEvents.map(
+                  (
+                    event,
+                  ) => (
+                    <div
+                      key={
+                        event.id
+                      }
+                      className="flex items-center gap-3 py-2"
+                    >
+                      <div className="w-12 shrink-0 text-center">
+                        <span className="block text-[10px] uppercase text-muted-foreground">
+                          {format(
+                            fromKey(
+                              event.start_date,
+                            ),
+                            "EEE",
+                          )}
+                        </span>
+
+                        <span className="text-xl font-semibold">
+                          {format(
+                            fromKey(
+                              event.start_date,
+                            ),
+                            "d",
+                          )}
+                        </span>
+                      </div>
+
+                      <EventRow
+                        event={
+                          event
+                        }
+                      />
+                    </div>
+                  ),
+                )}
+
+                {!agendaEvents.length && (
+                  <p className="py-16 text-center text-sm text-muted-foreground">
+                    No events this month.
+                  </p>
+                )}
+              </div>
+            </div>
           )}
-        </section>
-      )}
+        </main>
+      </div>
 
       {data.canManage && (
         <Button
           size="icon"
           aria-label="Create event"
-          className="fixed bottom-24 right-4 z-40 size-14 rounded-2xl shadow-lg md:bottom-6 md:right-6"
-          onClick={() => newEvent()}
+          className="fixed bottom-24 right-4 z-30 size-14 rounded-2xl shadow-lg md:bottom-5 md:right-5"
+          onClick={() =>
+            newEvent()
+          }
         >
           <Plus className="size-6" />
         </Button>
       )}
 
+      <Sheet
+        open={
+          mobileSidebarOpen
+        }
+        onOpenChange={
+          setMobileSidebarOpen
+        }
+      >
+        <SheetContent
+          side="left"
+          className="w-[86vw] max-w-sm p-0"
+        >
+          <SheetHeader className="border-b border-border px-4 py-3">
+            <SheetTitle>
+              Calendars
+            </SheetTitle>
+          </SheetHeader>
+
+          <div className="h-[calc(100dvh-57px)]">
+            {calendarSidebar(
+              true,
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <Dialog
-        open={!!calendarEditor}
-        onOpenChange={(open) =>
+        open={
+          !!calendarEditor
+        }
+        onOpenChange={(
+          open,
+        ) =>
           !open &&
-          setCalendarEditor(null)
+          setCalendarEditor(
+            null,
+          )
         }
       >
         <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl sm:max-w-sm">
@@ -1067,6 +2204,7 @@ function CalendarPage() {
                   ) =>
                     setCalendarEditor({
                       ...calendarEditor,
+
                       name:
                         event.target
                           .value,
@@ -1082,9 +2220,13 @@ function CalendarPage() {
 
                 <div className="flex flex-wrap gap-3 rounded-xl bg-muted/40 p-3">
                   {CALENDAR_COLORS.map(
-                    (color) => (
+                    (
+                      color,
+                    ) => (
                       <Button
-                        key={color}
+                        key={
+                          color
+                        }
                         type="button"
                         size="icon"
                         variant="ghost"
@@ -1136,9 +2278,11 @@ function CalendarPage() {
                       setConfirmation({
                         type:
                           "calendar",
+
                         id:
                           calendarEditor.id ??
                           "",
+
                         name:
                           calendarEditor.name,
                       })
@@ -1151,7 +2295,9 @@ function CalendarPage() {
                 )}
 
                 <Button
-                  disabled={busy}
+                  disabled={
+                    busy
+                  }
                   type="submit"
                 >
                   {busy && (
@@ -1167,10 +2313,16 @@ function CalendarPage() {
       </Dialog>
 
       <Dialog
-        open={!!eventEditor}
-        onOpenChange={(open) =>
+        open={
+          !!eventEditor
+        }
+        onOpenChange={(
+          open,
+        ) =>
           !open &&
-          setEventEditor(null)
+          setEventEditor(
+            null,
+          )
         }
       >
         <DialogContent className="max-h-[88dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl sm:max-w-lg">
@@ -1205,7 +2357,9 @@ function CalendarPage() {
                     eventEditor,
                   );
 
-                if (!parsed.success) {
+                if (
+                  !parsed.success
+                ) {
                   toast.error(
                     parsed.error
                       .issues[0]
@@ -1245,9 +2399,12 @@ function CalendarPage() {
                 value={
                   eventEditor.title
                 }
-                onChange={(event) =>
+                onChange={(
+                  event,
+                ) =>
                   setEventEditor({
                     ...eventEditor,
+
                     title:
                       event.target
                         .value,
@@ -1267,6 +2424,7 @@ function CalendarPage() {
                   ) =>
                     setEventEditor({
                       ...eventEditor,
+
                       calendarId:
                         value,
                     })
@@ -1278,7 +2436,9 @@ function CalendarPage() {
 
                   <SelectContent>
                     {data.calendars.map(
-                      (calendar) => (
+                      (
+                        calendar,
+                      ) => (
                         <SelectItem
                           key={
                             calendar.id
@@ -1312,6 +2472,7 @@ function CalendarPage() {
                   ) =>
                     setEventEditor({
                       ...eventEditor,
+
                       allDay:
                         value,
                     })
@@ -1338,9 +2499,11 @@ function CalendarPage() {
                     ) =>
                       setEventEditor({
                         ...eventEditor,
+
                         startDate:
                           event.target
                             .value,
+
                         endDate:
                           eventEditor.endDate <
                           event.target
@@ -1365,6 +2528,7 @@ function CalendarPage() {
                       ) =>
                         setEventEditor({
                           ...eventEditor,
+
                           startTime:
                             event.target
                               .value,
@@ -1395,6 +2559,7 @@ function CalendarPage() {
                     ) =>
                       setEventEditor({
                         ...eventEditor,
+
                         endDate:
                           event.target
                             .value,
@@ -1415,6 +2580,7 @@ function CalendarPage() {
                       ) =>
                         setEventEditor({
                           ...eventEditor,
+
                           endTime:
                             event.target
                               .value,
@@ -1425,139 +2591,157 @@ function CalendarPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <MapPin className="size-4 shrink-0 text-muted-foreground" />
+              <details className="rounded-xl border border-border bg-muted/20 p-3">
+                <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+                  More options
+                </summary>
 
-                <Input
-                  aria-label="Location"
-                  placeholder="Location"
-                  dir="auto"
-                  maxLength={300}
-                  value={
-                    eventEditor.location
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setEventEditor({
-                      ...eventEditor,
-                      location:
-                        event.target
-                          .value,
-                    })
-                  }
-                />
-              </div>
+                <div className="mt-4 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <MapPin className="size-4 shrink-0 text-muted-foreground" />
 
-              <Textarea
-                aria-label="Event description"
-                placeholder="Description"
-                dir="auto"
-                maxLength={4000}
-                value={
-                  eventEditor.description
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setEventEditor({
-                    ...eventEditor,
-                    description:
-                      event.target
-                        .value,
-                  })
-                }
-              />
+                    <Input
+                      aria-label="Location"
+                      placeholder="Location"
+                      dir="auto"
+                      maxLength={300}
+                      value={
+                        eventEditor.location
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        setEventEditor({
+                          ...eventEditor,
 
-              <div className="space-y-3 border-t border-border pt-4">
-                <div className="flex items-center justify-between gap-3">
-                  <Label
-                    htmlFor="also-meeting"
-                    className="flex items-center gap-2"
-                  >
-                    <Users className="size-4 text-primary" />
-                    Also create a meeting
-                  </Label>
+                          location:
+                            event.target
+                              .value,
+                        })
+                      }
+                    />
+                  </div>
 
-                  <Switch
-                    id="also-meeting"
-                    checked={
-                      eventEditor.isMeeting
+                  <Textarea
+                    aria-label="Event description"
+                    placeholder="Description"
+                    dir="auto"
+                    maxLength={4000}
+                    value={
+                      eventEditor.description
                     }
-                    disabled={
-                      !!eventEditor.id &&
-                      !!data.events.find(
-                        (event) =>
-                          event.id ===
-                          eventEditor.id,
-                      )?.meeting_id
-                    }
-                    onCheckedChange={(
-                      value,
+                    onChange={(
+                      event,
                     ) =>
                       setEventEditor({
                         ...eventEditor,
-                        isMeeting:
-                          value,
+
+                        description:
+                          event.target
+                            .value,
                       })
                     }
                   />
-                </div>
 
-                {eventEditor.isMeeting && (
-                  <Select
-                    value={
-                      eventEditor.teamId ??
-                      "general"
-                    }
-                    onValueChange={(
-                      value,
-                    ) =>
-                      setEventEditor({
-                        ...eventEditor,
-                        teamId:
-                          value ===
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label
+                        htmlFor="also-meeting"
+                        className="flex items-center gap-2"
+                      >
+                        <Users className="size-4 text-primary" />
+                        Also create a meeting
+                      </Label>
+
+                      <Switch
+                        id="also-meeting"
+                        checked={
+                          eventEditor.isMeeting
+                        }
+                        disabled={
+                          !!eventEditor.id &&
+                          !!data.events.find(
+                            (
+                              event,
+                            ) =>
+                              event.id ===
+                              eventEditor.id,
+                          )?.meeting_id
+                        }
+                        onCheckedChange={(
+                          value,
+                        ) =>
+                          setEventEditor({
+                            ...eventEditor,
+
+                            isMeeting:
+                              value,
+                          })
+                        }
+                      />
+                    </div>
+
+                    {eventEditor.isMeeting && (
+                      <Select
+                        value={
+                          eventEditor.teamId ??
                           "general"
-                            ? null
-                            : value,
-                      })
-                    }
-                  >
-                    <SelectTrigger aria-label="Meeting team">
-                      <SelectValue />
-                    </SelectTrigger>
+                        }
+                        onValueChange={(
+                          value,
+                        ) =>
+                          setEventEditor({
+                            ...eventEditor,
 
-                    <SelectContent>
-                      <SelectItem value="general">
-                        General · Everyone
-                      </SelectItem>
+                            teamId:
+                              value ===
+                              "general"
+                                ? null
+                                : value,
+                          })
+                        }
+                      >
+                        <SelectTrigger aria-label="Meeting team">
+                          <SelectValue />
+                        </SelectTrigger>
 
-                      {teams.map(
-                        (team) => (
-                          <SelectItem
-                            key={
-                              team.id
-                            }
-                            value={
-                              team.id
-                            }
-                          >
-                            {
-                              team.name
-                            }
+                        <SelectContent>
+                          <SelectItem value="general">
+                            General · Everyone
                           </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
+
+                          {teams.map(
+                            (
+                              team,
+                            ) => (
+                              <SelectItem
+                                key={
+                                  team.id
+                                }
+                                value={
+                                  team.id
+                                }
+                              >
+                                {
+                                  team.name
+                                }
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </div>
+              </details>
 
               <div className="flex justify-end gap-2 pt-1">
                 <Button
                   type="button"
                   variant="ghost"
-                  disabled={busy}
+                  disabled={
+                    busy
+                  }
                   onClick={() =>
                     setEventEditor(
                       null,
@@ -1569,7 +2753,9 @@ function CalendarPage() {
 
                 <Button
                   type="submit"
-                  disabled={busy}
+                  disabled={
+                    busy
+                  }
                 >
                   {busy && (
                     <Loader2 className="animate-spin" />
@@ -1584,10 +2770,16 @@ function CalendarPage() {
       </Dialog>
 
       <Dialog
-        open={!!detail}
-        onOpenChange={(open) =>
+        open={
+          !!detail
+        }
+        onOpenChange={(
+          open,
+        ) =>
           !open &&
-          setDetail(null)
+          setDetail(
+            null,
+          )
         }
       >
         <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-2xl sm:max-w-md">
@@ -1597,6 +2789,7 @@ function CalendarPage() {
                 <span
                   className={cn(
                     "mb-3 h-1 w-12 rounded-full",
+
                     colorOf(
                       detail.calendar_id,
                     ).dot,
@@ -1607,7 +2800,9 @@ function CalendarPage() {
                   dir="auto"
                   className="pr-5 text-xl leading-snug"
                 >
-                  {detail.title}
+                  {
+                    detail.title
+                  }
                 </DialogTitle>
 
                 <DialogDescription>
@@ -1697,8 +2892,10 @@ function CalendarPage() {
                       setConfirmation({
                         type:
                           "event",
+
                         id:
                           detail.id,
+
                         name:
                           detail.title,
                       })
@@ -1726,23 +2923,33 @@ function CalendarPage() {
       </Dialog>
 
       <Dialog
-        open={!!confirmation}
-        onOpenChange={(open) =>
+        open={
+          !!confirmation
+        }
+        onOpenChange={(
+          open,
+        ) =>
           !open &&
-          setConfirmation(null)
+          setConfirmation(
+            null,
+          )
         }
       >
         <DialogContent className="w-[calc(100%-2rem)] rounded-2xl sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
               Delete{" "}
-              {confirmation?.type}
+              {
+                confirmation?.type
+              }
               ?
             </DialogTitle>
 
             <DialogDescription>
               “
-              {confirmation?.name}
+              {
+                confirmation?.name
+              }
               ”{" "}
               {confirmation?.type ===
               "calendar"
@@ -1755,7 +2962,9 @@ function CalendarPage() {
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
-              disabled={busy}
+              disabled={
+                busy
+              }
               onClick={() =>
                 setConfirmation(
                   null,
@@ -1767,7 +2976,9 @@ function CalendarPage() {
 
             <Button
               variant="destructive"
-              disabled={busy}
+              disabled={
+                busy
+              }
               onClick={async () => {
                 if (
                   !confirmation
