@@ -39,8 +39,9 @@ describe("batched overdue recipients", () => {
         { task_id: "one", user_id: "a" }, { task_id: "one", user_id: "a" },
         { task_id: "two", user_id: "a" }, { task_id: "two", user_id: "b" },
       ] : [{ kind: "task_overdue:two", user_id: "a" }], error: null };
-      const query = { select: vi.fn(), in: vi.fn(), eq: vi.fn(), then: Promise.resolve(result).then.bind(Promise.resolve(result)) };
+      const query = { select: vi.fn(), in: vi.fn(), eq: vi.fn(), order: vi.fn(), range: vi.fn(), then: Promise.resolve(result).then.bind(Promise.resolve(result)) };
       query.select.mockReturnValue(query); query.in.mockReturnValue(query); query.eq.mockReturnValue(query);
+      query.order.mockReturnValue(query); query.range.mockReturnValue(query);
       return query;
     });
     const result = await loadOverdueRecipients({ from }, ["one", "two"]);
@@ -55,7 +56,7 @@ describe("batched overdue recipients", () => {
     expect(from).not.toHaveBeenCalled();
   });
   test("failed recipient reads never lead to duplicate pushes", async () => {
-    const query = { select: () => query, in: () => query, eq: () => query, then: Promise.resolve({ data: null, error: { message: "unavailable" } }).then.bind(Promise.resolve({ data: null, error: { message: "unavailable" } })) };
+    const query = { select: () => query, in: () => query, eq: () => query, order: () => query, range: () => query, then: Promise.resolve({ data: null, error: { message: "unavailable" } }).then.bind(Promise.resolve({ data: null, error: { message: "unavailable" } })) };
     await expect(loadOverdueRecipients({ from: () => query }, ["one"])).rejects.toThrow("unavailable");
   });
 });
