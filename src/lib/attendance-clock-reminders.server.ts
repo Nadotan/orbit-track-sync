@@ -675,11 +675,11 @@ export async function logAttendanceClockCatchUpForUser(
   };
 }
 
-export async function runAttendanceClockReminderSweep() {
+export async function runAttendanceClockReminderSweep(knownMentors?: Set<string>) {
   const admin = supabaseAdmin as any;
 
   const { mentorUserIds } = await import("./push.server");
-  const mentors = await mentorUserIds();
+  const mentors = knownMentors ?? await mentorUserIds();
 
   const timeZone = appTimeZone();
   const now = Date.now();

@@ -1,6 +1,7 @@
 import { buildPushPayload } from "@block65/webcrypto-web-push";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { loadOverdueRecipients } from "./reminder-recipients.server";
 
 export interface PushPayload {
   title: string;
@@ -1278,7 +1279,7 @@ export async function runReminderSweep() {
   );
 
   const attendanceClock =
-    await runAttendanceClockReminderSweep();
+    await runAttendanceClockReminderSweep(mentors);
 
   return {
     rsvpReminders,
@@ -1398,22 +1399,16 @@ export async function runOverdueMentionReminders() {
     return { overdueMentionReminders: 0 };
   }
 
-  for (const task of tasks ?? []) {
-    const { data: mentions } =
-      await supabaseAdmin
-        .from("user_notifications")
-        .select("user_id")
-        .eq("task_id", task.id)
-        .eq("title", "You were mentioned");
+  let recipients: Awaited<ReturnType<typeof loadOverdueRecipients>>;
+  try {
+    recipients = await loadOverdueRecipients(supabaseAdmin as any, (tasks ?? []).map((task) => task.id));
+  } catch (error) {
+    console.error("[push] Failed to load overdue reminder recipients", error);
+    return { overdueMentionReminders: 0 };
+  }
 
-    const mentionedIds = Array.from(
-      new Set(
-        (mentions ?? []).map(
-          (row: { user_id: string }) =>
-            row.user_id,
-        ),
-      ),
-    );
+  for (const task of tasks ?? []) {
+    const mentionedIds = [...(recipients.mentions.get(task.id) ?? [])];
 
     if (mentionedIds.length === 0) {
       continue;
@@ -1421,19 +1416,7 @@ export async function runOverdueMentionReminders() {
 
     const kind = `task_overdue:${task.id}`;
 
-    const { data: alreadySent } =
-      await supabaseAdmin
-        .from("push_reminders_sent")
-        .select("user_id")
-        .eq("kind", kind)
-        .in("user_id", mentionedIds);
-
-    const done = new Set(
-      (alreadySent ?? []).map(
-        (row: { user_id: string }) =>
-          row.user_id,
-      ),
-    );
+    const done = recipients.notified.get(kind) ?? new Set<string>();
 
     const pending = mentionedIds.filter(
       (id) => !done.has(id),
