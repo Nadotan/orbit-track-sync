@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { QueryClient } from "@tanstack/react-query";
 
 /*
  * Avatars live in a private storage bucket, so profiles store the
@@ -8,6 +9,27 @@ import { supabase } from "@/integrations/supabase/client";
 export const AVATAR_BUCKET = "avatars";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+/** Reuse valid URLs, not profile data; every profile refresh still runs. */
+export async function getCachedAvatarPaths(
+  queryClient: QueryClient,
+  userId: string,
+  paths: Array<string | null | undefined>,
+) {
+  const unique = [...new Set(paths.filter((path): path is string => Boolean(path)))].sort();
+  return queryClient.fetchQuery({
+    queryKey: ["avatar-urls", userId, unique],
+    queryFn: async () => {
+      const signed = await signAvatarPaths(unique);
+      if (unique.some((path) => !isRemoteUrl(path) && !signed.has(path))) {
+        throw new Error("Avatar signing is temporarily unavailable");
+      }
+      return signed;
+    },
+    staleTime: (SIGNED_URL_TTL_SECONDS - 60) * 1000,
+    retry: false,
+  }).catch(() => new Map<string, string>());
+}
 
 /*
  * Legacy rows stored public-object URLs for what is actually a

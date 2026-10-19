@@ -74,22 +74,14 @@ import { useStore } from "@/lib/store";
 import type { Meeting, Profile, Rsvp } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/admin")({
-  head: () => ({
-    meta: [
-      { title: "Admin Dashboard - POM" },
-      {
-        name: "description",
-        content:
-          "Team management, meeting scheduling and workforce time analytics for admins.",
-      },
-      { property: "og:title", content: "Admin Dashboard - POM" },
-      {
-        property: "og:description",
-        content:
-          "Monitor hours worked, RSVP coverage and team assignments in one place.",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Admin Dashboard - POM"} ,
+    {"name": "description", "content": "Team management, meeting scheduling and workforce time analytics for admins."} ,
+    {"property": "og:title", "content": "Admin Dashboard - POM"} ,
+    {"property": "og:description", "content": "Team management, meeting scheduling and workforce time analytics for admins."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
   component: AdminPage,
 });
 

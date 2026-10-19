@@ -52,17 +52,14 @@ export const Route = createFileRoute("/_authenticated/polls")({
   validateSearch: (search: Record<string, unknown>) => ({
     poll: typeof search['poll'] === "string" ? search['poll'] : undefined,
   }),
-  head: () => ({
-    meta: [
-      {
-        title: "Polls - POM",
-      },
-      {
-        name: "description",
-        content: "Vote in active POM polls and see the current results.",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Polls - POM"} ,
+    {"name": "description", "content": "Vote in active POM polls and see the current results."} ,
+    {"property": "og:title", "content": "Polls - POM"} ,
+    {"property": "og:description", "content": "Vote in active POM polls and see the current results."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
   component: PollsPage,
 });
 

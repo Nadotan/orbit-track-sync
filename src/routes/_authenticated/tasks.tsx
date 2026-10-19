@@ -146,17 +146,14 @@ export const Route = createFileRoute("/_authenticated/tasks")({
         : undefined,
   }),
 
-  head: () => ({
-    meta: [
-      {
-        title: "Tasks - POM",
-      },
-      {
-        name: "description",
-        content: "POM projects, tasks and assignments.",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Tasks - POM"} ,
+    {"name": "description", "content": "POM projects, tasks and assignments."} ,
+    {"property": "og:title", "content": "Tasks - POM"} ,
+    {"property": "og:description", "content": "POM projects, tasks and assignments."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
 
   component: TasksPage,
 });

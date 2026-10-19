@@ -11,11 +11,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
 import { completeOnboardingProfile } from "./profile.functions";
-import { signAvatarPaths, signAvatarPath } from "./avatars";
+import { getCachedAvatarPaths, signAvatarPath } from "./avatars";
 import {
   getAdminDirectory,
   getMentorIds,
@@ -153,6 +154,7 @@ const StoreContext =
 
 async function fetchDb(
   currentUserId: string,
+  queryClient: QueryClient,
 ): Promise<Db> {
   const [
     teams,
@@ -360,7 +362,9 @@ async function fetchDb(
    * Avatars are stored in a private bucket, so object paths
    * are resolved into signed URLs for display.
    */
-  const avatarMap = await signAvatarPaths(
+  const avatarMap = await getCachedAvatarPaths(
+    queryClient,
+    currentUserId,
     (profiles.data ?? []).map(
       (profile) => profile.avatar_url,
     ),
@@ -562,7 +566,7 @@ export function AppStoreProvider({
     ],
 
     queryFn: () =>
-      fetchDb(userId),
+      fetchDb(userId, queryClient),
   });
 
   const db =

@@ -19,14 +19,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/sign-up")({
-  head: () => ({
-    meta: [
-      {
-        title:
-          "Create your account - POM",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Create your account - POM"} ,
+    {"name": "description", "content": "Create your POM account to join your teams and manage meetings."} ,
+    {"property": "og:title", "content": "Create your account - POM"} ,
+    {"property": "og:description", "content": "Create your POM account to join your teams and manage meetings."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
   component: SignUpPage,
 });
 

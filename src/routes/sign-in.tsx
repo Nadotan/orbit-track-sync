@@ -18,13 +18,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/sign-in")({
-  head: () => ({
-    meta: [
-      {
-        title: "Sign in - POM",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Sign in - POM"} ,
+    {"name": "description", "content": "Sign in to POM to view your meetings, calendars and tasks."} ,
+    {"property": "og:title", "content": "Sign in - POM"} ,
+    {"property": "og:description", "content": "Sign in to POM to view your meetings, calendars and tasks."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
   component: SignInPage,
 });
 

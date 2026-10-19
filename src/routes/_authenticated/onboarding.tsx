@@ -22,9 +22,14 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
-  head: () => ({
-    meta: [{ title: "Welcome to POM" }],
-  }),
+  head: () => ({ meta: [
+    {"title": "Welcome to POM"} ,
+    {"name": "description", "content": "Complete your POM profile and join your team."} ,
+    {"property": "og:title", "content": "Welcome to POM"} ,
+    {"property": "og:description", "content": "Complete your POM profile and join your team."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
   component: OnboardingPage,
 });
 

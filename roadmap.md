@@ -1,8 +1,8 @@
 # Roadmap
 
-- [ ] Inspect running usage and redundant background requests.
-- [ ] Reduce unnecessary requests without changing app behavior or reminder timing.
-- [ ] Test the optimized flows and document measurement limits.
+- [x] Inspect running usage and redundant background requests.
+- [x] Reduce unnecessary requests without changing app behavior or reminder timing.
+- [x] Test the optimized flows and document measurement limits: 12 tests passed; signed-in Meetings refresh reused avatar URLs; credit savings require post-publish usage comparison. Schedules and instance size unchanged.
 
 - [x] Add shared, hideable calendars and calendar events.
 - [x] Restrict calendar changes to team leads, mentors, and admins; connect events to meetings.

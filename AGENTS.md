@@ -11,3 +11,5 @@
 
 - Calendar writes use authenticated server functions with a server-validated management role; member reads and personal visibility use RLS to prevent browser-side privilege escalation.
 - Calendar-created meetings stay synchronized through a database trigger so event changes and meeting changes commit atomically.
+- Cache avatar signing in the session-owned QueryClient keyed by user and object paths; refresh profile data normally and expire URLs before their signed lifetime ends.
+- Batch overdue-reminder recipient reads within a sweep and reuse its mentor set; preserve schedules, per-task delivery, and successful-delivery deduplication.

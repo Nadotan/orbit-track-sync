@@ -61,27 +61,14 @@ import { getMyOpenTasks } from "@/lib/tasks.functions";
 import type { ClockTaskOption } from "@/lib/tasks.functions";
 
 export const Route = createFileRoute("/_authenticated/clock")({
-  head: () => ({
-    meta: [
-      {
-        title: "Time Tracker - POM",
-      },
-      {
-        name: "description",
-        content:
-          "Clock in, clock out and log what you worked on with a live circular timer.",
-      },
-      {
-        property: "og:title",
-        content: "Time Tracker - POM",
-      },
-      {
-        property: "og:description",
-        content:
-          "A live work timer with daily task notes and a timeline of recent entries.",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Time Tracker - POM"} ,
+    {"name": "description", "content": "Clock in, clock out and log what you worked on with a live circular timer."} ,
+    {"property": "og:title", "content": "Time Tracker - POM"} ,
+    {"property": "og:description", "content": "Clock in, clock out and log what you worked on with a live circular timer."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
   beforeLoad: () => {
     if (!CLOCK_ENABLED) {
       throw redirect({

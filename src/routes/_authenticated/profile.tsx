@@ -51,17 +51,14 @@ import {
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/profile")({
-  head: () => ({
-    meta: [
-      {
-        title: "Profile - POM",
-      },
-      {
-        name: "description",
-        content: "Manage your POM availability and notification preferences.",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Profile - POM"} ,
+    {"name": "description", "content": "Manage your POM availability and notification preferences."} ,
+    {"property": "og:title", "content": "Profile - POM"} ,
+    {"property": "og:description", "content": "Manage your POM availability and notification preferences."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
 
   component: ProfilePage,
 });

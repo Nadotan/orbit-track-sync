@@ -12,20 +12,14 @@ export const Route =
   createFileRoute(
     "/_authenticated/countdowns",
   )({
-    head: () => ({
-      meta: [
-        {
-          title:
-            "Countdown - POM",
-        },
-        {
-          name:
-            "description",
-          content:
-            "POM countdown",
-        },
-      ],
-    }),
+    head: () => ({ meta: [
+    {"title": "Countdown - POM"} ,
+    {"name": "description", "content": "Follow the countdown to POM team milestones."} ,
+    {"property": "og:title", "content": "Countdown - POM"} ,
+    {"property": "og:description", "content": "Follow the countdown to POM team milestones."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
 
     component:
       CountdownsPage,
