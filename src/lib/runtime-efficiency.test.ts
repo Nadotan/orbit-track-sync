@@ -9,6 +9,15 @@ import { loadOverdueRecipients } from "./reminder-recipients.server";
 afterEach(() => vi.clearAllMocks());
 
 describe("avatar request reuse", () => {
+  test("a failed signing attempt is retried on the next refresh", async () => {
+    signing.mockResolvedValueOnce({ data: null, error: { message: "temporary failure" } });
+    signing.mockResolvedValueOnce({ data: [{ path: "a/photo.jpg", signedUrl: "https://example.test/photo" }], error: null });
+    const client = new QueryClient();
+    expect((await getCachedAvatarPaths(client, "a", ["a/photo.jpg"])).size).toBe(0);
+    expect((await getCachedAvatarPaths(client, "a", ["a/photo.jpg"])).size).toBe(1);
+    expect(signing).toHaveBeenCalledTimes(2);
+    client.clear();
+  });
   test("unchanged paths reuse one request but new paths and different users do not", async () => {
     signing.mockImplementation(async (paths: string[]) => ({ data: paths.map((path) => ({ path, signedUrl: `https://example.test/${path}` })), error: null }));
     const client = new QueryClient();
