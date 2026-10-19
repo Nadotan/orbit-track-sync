@@ -9,13 +9,14 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/auth-callback")({
-  head: () => ({
-    meta: [
-      {
-        title: "Confirming your account — POM",
-      },
-    ],
-  }),
+  head: () => ({ meta: [
+    {"title": "Confirming your account \u2014 POM"} ,
+    {"name": "description", "content": "Confirm your POM account and return to your team workspace."} ,
+    {"property": "og:title", "content": "Confirming your account \u2014 POM"} ,
+    {"property": "og:description", "content": "Confirm your POM account and return to your team workspace."} ,
+    {"property": "og:type", "content": "website"} ,
+    {"name": "twitter:card", "content": "summary"} ,
+  ] }),
   component: AuthCallbackPage,
 });
 
