@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const CALENDAR_COLORS = ["primary", "success", "warning", "destructive", "chart-2"] as const;
+export const CALENDAR_COLORS = ["primary", "success", "warning", "destructive", "chart-2", "chart-3", "chart-4", "chart-5"] as const;
 export type CalendarColor = typeof CALENDAR_COLORS[number];
 export const calendarColorClasses: Record<CalendarColor, { dot: string; event: string }> = {
   primary: { dot: "bg-primary", event: "bg-primary/10 text-primary border-primary/30" },
@@ -8,6 +8,9 @@ export const calendarColorClasses: Record<CalendarColor, { dot: string; event: s
   warning: { dot: "bg-warning", event: "bg-warning/15 text-warning-foreground border-warning/40" },
   destructive: { dot: "bg-destructive", event: "bg-destructive/10 text-destructive border-destructive/30" },
   "chart-2": { dot: "bg-chart-2", event: "bg-chart-2/10 text-chart-2 border-chart-2/30" },
+  "chart-3": { dot: "bg-chart-3", event: "bg-chart-3/10 text-chart-3 border-chart-3/30" },
+  "chart-4": { dot: "bg-chart-4", event: "bg-chart-4/15 text-chart-4 border-chart-4/35" },
+  "chart-5": { dot: "bg-chart-5", event: "bg-chart-5/10 text-chart-5 border-chart-5/30" },
 };
 
 export function canManageCalendar(roles: readonly string[]) {

@@ -15,6 +15,13 @@
       "when": 1792221133271,
       "tag": "0001_calendar_meeting_sync_delete_safety",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792425600000,
+      "tag": "0002_expand_calendar_colors",
+      "breakpoints": true
     }
   ]
 }
