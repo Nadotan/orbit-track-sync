@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { Clock3, Sparkles, Vote } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { getActivePolls, type ActivePollsWorkspace } from "@/lib/polls.functions";
 import { cn } from "@/lib/utils";
+
+interface ActivePollSummary {
+  id: string;
+  closesAt: string;
+  userOptionId: string | null;
+}
 
 function countdownText(target: string, now: number) {
   const remaining = Math.max(0, new Date(target).getTime() - now);
@@ -24,26 +28,75 @@ function countdownText(target: string, now: number) {
 }
 
 export function ActivePollButton() {
-  const loadActivePolls = useServerFn(getActivePolls);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
-  const [workspace, setWorkspace] = useState<ActivePollsWorkspace | null>(null);
+  const [polls, setPolls] = useState<ActivePollSummary[]>([]);
   const [now, setNow] = useState(() => Date.now());
+  const onPollsPage = pathname === "/polls";
 
+  /*
+   * This button only needs active poll ids, close times, and the current
+   * user's own vote. Those rows are already protected by Supabase RLS, so
+   * reading them directly avoids spending a Lovable server-function run.
+   */
   const load = useCallback(async () => {
     try {
-      setWorkspace(await loadActivePolls());
+      const nowIso = new Date().toISOString();
+
+      const { data: activeRows, error: pollsError } = await supabase
+        .from("polls")
+        .select("id, closes_at")
+        .lte("published_at", nowIso)
+        .gt("closes_at", nowIso)
+        .order("closes_at", { ascending: true });
+
+      if (pollsError) {
+        throw pollsError;
+      }
+
+      const ids = (activeRows ?? []).map((poll) => poll.id);
+
+      if (ids.length === 0) {
+        setPolls([]);
+        return;
+      }
+
+      const { data: voteRows, error: votesError } = await supabase
+        .from("poll_votes")
+        .select("poll_id, option_id")
+        .in("poll_id", ids);
+
+      if (votesError) {
+        throw votesError;
+      }
+
+      const ownVotes = new Map(
+        (voteRows ?? []).map((vote) => [vote.poll_id, vote.option_id]),
+      );
+
+      setPolls(
+        (activeRows ?? []).map((poll) => ({
+          id: poll.id,
+          closesAt: poll.closes_at,
+          userOptionId: ownVotes.get(poll.id) ?? null,
+        })),
+      );
     } catch (error) {
       console.error("[polls] Could not load active poll button", error);
     }
-  }, [loadActivePolls]);
+  }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (onPollsPage) {
+      setPolls([]);
+      return;
+    }
 
-  const hasPolls = (workspace?.polls.length ?? 0) > 0;
+    void load();
+  }, [load, onPollsPage]);
+
+  const hasPolls = polls.length > 0;
 
   // Local-only countdown. No server/database call is made every second.
   useEffect(() => {
@@ -57,6 +110,8 @@ export function ActivePollButton() {
   }, [hasPolls]);
 
   useEffect(() => {
+    if (onPollsPage) return;
+
     const channel = supabase
       .channel("active-poll-button")
       .on(
@@ -75,53 +130,40 @@ export function ActivePollButton() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [load]);
+  }, [load, onPollsPage]);
 
   useEffect(() => {
-    function refreshOnFocus() {
-      void load();
-    }
-
-    function refreshOnVisible() {
-      if (document.visibilityState === "visible") {
-        void load();
-      }
-    }
+    if (onPollsPage) return;
 
     function refreshAfterPollChange() {
       void load();
     }
 
-    window.addEventListener("focus", refreshOnFocus);
     window.addEventListener("pom:polls-changed", refreshAfterPollChange);
-    document.addEventListener("visibilitychange", refreshOnVisible);
 
     return () => {
-      window.removeEventListener("focus", refreshOnFocus);
       window.removeEventListener("pom:polls-changed", refreshAfterPollChange);
-      document.removeEventListener("visibilitychange", refreshOnVisible);
     };
-  }, [load]);
+  }, [load, onPollsPage]);
 
   const activePolls = useMemo(
     () =>
-      (workspace?.polls ?? [])
+      polls
         .filter((poll) => new Date(poll.closesAt).getTime() > now)
         .sort(
           (a, b) =>
             new Date(a.closesAt).getTime() -
             new Date(b.closesAt).getTime(),
         ),
-    [workspace?.polls, now],
+    [polls, now],
   );
 
-  if (pathname === "/polls" || activePolls.length === 0) {
+  if (onPollsPage || activePolls.length === 0) {
     return null;
   }
 
   const poll =
-    activePolls.find((item) => item.userOptionId === null) ??
-    activePolls[0];
+    activePolls.find((item) => item.userOptionId === null) ?? activePolls[0];
 
   if (!poll) {
     return null;
