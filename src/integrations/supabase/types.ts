@@ -1018,7 +1018,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      pom_meeting_occurs_on_date: {
+        Args: { base_date: string; recurrence: string; target_date: string }
+        Returns: boolean
+      }
+      rsvp_reminder_needed: { Args: never; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "user" | "team_lead" | "mentor"
