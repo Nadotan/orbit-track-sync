@@ -5,91 +5,159 @@ function secretsMatch(
   provided: string | null,
   expected: string | undefined | null,
 ) {
-  if (!provided || !expected) {
+  if (
+    !provided ||
+    !expected
+  ) {
     return false;
   }
 
-  const providedBytes = Buffer.from(provided);
-  const expectedBytes = Buffer.from(expected);
+  const providedBytes =
+    Buffer.from(
+      provided,
+    );
+
+  const expectedBytes =
+    Buffer.from(
+      expected,
+    );
 
   return (
-    providedBytes.length === expectedBytes.length &&
-    timingSafeEqual(providedBytes, expectedBytes)
+    providedBytes.length ===
+      expectedBytes.length &&
+    timingSafeEqual(
+      providedBytes,
+      expectedBytes,
+    )
   );
 }
 
 /**
- * Scheduled notification sweep:
- * - unanswered meeting RSVP reminders
- * - overdue task reminders
+ * Daily scheduled notification endpoint.
+ *
+ * The only automated reminder left is the day-before RSVP reminder.
+ * Clock reminders and overdue-task reminder sweeps are intentionally disabled.
  */
-export const Route = createFileRoute("/api/public/cron/reminders")({
-  server: {
-    handlers: {
-      POST: async ({ request }) => {
-        const secret = process.env["CRON_SECRET"];
-        const provided = request.headers.get("x-cron-secret");
+export const Route =
+  createFileRoute(
+    "/api/public/cron/reminders",
+  )({
+    server: {
+      handlers: {
+        POST:
+          async ({
+            request,
+          }) => {
+            const secret =
+              process.env[
+                "CRON_SECRET"
+              ];
 
-        let authorized = secretsMatch(
-          provided,
-          secret,
-        );
+            const provided =
+              request.headers.get(
+                "x-cron-secret",
+              );
 
-        if (!authorized && provided) {
-          const { supabaseAdmin } = await import(
-            "@/integrations/supabase/client.server"
-          );
+            let authorized =
+              secretsMatch(
+                provided,
+                secret,
+              );
 
-          const {
-            data: schedulerSecret,
-            error: schedulerSecretError,
-          } = await (supabaseAdmin as any)
-            .from("scheduler_secrets")
-            .select("secret")
-            .eq("name", "reminder_sweep")
-            .maybeSingle();
+            if (
+              !authorized &&
+              provided
+            ) {
+              const {
+                supabaseAdmin,
+              } =
+                await import(
+                  "@/integrations/supabase/client.server"
+                );
 
-          if (schedulerSecretError) {
-            console.error(
-              "[cron] Failed to validate scheduler",
-              schedulerSecretError,
-            );
-          }
+              const {
+                data:
+                  schedulerSecret,
+                error:
+                  schedulerSecretError,
+              } =
+                await (
+                  supabaseAdmin as any
+                )
+                  .from(
+                    "scheduler_secrets",
+                  )
+                  .select(
+                    "secret",
+                  )
+                  .eq(
+                    "name",
+                    "reminder_sweep",
+                  )
+                  .maybeSingle();
 
-          authorized = secretsMatch(
-            provided,
-            schedulerSecret?.secret,
-          );
-        }
+              if (
+                schedulerSecretError
+              ) {
+                console.error(
+                  "[cron] Failed to validate scheduler",
+                  schedulerSecretError,
+                );
+              }
 
-        if (!authorized) {
-          return new Response("Unauthorized", {
-            status: 401,
-          });
-        }
+              authorized =
+                secretsMatch(
+                  provided,
+                  schedulerSecret?.secret,
+                );
+            }
 
-        try {
-          const { runReminderSweep } = await import("@/lib/push.server");
-          const result = await runReminderSweep();
+            if (
+              !authorized
+            ) {
+              return new Response(
+                "Unauthorized",
+                {
+                  status:
+                    401,
+                },
+              );
+            }
 
-          return Response.json(result);
-        } catch (error) {
-          console.error(
-            "[cron] Reminder sweep failed",
-            error,
-          );
+            try {
+              const {
+                runRsvpReminderSweep,
+              } =
+                await import(
+                  "@/lib/rsvp-reminders.server"
+                );
 
-          return Response.json(
-            {
-              error:
-                "Reminder sweep failed",
-            },
-            {
-              status: 500,
-            },
-          );
-        }
+              const result =
+                await runRsvpReminderSweep();
+
+              return Response.json(
+                result,
+              );
+            } catch (
+              error
+            ) {
+              console.error(
+                "[cron] RSVP reminder sweep failed",
+                error,
+              );
+
+              return Response.json(
+                {
+                  error:
+                    "RSVP reminder sweep failed",
+                },
+                {
+                  status:
+                    500,
+                },
+              );
+            }
+          },
       },
     },
-  },
-});
+  });
