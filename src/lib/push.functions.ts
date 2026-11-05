@@ -174,7 +174,7 @@ export const reportPushClientStatus = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Clock reminder tracking is disabled; local Clock time tracking still works. */
+/** Clock reminder tracking stays disabled. */
 export async function markTimerRunning(_options: { data: { startedAt: string } }) {
   return { ok: true };
 }
@@ -215,7 +215,6 @@ export const notifyMeetingCreated = createServerFn({ method: "POST" })
       (id) => id !== context.userId,
     );
 
-    // New meetings remain in the in-app inbox regardless of Push preferences.
     if (audience.length > 0) {
       try {
         const { error: notificationError } = await (supabaseAdmin as any)
@@ -234,7 +233,10 @@ export const notifyMeetingCreated = createServerFn({ method: "POST" })
           );
 
         if (notificationError) {
-          console.error("[push] Failed to create meeting in-app notifications", notificationError);
+          console.error(
+            "[push] Failed to create meeting in-app notifications",
+            notificationError,
+          );
         }
       } catch (error) {
         console.error("[push] Failed to create meeting in-app notifications", error);
@@ -260,11 +262,17 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(rsvpChangeSchema)
   .handler(async ({ data, context }) => {
-    if (!data.previousStatus || data.previousStatus === data.status) {
+    // A first-time "Can't attend" is a cancellation/decline worth notifying.
+    // A first-time "Attending" does not trigger the additional admin push.
+    if (
+      data.previousStatus === data.status ||
+      (data.previousStatus === null && data.status === "Attending")
+    ) {
       return { sent: 0 };
     }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
     const { data: storedRsvp, error: storedRsvpError } = await supabaseAdmin
       .from("rsvps")
       .select("status")
@@ -272,24 +280,74 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
 
+    // Don't notify after a failed or superseded RSVP.
     if (storedRsvpError || !storedRsvp || storedRsvp.status !== data.status) {
       return { sent: 0 };
     }
 
     const { sendPushToUsers, adminUserIds } = await import("./push.server");
-    const [{ data: meeting }, { data: profile }] = await Promise.all([
-      supabaseAdmin.from("meetings").select("title").eq("id", data.meetingId).maybeSingle(),
-      supabaseAdmin.from("profiles").select("name").eq("id", context.userId).maybeSingle(),
+
+    const [meetingResult, profileResult, allAdmins] = await Promise.all([
+      supabaseAdmin
+        .from("meetings")
+        .select("title")
+        .eq("id", data.meetingId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("profiles")
+        .select("name")
+        .eq("id", context.userId)
+        .maybeSingle(),
+      adminUserIds(),
     ]);
 
-    const who = profile?.name ?? "Someone";
-    const admins = (await adminUserIds()).filter((id) => id !== context.userId);
+    const admins = allAdmins.filter((id) => id !== context.userId);
+    if (admins.length === 0) return { sent: 0 };
+
+    const who = profileResult.data?.name ?? "Someone";
+    const meetingTitle = meetingResult.data?.title ?? "a meeting";
+    const cancellation = data.status === "Declined";
+
+    const title = cancellation
+      ? data.previousStatus === "Attending"
+        ? "Attendance cancelled"
+        : "Can't attend"
+      : "Attendance changed";
+
+    const body = cancellation
+      ? data.previousStatus === "Attending"
+        ? `${who} cancelled their attendance for ${meetingTitle}.`
+        : `${who} can't attend ${meetingTitle}.`
+      : `${who} switched to attending ${meetingTitle}.`;
+
+    // Persist the event in every other admin's inbox, even if push is disabled.
+    // AppHeader already listens to INSERT events on this table.
+    try {
+      const { error } = await (supabaseAdmin as any)
+        .from("user_notifications")
+        .insert(
+          admins.map((userId) => ({
+            user_id: userId,
+            kind: "meeting",
+            title,
+            message: body,
+            task_id: null,
+            created_by: context.userId,
+            requires_ack: false,
+            popup_dismissed_at: new Date().toISOString(),
+          })),
+        );
+
+      if (error) {
+        console.error("[push] RSVP inbox notification failed", error);
+      }
+    } catch (error) {
+      console.error("[push] RSVP inbox notification failed", error);
+    }
+
     const sent = await sendPushToUsers(admins, {
-      title: "Attendance changed",
-      body:
-        data.status === "Attending"
-          ? `${who} switched to attending ${meeting?.title ?? "a meeting"}.`
-          : `${who} switched to not attending ${meeting?.title ?? "a meeting"}.`,
+      title,
+      body,
       url: "/meetings",
       tag: `rsvp-${data.meetingId}-${context.userId}`,
     });
@@ -297,7 +355,7 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
     return { sent };
   });
 
-/** Daily RSVP reminders are handled only by the existing Supabase cron. */
+/** Daily RSVP reminders remain handled by the existing Supabase cron. */
 export async function sweepReminders() {
   return { skipped: true };
 }
@@ -340,13 +398,18 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
     if (!adminRole) throw new Error("Forbidden");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
     const [subscriptionsResult, clientsResult] = await Promise.all([
       (supabaseAdmin as any)
         .from("push_subscriptions")
-        .select("user_id, endpoint, last_attempt_at, last_success_at, last_failure_at, last_failure_status, last_failure_message"),
+        .select(
+          "user_id, endpoint, last_attempt_at, last_success_at, last_failure_at, last_failure_status, last_failure_message",
+        ),
       (supabaseAdmin as any)
         .from("push_clients")
-        .select("user_id, client_id, endpoint, permission, last_seen_at, ever_registered_at"),
+        .select(
+          "user_id, client_id, endpoint, permission, last_seen_at, ever_registered_at",
+        ),
     ]);
 
     if (subscriptionsResult.error) throw new Error(subscriptionsResult.error.message);
@@ -354,18 +417,22 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
 
     const subscriptions = (subscriptionsResult.data ?? []) as SubscriptionHealthRow[];
     const clients = (clientsResult.data ?? []) as ClientHealthRow[];
+
     const userIds = [...new Set([
       ...subscriptions.map((row) => row.user_id),
       ...clients.map((row) => row.user_id),
     ])];
+
     const now = Date.now();
 
     const userStatuses: PushAdminUserHealth[] = userIds.map((userId) => {
       const userSubscriptions = subscriptions.filter((row) => row.user_id === userId);
       const userClients = clients.filter((row) => row.user_id === userId);
+
       let workingDevices = 0;
       let failingDevices = 0;
       let untestedDevices = 0;
+
       const failingSubscriptionRows: SubscriptionHealthRow[] = [];
 
       for (const row of userSubscriptions) {
@@ -386,15 +453,26 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
         untestedDevices += 1;
       }
 
-      const registeredClients = userClients.filter((row) => row.ever_registered_at !== null);
-      const blockedClients = registeredClients.filter((row) => row.permission !== "granted").length;
+      const registeredClients = userClients.filter(
+        (row) => row.ever_registered_at !== null,
+      );
+
+      const blockedClients = registeredClients.filter(
+        (row) => row.permission !== "granted",
+      ).length;
+
       const allRegisteredClientsBlocked =
-        registeredClients.length > 0 && blockedClients === registeredClients.length;
+        registeredClients.length > 0 &&
+        blockedClients === registeredClients.length;
 
       let status: PushAdminHealthStatus;
+
       if (workingDevices > 0) {
         status = "working";
-      } else if (blockedClients > 0 && (userSubscriptions.length === 0 || allRegisteredClientsBlocked)) {
+      } else if (
+        blockedClients > 0 &&
+        (userSubscriptions.length === 0 || allRegisteredClientsBlocked)
+      ) {
         status = "blocked";
       } else if (failingDevices > 0) {
         status = "failing";
@@ -405,7 +483,10 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
       }
 
       const failureRowsForDetails =
-        failingSubscriptionRows.length > 0 ? failingSubscriptionRows : userSubscriptions;
+        failingSubscriptionRows.length > 0
+          ? failingSubscriptionRows
+          : userSubscriptions;
+
       const latestFailureRow = failureRowsForDetails.reduce<SubscriptionHealthRow | null>(
         (latest, row) => {
           const rowMs = timestampMs(row.last_failure_at);
@@ -415,6 +496,7 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
         },
         null,
       );
+
       const latestClient = userClients.reduce<ClientHealthRow | null>(
         (latest, row) => {
           const rowMs = timestampMs(row.last_seen_at);
@@ -434,8 +516,12 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
         untestedDevices,
         reportingClients: userClients.length,
         blockedClients,
-        lastAttemptAt: latestTimestamp(userSubscriptions.map((row) => row.last_attempt_at)),
-        lastSuccessAt: latestTimestamp(userSubscriptions.map((row) => row.last_success_at)),
+        lastAttemptAt: latestTimestamp(
+          userSubscriptions.map((row) => row.last_attempt_at),
+        ),
+        lastSuccessAt: latestTimestamp(
+          userSubscriptions.map((row) => row.last_success_at),
+        ),
         lastFailureAt: latestFailureRow?.last_failure_at ?? null,
         lastFailureStatus: latestFailureRow?.last_failure_status ?? null,
         lastFailureMessage: latestFailureRow?.last_failure_message ?? null,
@@ -466,6 +552,7 @@ export const broadcastPush = createServerFn({ method: "POST" })
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { sendPushToUsers } = await import("./push.server");
+
     let targetUserIds: string[];
 
     if (data.userIds) {
@@ -485,6 +572,7 @@ export const broadcastPush = createServerFn({ method: "POST" })
         .select("user_id");
 
       if (error) throw new Error(error.message);
+
       targetUserIds = [...new Set<string>(
         (subscriptions ?? []).map((subscription) => String(subscription.user_id)),
       )];
@@ -532,10 +620,12 @@ export const listPushTemplates = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<PushTemplate[]> => {
     await assertPushAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
     const { data, error } = await (supabaseAdmin as any)
       .from("push_templates")
       .select("id, name, title, body")
       .order("name");
+
     if (error) throw new Error(error.message);
     return (data ?? []) as PushTemplate[];
   });
@@ -546,11 +636,26 @@ export const savePushTemplate = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<PushTemplate> => {
     await assertPushAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const row = { name: data.name, title: data.title, body: data.body };
+
+    const row = {
+      name: data.name,
+      title: data.title,
+      body: data.body,
+    };
+
     const query = data.id
-      ? (supabaseAdmin as any).from("push_templates").update(row).eq("id", data.id)
-      : (supabaseAdmin as any).from("push_templates").insert({ ...row, created_by: context.userId });
-    const { data: saved, error } = await query.select("id, name, title, body").single();
+      ? (supabaseAdmin as any)
+          .from("push_templates")
+          .update(row)
+          .eq("id", data.id)
+      : (supabaseAdmin as any)
+          .from("push_templates")
+          .insert({ ...row, created_by: context.userId });
+
+    const { data: saved, error } = await query
+      .select("id, name, title, body")
+      .single();
+
     if (error) throw new Error(error.message);
     return saved as PushTemplate;
   });
@@ -561,10 +666,12 @@ export const deletePushTemplate = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertPushAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
     const { error } = await (supabaseAdmin as any)
       .from("push_templates")
       .delete()
       .eq("id", data.id);
+
     if (error) throw new Error(error.message);
     return { ok: true };
   });

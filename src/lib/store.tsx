@@ -1,3 +1,4 @@
+
 import {
   createContext,
   useCallback,
@@ -7,14 +8,12 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import {
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/integrations/supabase/client";
+import { CLOCK_ENABLED } from "./feature-flags";
 import { completeOnboardingProfile } from "./profile.functions";
 import { getCachedAvatarPaths, signAvatarPath } from "./avatars";
 import {
@@ -42,6 +41,7 @@ import type {
 } from "./types";
 
 const SESSION_KEY = "chrona-active-session";
+const DIRECTORY_CACHE_MS = 60_000;
 
 interface ActiveSession {
   userId: string;
@@ -77,61 +77,27 @@ export interface AppStore extends Db {
   stopSession: (description: string) => void;
   cancelSession: () => void;
 
-  updateTimeEntry: (
-    id: string,
-    description: string,
-  ) => void;
-
+  updateTimeEntry: (id: string, description: string) => void;
   deleteTimeEntry: (id: string) => void;
 
+  setRsvp: (meetingId: string, status: RsvpStatus) => void;
+  rsvpFor: (meetingId: string, userId?: string) => Rsvp | undefined;
 
-  setRsvp: (
-    meetingId: string,
-    status: RsvpStatus,
-  ) => void;
-
-  rsvpFor: (
-    meetingId: string,
-    userId?: string,
-  ) => Rsvp | undefined;
-
-  createMeeting: (
-    meeting: Omit<Meeting, "id">,
-  ) => void;
-
+  createMeeting: (meeting: Omit<Meeting, "id">) => void;
   updateMeeting: (
     id: string,
     patch: Partial<Omit<Meeting, "id">>,
   ) => void;
-
   toggleMeetingLock: (id: string) => void;
-
   deleteMeeting: (id: string) => void;
 
-  assignTeam: (
-    userId: string,
-    teamId: string | null,
-  ) => void;
-
-  setUserTeams: (
-    userId: string,
-    teamIds: string[],
-  ) => void;
-
-
-
-  setRoles: (
-    userId: string,
-    roles: Profile["role"][],
-  ) => void;
-
+  assignTeam: (userId: string, teamId: string | null) => void;
+  setUserTeams: (userId: string, teamIds: string[]) => void;
+  setRoles: (userId: string, roles: Profile["role"][]) => void;
   createTeam: (name: string) => void;
 
   markNotificationsRead: () => void;
-
-  teamName: (
-    teamId: string | null,
-  ) => string;
+  teamName: (teamId: string | null) => string;
 
   updateOwnProfile: (patch: {
     name?: string;
@@ -145,170 +111,148 @@ export interface AppStore extends Db {
   }) => Promise<void>;
 
   signOut: () => Promise<void>;
-
   refresh: () => void;
 }
 
-const StoreContext =
-  createContext<AppStore | null>(null);
+const StoreContext = createContext<AppStore | null>(null);
 
 async function fetchDb(
   currentUserId: string,
   queryClient: QueryClient,
 ): Promise<Db> {
+  // Fetch the shared datasets first. Roles determine whether we need the
+  // expensive Clock history and legacy admin-notification datasets.
   const [
     teams,
     profiles,
     roles,
-    entries,
     meetings,
     rsvps,
-    notifications,
     memberships,
   ] = await Promise.all([
     supabase
       .from("teams")
-      .select("*")
+      .select("id, name")
       .order("name"),
 
     supabase
       .from("profiles")
-      .select(
-        "id, name, avatar_url, team_id, created_at",
-      )
+      .select("id, name, avatar_url, team_id, created_at")
       .order("name"),
 
     supabase
       .from("user_roles")
-      .select("*"),
-
-    supabase
-      .from("time_entries")
-      .select("*")
-      .order("start_time", {
-        ascending: false,
-      }),
+      .select("user_id, role"),
 
     supabase
       .from("meetings")
-      .select("*")
+      .select("id, title, date, time, team_id, recurrence, locked")
       .order("date"),
 
     supabase
       .from("rsvps")
-      .select("*"),
-
-    supabase
-      .from("notifications")
-      .select("*")
-      .order("created_at", {
-        ascending: false,
-      }),
+      .select("id, user_id, meeting_id, status, created_at"),
 
     supabase
       .from("team_members")
       .select("user_id, team_id"),
   ]);
 
-  const membershipMap = new Map<
-    string,
-    string[]
-  >();
+  const isAdmin = (roles.data ?? []).some(
+    (role) =>
+      role.user_id === currentUserId &&
+      role.role === "admin",
+  );
+
+  // Admin analytics still needs complete Clock history.
+  // Other members need it only when the Clock feature is enabled.
+  const [entries, notifications] = await Promise.all([
+    isAdmin || CLOCK_ENABLED
+      ? supabase
+          .from("time_entries")
+          .select(
+            "id, user_id, start_time, end_time, duration_ms, description",
+          )
+          .order("start_time", { ascending: false })
+      : Promise.resolve({ data: [] }),
+
+    // The legacy notifications table is an admin-only feed.
+    // Regular users already receive their own user_notifications separately.
+    isAdmin
+      ? supabase
+          .from("notifications")
+          .select("id, message, created_at, read, tone")
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const membershipMap = new Map<string, string[]>();
 
   for (const row of memberships.data ?? []) {
-    const list =
-      membershipMap.get(row.user_id) ??
-      [];
-
+    const list = membershipMap.get(row.user_id) ?? [];
     list.push(row.team_id);
-
-    membershipMap.set(
-      row.user_id,
-      list,
-    );
+    membershipMap.set(row.user_id, list);
   }
-
 
   /*
    * Roles are self-scoped by row level security, so a
-   * normal member only ever sees their own role.
+   * normal member only sees their own role.
    */
-  const roleMap = new Map<
-    string,
-    Set<Profile["role"]>
-  >();
+  const roleMap = new Map<string, Set<Profile["role"]>>();
 
-  const addRole = (
-    userId: string,
-    role: Profile["role"],
-  ) => {
-    const set =
-      roleMap.get(userId) ??
-      new Set<Profile["role"]>();
-
+  const addRole = (userId: string, role: Profile["role"]) => {
+    const set = roleMap.get(userId) ?? new Set<Profile["role"]>();
     set.add(role);
-
     roleMap.set(userId, set);
   };
 
   for (const role of roles.data ?? []) {
     if (role.role === "admin") {
       addRole(role.user_id, "Admin");
-    } else if (
-      (role.role as string) === "mentor"
-    ) {
+    } else if ((role.role as string) === "mentor") {
       addRole(role.user_id, "Mentor");
     }
   }
 
+  // Reuse a successful mentor-directory result during repeated store refreshes.
+  // A role change invalidates this cache below.
   try {
-    for (const mentorId of await getMentorIds()) {
+    const mentorIds = await queryClient.fetchQuery({
+      queryKey: ["pom-mentor-ids", currentUserId],
+      queryFn: () => getMentorIds(),
+      staleTime: DIRECTORY_CACHE_MS,
+    });
+
+    for (const mentorId of mentorIds) {
       addRole(mentorId, "Mentor");
     }
   } catch {
     // Mentor list is optional; meetings fall back to no Mentors section.
   }
 
-  const emailMap = new Map<
-    string,
-    string
-  >();
+  const emailMap = new Map<string, string>();
 
   /*
    * Email addresses are not readable by other members.
    * Admins load them through a secured server action.
    */
-  if (
-    roleMap
-      .get(currentUserId)
-      ?.has("Admin")
-  ) {
+  if (roleMap.get(currentUserId)?.has("Admin")) {
     try {
-      const directory =
-        await getAdminDirectory();
+      const directory = await queryClient.fetchQuery({
+        queryKey: ["pom-admin-directory", currentUserId],
+        queryFn: () => getAdminDirectory(),
+        staleTime: DIRECTORY_CACHE_MS,
+      });
 
       for (const entry of directory.emails) {
-        emailMap.set(
-          entry.id,
-          entry.email,
-        );
+        emailMap.set(entry.id, entry.email);
       }
 
       for (const entry of directory.roles) {
-        if (
-          entry.role === "admin"
-        ) {
-          addRole(
-            entry.userId,
-            "Admin",
-          );
-        } else if (
-          (entry.role as string) === "mentor"
-        ) {
-          addRole(
-            entry.userId,
-            "Mentor",
-          );
+        if (entry.role === "admin") {
+          addRole(entry.userId, "Admin");
+        } else if ((entry.role as string) === "mentor") {
+          addRole(entry.userId, "Mentor");
         }
       }
     } catch {
@@ -316,45 +260,21 @@ async function fetchDb(
     }
   }
 
-  const rolesOf = (
-    id: string,
-  ): Profile["role"][] => {
+  const rolesOf = (id: string): Profile["role"][] => {
     const set = roleMap.get(id);
-
-    if (!set || set.size === 0) {
-      return ["User"];
-    }
+    if (!set || set.size === 0) return ["User"];
 
     const ordered: Profile["role"][] = [];
-
-    if (set.has("Admin")) {
-      ordered.push("Admin");
-    }
-
-    if (set.has("Mentor")) {
-      ordered.push("Mentor");
-    }
-
-    if (ordered.length === 0) {
-      ordered.push("User");
-    }
-
+    if (set.has("Admin")) ordered.push("Admin");
+    if (set.has("Mentor")) ordered.push("Mentor");
+    if (ordered.length === 0) ordered.push("User");
     return ordered;
   };
 
-  const roleOf = (
-    id: string,
-  ): Profile["role"] => {
+  const roleOf = (id: string): Profile["role"] => {
     const set = roleMap.get(id);
-
-    if (set?.has("Admin")) {
-      return "Admin";
-    }
-
-    if (set?.has("Mentor")) {
-      return "Mentor";
-    }
-
+    if (set?.has("Admin")) return "Admin";
+    if (set?.has("Mentor")) return "Mentor";
     return "User";
   };
 
@@ -365,55 +285,35 @@ async function fetchDb(
   const avatarMap = await getCachedAvatarPaths(
     queryClient,
     currentUserId,
-    (profiles.data ?? []).map(
-      (profile) => profile.avatar_url,
-    ),
+    (profiles.data ?? []).map((profile) => profile.avatar_url),
   );
 
   return {
-    teams: (teams.data ?? []).map(
-      (team) => ({
-        id: team.id,
-        name: team.name,
-      }),
-    ),
+    teams: (teams.data ?? []).map((team) => ({
+      id: team.id,
+      name: team.name,
+    })),
 
-    profiles: (
-      profiles.data ?? []
-    ).map((profile) => ({
+    profiles: (profiles.data ?? []).map((profile) => ({
       id: profile.id,
       name: profile.name,
-      email:
-        emailMap.get(profile.id) ??
-        "",
+      email: emailMap.get(profile.id) ?? "",
       role: roleOf(profile.id),
       roles: rolesOf(profile.id),
       teamId: profile.team_id,
       teamIds:
         membershipMap.get(profile.id) ??
-        (profile.team_id
-          ? [profile.team_id]
-          : []),
+        (profile.team_id ? [profile.team_id] : []),
 
       avatarUrl: profile.avatar_url
-        ? (avatarMap.get(
-            profile.avatar_url,
-          ) ?? profile.avatar_url)
+        ? (avatarMap.get(profile.avatar_url) ?? profile.avatar_url)
         : null,
 
-
-
-      /*
-       * Onboarding is NOT stored in profiles anymore.
-       * The current user's value is replaced below
-       * using Supabase Auth app_metadata.
-       */
+      // Onboarding is sourced from Auth app_metadata below.
       onboarded: false,
     })),
 
-    timeEntries: (
-      entries.data ?? []
-    ).map((entry) => ({
+    timeEntries: (entries.data ?? []).map((entry) => ({
       id: entry.id,
       userId: entry.user_id,
       startTime: entry.start_time,
@@ -422,24 +322,17 @@ async function fetchDb(
       description: entry.description,
     })),
 
-    meetings: (
-      meetings.data ?? []
-    ).map((meeting) => ({
+    meetings: (meetings.data ?? []).map((meeting) => ({
       id: meeting.id,
       title: meeting.title,
       date: meeting.date,
       time: meeting.time,
-      teamId:
-        meeting.team_id ?? "general",
-      recurrence:
-        (meeting.recurrence ??
-          "none") as Recurrence,
+      teamId: meeting.team_id ?? "general",
+      recurrence: (meeting.recurrence ?? "none") as Recurrence,
       locked: meeting.locked ?? false,
     })),
 
-    rsvps: (
-      rsvps.data ?? []
-    ).map((rsvp) => ({
+    rsvps: (rsvps.data ?? []).map((rsvp) => ({
       id: rsvp.id,
       userId: rsvp.user_id,
       meetingId: rsvp.meeting_id,
@@ -447,15 +340,12 @@ async function fetchDb(
       createdAt: rsvp.created_at,
     })),
 
-    notifications: (
-      notifications.data ?? []
-    ).map((notification) => ({
+    notifications: (notifications.data ?? []).map((notification) => ({
       id: notification.id,
       message: notification.message,
       createdAt: notification.created_at,
       read: notification.read,
-      tone:
-        notification.tone as AppNotification["tone"],
+      tone: notification.tone as AppNotification["tone"],
     })),
   };
 }
@@ -468,64 +358,31 @@ export function AppStoreProvider({
   children: ReactNode;
 }) {
   const userId = session.user.id;
+  const queryClient = useQueryClient();
 
-  const queryClient =
-    useQueryClient();
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
 
-  const [
-    activeSession,
-    setActiveSession,
-  ] = useState<ActiveSession | null>(
-    null,
-  );
-
-  /*
-   * Onboarding state now comes from Supabase Auth
-   * app_metadata instead of the profiles table.
-   */
-  const [
-    onboardingComplete,
-    setOnboardingComplete,
-  ] = useState(
-    session.user.app_metadata?.['onboarded'] ===
-      true,
+  const [onboardingComplete, setOnboardingComplete] = useState(
+    session.user.app_metadata?.["onboarded"] === true,
   );
 
   useEffect(() => {
     setOnboardingComplete(
-      session.user.app_metadata?.['onboarded'] ===
-        true,
+      session.user.app_metadata?.["onboarded"] === true,
     );
-  }, [
-    userId,
-    session.user.app_metadata?.['onboarded'],
-  ]);
+  }, [userId, session.user.app_metadata?.["onboarded"]]);
 
   useEffect(() => {
-    void sweepReminders().catch(
-      () => undefined,
-    );
+    void sweepReminders().catch(() => undefined);
   }, [userId]);
 
   useEffect(() => {
     try {
-      const raw =
-        localStorage.getItem(
-          SESSION_KEY,
-        );
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return;
 
-      if (!raw) {
-        return;
-      }
-
-      const parsed =
-        JSON.parse(
-          raw,
-        ) as ActiveSession;
-
-      if (
-        parsed.userId === userId
-      ) {
+      const parsed = JSON.parse(raw) as ActiveSession;
+      if (parsed.userId === userId) {
         setActiveSession(parsed);
       }
     } catch {
@@ -533,191 +390,105 @@ export function AppStoreProvider({
     }
   }, [userId]);
 
-  const persistSession =
-    useCallback(
-      (
-        value:
-          | ActiveSession
-          | null,
-      ) => {
-        setActiveSession(value);
+  const persistSession = useCallback(
+    (value: ActiveSession | null) => {
+      setActiveSession(value);
 
-        if (value) {
-          localStorage.setItem(
-            SESSION_KEY,
-            JSON.stringify(value),
-          );
-        } else {
-          localStorage.removeItem(
-            SESSION_KEY,
-          );
-        }
-      },
-      [],
-    );
+      if (value) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(value));
+      } else {
+        localStorage.removeItem(SESSION_KEY);
+      }
+    },
+    [],
+  );
 
-  const {
-    data,
-    isLoading,
-  } = useQuery({
-    queryKey: [
-      "chrona-db",
-      userId,
-    ],
-
-    queryFn: () =>
-      fetchDb(userId, queryClient),
+  const { data, isLoading } = useQuery({
+    queryKey: ["chrona-db", userId],
+    queryFn: () => fetchDb(userId, queryClient),
   });
 
-  const db =
-    data ?? emptyDb;
+  const db = data ?? emptyDb;
 
-  const refresh =
-    useCallback(() => {
-      void queryClient.invalidateQueries({
-        queryKey: [
-          "chrona-db",
-        ],
-      });
-    }, [queryClient]);
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ["chrona-db"],
+    });
+  }, [queryClient]);
 
-  const currentUser: Profile =
-    useMemo(() => {
-      const databaseProfile =
-        db.profiles.find(
-          (profile) =>
-            profile.id === userId,
-        );
+  const currentUser: Profile = useMemo(() => {
+    const databaseProfile = db.profiles.find(
+      (profile) => profile.id === userId,
+    );
 
-      if (databaseProfile) {
-        return {
-          ...databaseProfile,
-
-          onboarded:
-            onboardingComplete,
-        };
-      }
-
+    if (databaseProfile) {
       return {
-        id: userId,
-
-        name:
-          session.user.user_metadata
-            ?.['name'] ??
-          session.user.email?.split(
-            "@",
-          )[0] ??
-          "You",
-
-        email:
-          session.user.email ?? "",
-
-        role: "User",
-
-        roles: ["User"],
-
-        teamId: null,
-
-        teamIds: [],
-
-
-        avatarUrl: null,
-
-        onboarded:
-          onboardingComplete,
+        ...databaseProfile,
+        onboarded: onboardingComplete,
       };
-    }, [
-      db.profiles,
-      userId,
-      session.user.email,
-      session.user.user_metadata?.['name'],
-      onboardingComplete,
-    ]);
+    }
 
-  const teamName =
-    useCallback(
-      (
-        teamId:
-          | string
-          | null,
-      ) => {
-        if (
-          teamId === null
-        ) {
-          return "Unassigned";
-        }
+    return {
+      id: userId,
+      name:
+        session.user.user_metadata?.["name"] ??
+        session.user.email?.split("@")[0] ??
+        "You",
+      email: session.user.email ?? "",
+      role: "User",
+      roles: ["User"],
+      teamId: null,
+      teamIds: [],
+      avatarUrl: null,
+      onboarded: onboardingComplete,
+    };
+  }, [
+    db.profiles,
+    userId,
+    session.user.email,
+    session.user.user_metadata?.["name"],
+    onboardingComplete,
+  ]);
 
-        if (
-          teamId === "general"
-        ) {
-          return "General";
-        }
+  const teamName = useCallback(
+    (teamId: string | null) => {
+      if (teamId === null) return "Unassigned";
+      if (teamId === "general") return "General";
 
-        return (
-          db.teams.find(
-            (team) =>
-              team.id === teamId,
-          )?.name ??
-          "Unassigned"
-        );
-      },
-      [db.teams],
-    );
+      return (
+        db.teams.find((team) => team.id === teamId)?.name ??
+        "Unassigned"
+      );
+    },
+    [db.teams],
+  );
 
-  const notify =
-    useCallback(
-      async (
-        message: string,
-        tone: AppNotification["tone"],
-      ) => {
-        const { error } =
-          await supabase
-            .from(
-              "notifications",
-            )
-            .insert({
-              message,
-              tone,
-            });
+  const notify = useCallback(
+    async (message: string, tone: AppNotification["tone"]) => {
+      const { error } = await supabase
+        .from("notifications")
+        .insert({ message, tone });
 
-        if (error) {
-          console.error(
-            "Failed to create notification:",
-            error,
-          );
-        }
-      },
-      [],
-    );
+      if (error) {
+        console.error("Failed to create notification:", error);
+      }
+    },
+    [],
+  );
 
   const value: AppStore = {
     ...db,
-
     loading: isLoading,
-
     currentUser,
-
-    /*
-     * This no longer depends on
-     * public.profiles.onboarded.
-     */
-    needsOnboarding:
-      !onboardingComplete,
-
+    needsOnboarding: !onboardingComplete,
     activeSession,
-
     teamName,
-
     refresh,
 
     startSession: () => {
-      const startTime =
-        new Date().toISOString();
+      const startTime = new Date().toISOString();
 
-      persistSession({
-        userId,
-        startTime,
-      });
+      persistSession({ userId, startTime });
 
       void markTimerRunning({
         data: { startedAt: startTime },
@@ -726,58 +497,31 @@ export function AppStoreProvider({
 
     cancelSession: () => {
       persistSession(null);
-
-      void markTimerStopped().catch(
-        () => undefined,
-      );
+      void markTimerStopped().catch(() => undefined);
     },
 
-    stopSession: (
-      description,
-    ) => {
-      if (!activeSession) {
-        return;
-      }
+    stopSession: (description) => {
+      if (!activeSession) return;
 
-      const end =
-        new Date();
-
-      const start =
-        new Date(
-          activeSession.startTime,
-        );
+      const end = new Date();
+      const start = new Date(activeSession.startTime);
 
       persistSession(null);
-
-      void markTimerStopped().catch(
-        () => undefined,
-      );
+      void markTimerStopped().catch(() => undefined);
 
       void (async () => {
-        const { error } =
-          await supabase
-            .from("time_entries")
-            .insert({
-              user_id: userId,
-
-              start_time:
-                activeSession.startTime,
-
-              end_time:
-                end.toISOString(),
-
-              duration_ms:
-                end.getTime() -
-                start.getTime(),
-
-              description,
-            });
+        const { error } = await supabase
+          .from("time_entries")
+          .insert({
+            user_id: userId,
+            start_time: activeSession.startTime,
+            end_time: end.toISOString(),
+            duration_ms: end.getTime() - start.getTime(),
+            description,
+          });
 
         if (error) {
-          console.error(
-            "Failed to save time entry:",
-            error,
-          );
+          console.error("Failed to save time entry:", error);
           return;
         }
 
@@ -785,23 +529,16 @@ export function AppStoreProvider({
       })();
     },
 
-    updateTimeEntry: (
-      id,
-      description,
-    ) => {
+    updateTimeEntry: (id, description) => {
       void (async () => {
-        const { error } =
-          await supabase
-            .from("time_entries")
-            .update({ description })
-            .eq("id", id)
-            .eq("user_id", userId);
+        const { error } = await supabase
+          .from("time_entries")
+          .update({ description })
+          .eq("id", id)
+          .eq("user_id", userId);
 
         if (error) {
-          console.error(
-            "Failed to update time entry:",
-            error,
-          );
+          console.error("Failed to update time entry:", error);
           return;
         }
 
@@ -811,18 +548,14 @@ export function AppStoreProvider({
 
     deleteTimeEntry: (id) => {
       void (async () => {
-        const { error } =
-          await supabase
-            .from("time_entries")
-            .delete()
-            .eq("id", id)
-            .eq("user_id", userId);
+        const { error } = await supabase
+          .from("time_entries")
+          .delete()
+          .eq("id", id)
+          .eq("user_id", userId);
 
         if (error) {
-          console.error(
-            "Failed to delete time entry:",
-            error,
-          );
+          console.error("Failed to delete time entry:", error);
           return;
         }
 
@@ -830,144 +563,91 @@ export function AppStoreProvider({
       })();
     },
 
-
-
-    rsvpFor: (
-      meetingId,
-      uid,
-    ) =>
+    rsvpFor: (meetingId, uid) =>
       db.rsvps.find(
         (rsvp) =>
-          rsvp.meetingId ===
-            meetingId &&
-          rsvp.userId ===
-            (uid ?? userId),
+          rsvp.meetingId === meetingId &&
+          rsvp.userId === (uid ?? userId),
       ),
 
-    setRsvp: (
-      meetingId,
-      status,
-    ) => {
-      const meeting =
-        db.meetings.find(
-          (candidate) =>
-            candidate.id ===
-            meetingId,
-        );
+    setRsvp: (meetingId, status) => {
+      const meeting = db.meetings.find(
+        (candidate) => candidate.id === meetingId,
+      );
 
-      if (
-        meeting?.locked &&
-        currentUser.role !==
-          "Admin"
-      ) {
+      if (meeting?.locked && currentUser.role !== "Admin") {
         return;
       }
 
       const previous =
         db.rsvps.find(
           (rsvp) =>
-            rsvp.meetingId ===
-              meetingId &&
+            rsvp.meetingId === meetingId &&
             rsvp.userId === userId,
         )?.status ?? null;
 
+      // Avoid unnecessary upserts, notifications and full-store refreshes.
+      if (previous === status) return;
+
       void (async () => {
-        const {
-          error: rsvpError,
-        } = await supabase
+        const { error: rsvpError } = await supabase
           .from("rsvps")
           .upsert(
             {
-              user_id:
-                userId,
-
-              meeting_id:
-                meetingId,
-
+              user_id: userId,
+              meeting_id: meetingId,
               status,
             },
-            {
-              onConflict:
-                "user_id,meeting_id",
-            },
+            { onConflict: "user_id,meeting_id" },
           );
 
         if (rsvpError) {
-          console.error(
-            "Failed to save RSVP:",
-            rsvpError,
-          );
+          console.error("Failed to save RSVP:", rsvpError);
           return;
         }
 
         await notify(
-          status ===
-            "Attending"
+          status === "Attending"
             ? `${currentUser.name} is attending ${meeting?.title}.`
             : `${currentUser.name} can't attend ${meeting?.title}.`,
-
-          status ===
-            "Attending"
-            ? "positive"
-            : "negative",
+          status === "Attending" ? "positive" : "negative",
         );
 
         void notifyRsvpChange({
           data: {
             meetingId,
             status,
-            previousStatus:
-              previous,
+            previousStatus: previous,
           },
-        }).catch(
-          () => undefined,
-        );
+        }).catch((error) => {
+          console.error("Failed to notify admins of RSVP change:", error);
+        });
 
         refresh();
       })();
     },
 
-    createMeeting: (
-      meeting,
-    ) => {
+    createMeeting: (meeting) => {
       void (async () => {
-        const {
-          data: createdMeeting,
-          error: meetingError,
-        } = await supabase
-          .from("meetings")
-          .insert({
-            title:
-              meeting.title,
-
-            date:
-              meeting.date,
-
-            time:
-              meeting.time,
-
-            team_id:
-              meeting.teamId ===
-              "general"
-                ? null
-                : meeting.teamId,
-
-            recurrence:
-              meeting.recurrence ??
-              "none",
-
-            locked:
-              meeting.locked ??
-              false,
-          })
-          .select("id")
-          .maybeSingle();
+        const { data: createdMeeting, error: meetingError } =
+          await supabase
+            .from("meetings")
+            .insert({
+              title: meeting.title,
+              date: meeting.date,
+              time: meeting.time,
+              team_id:
+                meeting.teamId === "general"
+                  ? null
+                  : meeting.teamId,
+              recurrence: meeting.recurrence ?? "none",
+              locked: meeting.locked ?? false,
+            })
+            .select("id")
+            .maybeSingle();
 
         if (meetingError) {
-          console.error(
-            "Failed to create meeting:",
-            meetingError,
-          );
+          console.error("Failed to create meeting:", meetingError);
           return;
         }
 
@@ -978,86 +658,52 @@ export function AppStoreProvider({
 
         if (createdMeeting?.id) {
           void notifyMeetingCreated({
-            data: {
-              meetingId:
-                createdMeeting.id,
-            },
-          }).catch(
-            () => undefined,
-          );
+            data: { meetingId: createdMeeting.id },
+          }).catch(() => undefined);
         }
 
         refresh();
       })();
     },
 
-    updateMeeting: (
-      id,
-      patch,
-    ) => {
+    updateMeeting: (id, patch) => {
       void (async () => {
-        const { error } =
-          await supabase
-            .from("meetings")
-            .update({
-              ...(patch.title !==
-              undefined
-                ? {
-                    title:
-                      patch.title,
-                  }
-                : {}),
+        const { error } = await supabase
+          .from("meetings")
+          .update({
+            ...(patch.title !== undefined
+              ? { title: patch.title }
+              : {}),
 
-              ...(patch.date !==
-              undefined
-                ? {
-                    date:
-                      patch.date,
-                  }
-                : {}),
+            ...(patch.date !== undefined
+              ? { date: patch.date }
+              : {}),
 
-              ...(patch.time !==
-              undefined
-                ? {
-                    time:
-                      patch.time,
-                  }
-                : {}),
+            ...(patch.time !== undefined
+              ? { time: patch.time }
+              : {}),
 
-              ...(patch.teamId !==
-              undefined
-                ? {
-                    team_id:
-                      patch.teamId ===
-                      "general"
-                        ? null
-                        : patch.teamId,
-                  }
-                : {}),
+            ...(patch.teamId !== undefined
+              ? {
+                  team_id:
+                    patch.teamId === "general"
+                      ? null
+                      : patch.teamId,
+                }
+              : {}),
 
-              ...(patch.recurrence !==
-              undefined
-                ? {
-                    recurrence:
-                      patch.recurrence,
-                  }
-                : {}),
+            ...(patch.recurrence !== undefined
+              ? { recurrence: patch.recurrence }
+              : {}),
 
-              ...(patch.locked !==
-              undefined
-                ? {
-                    locked:
-                      patch.locked,
-                  }
-                : {}),
-            })
-            .eq("id", id);
+            ...(patch.locked !== undefined
+              ? { locked: patch.locked }
+              : {}),
+          })
+          .eq("id", id);
 
         if (error) {
-          console.error(
-            "Failed to update meeting:",
-            error,
-          );
+          console.error("Failed to update meeting:", error);
           return;
         }
 
@@ -1065,34 +711,21 @@ export function AppStoreProvider({
       })();
     },
 
-    toggleMeetingLock: (
-      id,
-    ) => {
-      const meeting =
-        db.meetings.find(
-          (candidate) =>
-            candidate.id === id,
-        );
+    toggleMeetingLock: (id) => {
+      const meeting = db.meetings.find(
+        (candidate) => candidate.id === id,
+      );
 
-      if (!meeting) {
-        return;
-      }
+      if (!meeting) return;
 
       void (async () => {
-        const { error } =
-          await supabase
-            .from("meetings")
-            .update({
-              locked:
-                !meeting.locked,
-            })
-            .eq("id", id);
+        const { error } = await supabase
+          .from("meetings")
+          .update({ locked: !meeting.locked })
+          .eq("id", id);
 
         if (error) {
-          console.error(
-            "Failed to change meeting lock:",
-            error,
-          );
+          console.error("Failed to change meeting lock:", error);
           return;
         }
 
@@ -1100,21 +733,15 @@ export function AppStoreProvider({
       })();
     },
 
-    deleteMeeting: (
-      id,
-    ) => {
+    deleteMeeting: (id) => {
       void (async () => {
-        const { error } =
-          await supabase
-            .from("meetings")
-            .delete()
-            .eq("id", id);
+        const { error } = await supabase
+          .from("meetings")
+          .delete()
+          .eq("id", id);
 
         if (error) {
-          console.error(
-            "Failed to delete meeting:",
-            error,
-          );
+          console.error("Failed to delete meeting:", error);
           return;
         }
 
@@ -1122,28 +749,15 @@ export function AppStoreProvider({
       })();
     },
 
-    assignTeam: (
-      targetUserId,
-      teamId,
-    ) => {
+    assignTeam: (targetUserId, teamId) => {
       void (async () => {
-        const { error } =
-          await supabase
-            .from("profiles")
-            .update({
-              team_id:
-                teamId,
-            })
-            .eq(
-              "id",
-              targetUserId,
-            );
+        const { error } = await supabase
+          .from("profiles")
+          .update({ team_id: teamId })
+          .eq("id", targetUserId);
 
         if (error) {
-          console.error(
-            "Failed to assign team:",
-            error,
-          );
+          console.error("Failed to assign team:", error);
           return;
         }
 
@@ -1153,70 +767,42 @@ export function AppStoreProvider({
 
     /*
      * Multi-team membership. Rows in team_members are the
-     * source of truth; profiles.team_id keeps the first team
-     * so older single-team logic keeps working.
+     * source of truth; profiles.team_id keeps the first team.
      */
-    setUserTeams: (
-      targetUserId,
-      teamIds,
-    ) => {
+    setUserTeams: (targetUserId, teamIds) => {
       void (async () => {
-        const unique =
-          Array.from(
-            new Set(teamIds),
-          );
+        const unique = Array.from(new Set(teamIds));
 
-        const { error: deleteError } =
-          await supabase
-            .from("team_members")
-            .delete()
-            .eq(
-              "user_id",
-              targetUserId,
-            );
+        const { error: deleteError } = await supabase
+          .from("team_members")
+          .delete()
+          .eq("user_id", targetUserId);
 
         if (deleteError) {
-          console.error(
-            "Failed to update teams:",
-            deleteError,
-          );
+          console.error("Failed to update teams:", deleteError);
           return;
         }
 
         if (unique.length > 0) {
-          const { error: insertError } =
-            await supabase
-              .from("team_members")
-              .insert(
-                unique.map(
-                  (teamId) => ({
-                    user_id:
-                      targetUserId,
-                    team_id: teamId,
-                  }),
-                ),
-              );
+          const { error: insertError } = await supabase
+            .from("team_members")
+            .insert(
+              unique.map((teamId) => ({
+                user_id: targetUserId,
+                team_id: teamId,
+              })),
+            );
 
           if (insertError) {
-            console.error(
-              "Failed to update teams:",
-              insertError,
-            );
+            console.error("Failed to update teams:", insertError);
             return;
           }
         }
 
-        const { error: profileError } =
-          await supabase
-            .from("profiles")
-            .update({
-              team_id:
-                unique[0] ?? null,
-            })
-            .eq(
-              "id",
-              targetUserId,
-            );
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ team_id: unique[0] ?? null })
+          .eq("id", targetUserId);
 
         if (profileError) {
           console.error(
@@ -1229,57 +815,69 @@ export function AppStoreProvider({
       })();
     },
 
-
-
-    setRoles: (
-      targetUserId,
-      nextRoles,
-    ) => {
+    setRoles: (targetUserId, nextRoles) => {
       void (async () => {
         try {
           await setUserRole({
             data: {
-              userId:
-                targetUserId,
-
-              roles:
-                nextRoles.map(
-                  (role) =>
-                    role === "Admin"
-                      ? ("admin" as const)
-                      : role ===
-                          "Mentor"
-                        ? ("mentor" as const)
-                        : ("user" as const),
-                ),
+              userId: targetUserId,
+              roles: nextRoles.map((role) =>
+                role === "Admin"
+                  ? ("admin" as const)
+                  : role === "Mentor"
+                    ? ("mentor" as const)
+                    : ("user" as const),
+              ),
             },
           });
         } catch (error) {
-          console.error(
-            "Failed to save role:",
-            error,
-          );
+          console.error("Failed to save role:", error);
           return;
         }
+
+        // A role edit must be reflected immediately for the acting admin.
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["pom-mentor-ids", userId],
+            refetchType: "none",
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["pom-admin-directory", userId],
+            refetchType: "none",
+          }),
+        ]);
 
         refresh();
       })();
     },
 
-    createTeam: (
-      name,
-    ) => {
+    createTeam: (name) => {
       void (async () => {
-        const { error } =
-          await supabase
-            .from("teams")
-            .insert({
-              name,
-            });
+        const { error } = await supabase
+          .from("teams")
+          .insert({ name });
+
+        if (error) {
+          console.error("Failed to create team:", error);
+          return;
+        }
+
+        refresh();
+      })();
+    },
+
+    markNotificationsRead: () => {
+      if (currentUser.role !== "Admin") return;
+
+      void (async () => {
+        const { error } = await supabase
+          .from("notifications")
+          .update({ read: true })
+          .eq("read", false);
 
         if (error) {
           console.error(
-            "Failed to create team:",
+            "Failed to mark notifications as read:",
             error,
           );
           return;
@@ -1289,289 +887,150 @@ export function AppStoreProvider({
       })();
     },
 
-    markNotificationsRead:
-      () => {
-        if (
-          currentUser.role !==
-          "Admin"
-        ) {
-          return;
-        }
+    updateOwnProfile: async (patch) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          ...(patch.name !== undefined
+            ? { name: patch.name }
+            : {}),
 
-        void (async () => {
-          const { error } =
-            await supabase
-              .from(
-                "notifications",
-              )
-              .update({
-                read: true,
-              })
-              .eq(
-                "read",
-                false,
-              );
+          ...(patch.avatarUrl !== undefined
+            ? { avatar_url: patch.avatarUrl }
+            : {}),
+        })
+        .eq("id", userId);
 
-          if (error) {
-            console.error(
-              "Failed to mark notifications as read:",
-              error,
-            );
-            return;
-          }
+      if (error) throw new Error(error.message);
+      refresh();
+    },
 
-          refresh();
-        })();
-      },
+    completeOnboarding: async ({
+      name,
+      teamId,
+      avatarUrl,
+    }) => {
+      const updatedProfile = await completeOnboardingProfile({
+        data: {
+          name,
+          teamId,
+          avatarUrl,
+        },
+      });
 
-    updateOwnProfile:
-      async (patch) => {
-        const { error } =
-          await supabase
-            .from("profiles")
-            .update({
-              ...(patch.name !==
-              undefined
-                ? {
-                    name:
-                      patch.name,
-                  }
-                : {}),
-
-              ...(patch.avatarUrl !==
-              undefined
-                ? {
-                    avatar_url:
-                      patch.avatarUrl,
-                  }
-                : {}),
-            })
-            .eq(
-              "id",
-              userId,
-            );
-
-        if (error) {
-          throw new Error(
-            error.message,
-          );
-        }
-
-        refresh();
-      },
-
-    completeOnboarding:
-      async ({
-        name,
-        teamId,
-        avatarUrl,
-      }) => {
-        const updatedProfile =
-          await completeOnboardingProfile({
-            data: {
-              name,
-              teamId,
-              avatarUrl,
-            },
-          });
-
-        if (
-          !updatedProfile ||
-          !updatedProfile.onboarded
-        ) {
-          throw new Error(
-            "Onboarding was not saved. Please try again.",
-          );
-        }
-
-        const signedAvatarUrl =
-          await signAvatarPath(
-            updatedProfile.avatar_url,
-          );
-
-        /*
-         * The server changed app_metadata.
-         * Refresh the Supabase session so the new JWT
-         * contains onboarded: true.
-         */
-        const {
-          error:
-            refreshSessionError,
-        } =
-          await supabase.auth.refreshSession();
-
-        if (
-          refreshSessionError
-        ) {
-          console.warn(
-            "Profile completed but session refresh failed:",
-            refreshSessionError,
-          );
-        }
-
-        /*
-         * Update UI immediately.
-         */
-        setOnboardingComplete(
-          true,
+      if (!updatedProfile || !updatedProfile.onboarded) {
+        throw new Error(
+          "Onboarding was not saved. Please try again.",
         );
+      }
 
-        /*
-         * Update the cached profile so the user sees the
-         * selected name/team/avatar immediately.
-         */
-        queryClient.setQueryData<Db>(
-          [
-            "chrona-db",
-            userId,
-          ],
-          (previous) => {
-            if (!previous) {
-              return {
-                ...emptyDb,
-                profiles: [
-                  {
-                    id:
-                      updatedProfile.id,
+      const signedAvatarUrl = await signAvatarPath(
+        updatedProfile.avatar_url,
+      );
 
-                    name:
-                      updatedProfile.name,
+      /*
+       * The server changed app_metadata.
+       * Refresh the Supabase session to update the JWT.
+       */
+      const { error: refreshSessionError } =
+        await supabase.auth.refreshSession();
 
-                    email:
-                      updatedProfile.email,
+      if (refreshSessionError) {
+        console.warn(
+          "Profile completed but session refresh failed:",
+          refreshSessionError,
+        );
+      }
 
-                    role:
-                      currentUser.role,
+      setOnboardingComplete(true);
 
-                    roles:
-                      currentUser.roles,
-
-                    teamId:
-                      updatedProfile.team_id,
-
-                    teamIds:
-                      updatedProfile.team_id
-                        ? [updatedProfile.team_id]
-                        : [],
-
-
-                    avatarUrl:
-                      signedAvatarUrl,
-
-                    onboarded:
-                      true,
-                  },
-                ],
-              };
-            }
-
-            const existing =
-              previous.profiles.find(
-                (profile) =>
-                  profile.id ===
-                  userId,
-              );
-
-            const profile: Profile =
-              {
-                id:
-                  updatedProfile.id,
-
-                name:
-                  updatedProfile.name,
-
-                email:
-                  updatedProfile.email,
-
-                role:
-                  existing?.role ??
-                  currentUser.role,
-
-                roles:
-                  existing?.roles ??
-                  currentUser.roles,
-
-                teamId:
-                  updatedProfile.team_id,
-
-                teamIds:
-                  updatedProfile.team_id
+      /*
+       * Update the cached profile so the user sees their
+       * selected name/team/avatar immediately.
+       */
+      queryClient.setQueryData<Db>(
+        ["chrona-db", userId],
+        (previous) => {
+          if (!previous) {
+            return {
+              ...emptyDb,
+              profiles: [
+                {
+                  id: updatedProfile.id,
+                  name: updatedProfile.name,
+                  email: updatedProfile.email,
+                  role: currentUser.role,
+                  roles: currentUser.roles,
+                  teamId: updatedProfile.team_id,
+                  teamIds: updatedProfile.team_id
                     ? [updatedProfile.team_id]
                     : [],
-
-
-                avatarUrl:
-                  signedAvatarUrl,
-
-                onboarded:
-                  true,
-              };
-
-            const hasProfile =
-              previous.profiles.some(
-                (
-                  existingProfile,
-                ) =>
-                  existingProfile.id ===
-                  userId,
-              );
-
-            return {
-              ...previous,
-
-              profiles:
-                hasProfile
-                  ? previous.profiles.map(
-                      (
-                        existingProfile,
-                      ) =>
-                        existingProfile.id ===
-                        userId
-                          ? profile
-                          : existingProfile,
-                    )
-                  : [
-                      ...previous.profiles,
-                      profile,
-                    ],
+                  avatarUrl: signedAvatarUrl,
+                  onboarded: true,
+                },
+              ],
             };
-          },
-        );
+          }
 
-        await queryClient.invalidateQueries({
-          queryKey: [
-            "chrona-db",
-            userId,
-          ],
+          const existing = previous.profiles.find(
+            (profile) => profile.id === userId,
+          );
 
-          refetchType:
-            "none",
-        });
-      },
+          const profile: Profile = {
+            id: updatedProfile.id,
+            name: updatedProfile.name,
+            email: updatedProfile.email,
+            role: existing?.role ?? currentUser.role,
+            roles: existing?.roles ?? currentUser.roles,
+            teamId: updatedProfile.team_id,
+            teamIds: updatedProfile.team_id
+              ? [updatedProfile.team_id]
+              : [],
+            avatarUrl: signedAvatarUrl,
+            onboarded: true,
+          };
+
+          const hasProfile = previous.profiles.some(
+            (existingProfile) =>
+              existingProfile.id === userId,
+          );
+
+          return {
+            ...previous,
+            profiles: hasProfile
+              ? previous.profiles.map((existingProfile) =>
+                  existingProfile.id === userId
+                    ? profile
+                    : existingProfile,
+                )
+              : [...previous.profiles, profile],
+          };
+        },
+      );
+
+      await queryClient.invalidateQueries({
+        queryKey: ["chrona-db", userId],
+        refetchType: "none",
+      });
+    },
 
     signOut: async () => {
       persistSession(null);
-
       await queryClient.cancelQueries();
-
       queryClient.clear();
-
       await supabase.auth.signOut();
     },
   };
 
   return (
-    <StoreContext.Provider
-      value={value}
-    >
+    <StoreContext.Provider value={value}>
       {children}
     </StoreContext.Provider>
   );
 }
 
 export function useStore() {
-  const context =
-    useContext(StoreContext);
+  const context = useContext(StoreContext);
 
   if (!context) {
     throw new Error(
