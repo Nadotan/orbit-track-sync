@@ -70,7 +70,6 @@ export interface AppStore extends Db {
   currentUser: Profile;
   loading: boolean;
   needsOnboarding: boolean;
-
   activeSession: ActiveSession | null;
 
   startSession: () => void;
@@ -120,8 +119,8 @@ async function fetchDb(
   currentUserId: string,
   queryClient: QueryClient,
 ): Promise<Db> {
-  // Fetch the shared datasets first. Roles determine whether we need the
-  // expensive Clock history and legacy admin-notification datasets.
+  // Shared data first; role determines whether large historical datasets
+  // are needed by this user.
   const [
     teams,
     profiles,
@@ -164,8 +163,6 @@ async function fetchDb(
       role.role === "admin",
   );
 
-  // Admin analytics still needs complete Clock history.
-  // Other members need it only when the Clock feature is enabled.
   const [entries, notifications] = await Promise.all([
     isAdmin || CLOCK_ENABLED
       ? supabase
@@ -176,8 +173,6 @@ async function fetchDb(
           .order("start_time", { ascending: false })
       : Promise.resolve({ data: [] }),
 
-    // The legacy notifications table is an admin-only feed.
-    // Regular users already receive their own user_notifications separately.
     isAdmin
       ? supabase
           .from("notifications")
@@ -194,10 +189,6 @@ async function fetchDb(
     membershipMap.set(row.user_id, list);
   }
 
-  /*
-   * Roles are self-scoped by row level security, so a
-   * normal member only sees their own role.
-   */
   const roleMap = new Map<string, Set<Profile["role"]>>();
 
   const addRole = (userId: string, role: Profile["role"]) => {
@@ -214,8 +205,6 @@ async function fetchDb(
     }
   }
 
-  // Reuse a successful mentor-directory result during repeated store refreshes.
-  // A role change invalidates this cache below.
   try {
     const mentorIds = await queryClient.fetchQuery({
       queryKey: ["pom-mentor-ids", currentUserId],
@@ -227,15 +216,11 @@ async function fetchDb(
       addRole(mentorId, "Mentor");
     }
   } catch {
-    // Mentor list is optional; meetings fall back to no Mentors section.
+    // Mentor directory is optional.
   }
 
   const emailMap = new Map<string, string>();
 
-  /*
-   * Email addresses are not readable by other members.
-   * Admins load them through a secured server action.
-   */
   if (roleMap.get(currentUserId)?.has("Admin")) {
     try {
       const directory = await queryClient.fetchQuery({
@@ -256,7 +241,7 @@ async function fetchDb(
         }
       }
     } catch {
-      // Directory is optional; fall back to limited data.
+      // Fall back to currently available profile information.
     }
   }
 
@@ -278,10 +263,6 @@ async function fetchDb(
     return "User";
   };
 
-  /*
-   * Avatars are stored in a private bucket, so object paths
-   * are resolved into signed URLs for display.
-   */
   const avatarMap = await getCachedAvatarPaths(
     queryClient,
     currentUserId,
@@ -306,10 +287,9 @@ async function fetchDb(
         (profile.team_id ? [profile.team_id] : []),
 
       avatarUrl: profile.avatar_url
-        ? (avatarMap.get(profile.avatar_url) ?? profile.avatar_url)
+        ? avatarMap.get(profile.avatar_url) ?? profile.avatar_url
         : null,
 
-      // Onboarding is sourced from Auth app_metadata below.
       onboarded: false,
     })),
 
@@ -360,7 +340,8 @@ export function AppStoreProvider({
   const userId = session.user.id;
   const queryClient = useQueryClient();
 
-  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+  const [activeSession, setActiveSession] =
+    useState<ActiveSession | null>(null);
 
   const [onboardingComplete, setOnboardingComplete] = useState(
     session.user.app_metadata?.["onboarded"] === true,
@@ -386,7 +367,7 @@ export function AppStoreProvider({
         setActiveSession(parsed);
       }
     } catch {
-      // Ignore invalid local storage data.
+      // Invalid or unavailable local session data.
     }
   }, [userId]);
 
@@ -463,6 +444,7 @@ export function AppStoreProvider({
     [db.teams],
   );
 
+  // This is the legacy Admin Activity feed, NOT user_notifications.
   const notify = useCallback(
     async (message: string, tone: AppNotification["tone"]) => {
       const { error } = await supabase
@@ -470,7 +452,7 @@ export function AppStoreProvider({
         .insert({ message, tone });
 
       if (error) {
-        console.error("Failed to create notification:", error);
+        console.error("Failed to create admin activity:", error);
       }
     },
     [],
@@ -497,6 +479,7 @@ export function AppStoreProvider({
 
     cancelSession: () => {
       persistSession(null);
+
       void markTimerStopped().catch(() => undefined);
     },
 
@@ -507,6 +490,7 @@ export function AppStoreProvider({
       const start = new Date(activeSession.startTime);
 
       persistSession(null);
+
       void markTimerStopped().catch(() => undefined);
 
       void (async () => {
@@ -586,7 +570,6 @@ export function AppStoreProvider({
             rsvp.userId === userId,
         )?.status ?? null;
 
-      // Avoid unnecessary upserts, notifications and full-store refreshes.
       if (previous === status) return;
 
       void (async () => {
@@ -606,24 +589,95 @@ export function AppStoreProvider({
           return;
         }
 
-        await notify(
+        // Fetch only the updated RSVP instead of reloading all shared tables.
+        // Keep the original upsert behavior independent of this read.
+        const { data: savedRsvp, error: readError } = await supabase
+          .from("rsvps")
+          .select("id, user_id, meeting_id, status, created_at")
+          .eq("user_id", userId)
+          .eq("meeting_id", meetingId)
+          .maybeSingle();
+
+        if (!readError && savedRsvp) {
+          const updatedRsvp: Rsvp = {
+            id: savedRsvp.id,
+            userId: savedRsvp.user_id,
+            meetingId: savedRsvp.meeting_id,
+            status: savedRsvp.status as RsvpStatus,
+            createdAt: savedRsvp.created_at,
+          };
+
+          queryClient.setQueryData<Db>(
+            ["chrona-db", userId],
+            (previousDb) => {
+              if (!previousDb) return previousDb;
+
+              return {
+                ...previousDb,
+                rsvps: [
+                  ...previousDb.rsvps.filter(
+                    (rsvp) =>
+                      !(
+                        rsvp.userId === userId &&
+                        rsvp.meetingId === meetingId
+                      ),
+                  ),
+                  updatedRsvp,
+                ],
+              };
+            },
+          );
+
+          // Mark the overall store stale without immediately re-fetching it.
+          // The normal focus refresh can reconcile other users' updates.
+          void queryClient.invalidateQueries({
+            queryKey: ["chrona-db", userId],
+            refetchType: "none",
+          });
+        } else {
+          // Preserve correct behavior if the supplementary read is unavailable.
+          refresh();
+        }
+
+        const meetingTitle = meeting?.title ?? "a meeting";
+
+        const activityMessage =
           status === "Attending"
-            ? `${currentUser.name} is attending ${meeting?.title}.`
-            : `${currentUser.name} can't attend ${meeting?.title}.`,
+            ? previous === "Declined"
+              ? `${currentUser.name} is now attending ${meetingTitle}.`
+              : `${currentUser.name} is attending ${meetingTitle}.`
+            : previous === "Attending"
+              ? `${currentUser.name} cancelled attendance for ${meetingTitle}.`
+              : `${currentUser.name} can't attend ${meetingTitle}.`;
+
+        // Write exactly once to Admin Activity.
+        await notify(
+          activityMessage,
           status === "Attending" ? "positive" : "negative",
         );
 
-        void notifyRsvpChange({
-          data: {
-            meetingId,
-            status,
-            previousStatus: previous,
-          },
-        }).catch((error) => {
-          console.error("Failed to notify admins of RSVP change:", error);
-        });
+        // First-time Attending responses do not require an extra server call.
+        // First-time declines and actual status changes retain phone pushes.
+        if (previous !== null || status === "Declined") {
+          void notifyRsvpChange({
+            data: {
+              meetingId,
+              status,
+              previousStatus: previous,
+            },
+          }).catch((error) => {
+            console.error(
+              "Failed to send RSVP change push:",
+              error,
+            );
+          });
+        }
 
-        refresh();
+        // An admin also needs the newly inserted Admin Activity row.
+        // Ordinary members avoid this expensive full-store refresh.
+        if (currentUser.role === "Admin") {
+          refresh();
+        }
       })();
     },
 
@@ -658,7 +712,9 @@ export function AppStoreProvider({
 
         if (createdMeeting?.id) {
           void notifyMeetingCreated({
-            data: { meetingId: createdMeeting.id },
+            data: {
+              meetingId: createdMeeting.id,
+            },
           }).catch(() => undefined);
         }
 
@@ -766,8 +822,8 @@ export function AppStoreProvider({
     },
 
     /*
-     * Multi-team membership. Rows in team_members are the
-     * source of truth; profiles.team_id keeps the first team.
+     * Multi-team membership remains backed by team_members.
+     * profiles.team_id stores the first team for older views.
      */
     setUserTeams: (targetUserId, teamIds) => {
       void (async () => {
@@ -835,7 +891,6 @@ export function AppStoreProvider({
           return;
         }
 
-        // A role edit must be reflected immediately for the acting admin.
         await Promise.all([
           queryClient.invalidateQueries({
             queryKey: ["pom-mentor-ids", userId],
@@ -877,7 +932,7 @@ export function AppStoreProvider({
 
         if (error) {
           console.error(
-            "Failed to mark notifications as read:",
+            "Failed to mark admin activity as read:",
             error,
           );
           return;
@@ -901,7 +956,10 @@ export function AppStoreProvider({
         })
         .eq("id", userId);
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        throw new Error(error.message);
+      }
+
       refresh();
     },
 
@@ -928,10 +986,6 @@ export function AppStoreProvider({
         updatedProfile.avatar_url,
       );
 
-      /*
-       * The server changed app_metadata.
-       * Refresh the Supabase session to update the JWT.
-       */
       const { error: refreshSessionError } =
         await supabase.auth.refreshSession();
 
@@ -944,10 +998,6 @@ export function AppStoreProvider({
 
       setOnboardingComplete(true);
 
-      /*
-       * Update the cached profile so the user sees their
-       * selected name/team/avatar immediately.
-       */
       queryClient.setQueryData<Db>(
         ["chrona-db", userId],
         (previous) => {

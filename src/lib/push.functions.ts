@@ -80,16 +80,21 @@ export const savePushSubscription = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(subscriptionSchema)
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.from("push_subscriptions").upsert(
-      {
-        user_id: context.userId,
-        endpoint: data.endpoint,
-        p256dh: data.p256dh,
-        auth: data.auth,
-      },
-      { onConflict: "endpoint" },
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
     );
+
+    const { error } = await supabaseAdmin
+      .from("push_subscriptions")
+      .upsert(
+        {
+          user_id: context.userId,
+          endpoint: data.endpoint,
+          p256dh: data.p256dh,
+          auth: data.auth,
+        },
+        { onConflict: "endpoint" },
+      );
 
     if (error) {
       console.error("[push] Failed to save push subscription", error);
@@ -103,7 +108,10 @@ export const removePushSubscription = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(endpointSchema)
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
+
     const { error } = await supabaseAdmin
       .from("push_subscriptions")
       .delete()
@@ -118,7 +126,9 @@ export const reportPushClientStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(pushClientStatusSchema)
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
     const now = new Date().toISOString();
 
     const [existingResult, endpointResult] = await Promise.all([
@@ -128,6 +138,7 @@ export const reportPushClientStatus = createServerFn({ method: "POST" })
         .eq("user_id", context.userId)
         .eq("client_id", data.clientId)
         .maybeSingle(),
+
       data.endpoint
         ? supabaseAdmin
             .from("push_subscriptions")
@@ -139,18 +150,25 @@ export const reportPushClientStatus = createServerFn({ method: "POST" })
     ]);
 
     if (existingResult.error) {
-      console.error("[push] Failed to load push client state", existingResult.error);
+      console.error(
+        "[push] Failed to load push client state",
+        existingResult.error,
+      );
       throw new Error(existingResult.error.message);
     }
 
     if (endpointResult.error) {
-      console.error("[push] Failed to verify push client endpoint", endpointResult.error);
+      console.error(
+        "[push] Failed to verify push client endpoint",
+        endpointResult.error,
+      );
       throw new Error(endpointResult.error.message);
     }
 
     const verifiedEndpoint = endpointResult.data?.endpoint ?? null;
     const everRegisteredAt =
-      existingResult.data?.ever_registered_at ?? (verifiedEndpoint ? now : null);
+      existingResult.data?.ever_registered_at ??
+      (verifiedEndpoint ? now : null);
 
     const { error } = await (supabaseAdmin as any)
       .from("push_clients")
@@ -175,7 +193,9 @@ export const reportPushClientStatus = createServerFn({ method: "POST" })
   });
 
 /** Clock reminder tracking stays disabled. */
-export async function markTimerRunning(_options: { data: { startedAt: string } }) {
+export async function markTimerRunning(
+  _options: { data: { startedAt: string } },
+) {
   return { ok: true };
 }
 
@@ -184,7 +204,11 @@ export async function markTimerStopped() {
 }
 
 export async function sendClockReminder() {
-  return { active: false, sent: 0, nextReminderAt: null as string | null };
+  return {
+    active: false,
+    sent: 0,
+    nextReminderAt: null as string | null,
+  };
 }
 
 export const notifyMeetingCreated = createServerFn({ method: "POST" })
@@ -200,8 +224,13 @@ export const notifyMeetingCreated = createServerFn({ method: "POST" })
 
     if (!adminRole) throw new Error("Forbidden");
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { sendPushToUsers, audienceForMeeting } = await import("./push.server");
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
+    const { sendPushToUsers, audienceForMeeting } = await import(
+      "./push.server"
+    );
+
     const { data: meeting, error: meetingError } = await supabaseAdmin
       .from("meetings")
       .select("id, title, date, time, team_id")
@@ -215,6 +244,8 @@ export const notifyMeetingCreated = createServerFn({ method: "POST" })
       (id) => id !== context.userId,
     );
 
+    // Meeting-creation notifications are not RSVP-change notifications.
+    // Retain the existing personal inbox behavior for newly created meetings.
     if (audience.length > 0) {
       try {
         const { error: notificationError } = await (supabaseAdmin as any)
@@ -239,15 +270,22 @@ export const notifyMeetingCreated = createServerFn({ method: "POST" })
           );
         }
       } catch (error) {
-        console.error("[push] Failed to create meeting in-app notifications", error);
+        console.error(
+          "[push] Failed to create meeting in-app notifications",
+          error,
+        );
       }
     }
 
-    const { filterUsersByPreference } = await import("./preferences.server");
+    const { filterUsersByPreference } = await import(
+      "./preferences.server"
+    );
+
     const pushAudience = await filterUsersByPreference(
       audience,
       "new_meeting_notifications",
     );
+
     const sent = await sendPushToUsers(pushAudience, {
       title: "New meeting scheduled",
       body: `${meeting.title} - ${meeting.date} at ${meeting.time}. Tap to RSVP.`,
@@ -262,8 +300,8 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(rsvpChangeSchema)
   .handler(async ({ data, context }) => {
-    // A first-time "Can't attend" is a cancellation/decline worth notifying.
-    // A first-time "Attending" does not trigger the additional admin push.
+    // Don't send a push for an unchanged response or first-time Attending.
+    // Both first-time Declined and actual status changes are relevant.
     if (
       data.previousStatus === data.status ||
       (data.previousStatus === null && data.status === "Attending")
@@ -271,7 +309,9 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
       return { sent: 0 };
     }
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
 
     const { data: storedRsvp, error: storedRsvpError } = await supabaseAdmin
       .from("rsvps")
@@ -280,12 +320,18 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
 
-    // Don't notify after a failed or superseded RSVP.
-    if (storedRsvpError || !storedRsvp || storedRsvp.status !== data.status) {
+    // Never send an alert for a failed or superseded response.
+    if (
+      storedRsvpError ||
+      !storedRsvp ||
+      storedRsvp.status !== data.status
+    ) {
       return { sent: 0 };
     }
 
-    const { sendPushToUsers, adminUserIds } = await import("./push.server");
+    const { sendPushToUsers, adminUserIds } = await import(
+      "./push.server"
+    );
 
     const [meetingResult, profileResult, allAdmins] = await Promise.all([
       supabaseAdmin
@@ -293,11 +339,13 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
         .select("title")
         .eq("id", data.meetingId)
         .maybeSingle(),
+
       supabaseAdmin
         .from("profiles")
         .select("name")
         .eq("id", context.userId)
         .maybeSingle(),
+
       adminUserIds(),
     ]);
 
@@ -306,6 +354,7 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
 
     const who = profileResult.data?.name ?? "Someone";
     const meetingTitle = meetingResult.data?.title ?? "a meeting";
+
     const cancellation = data.status === "Declined";
 
     const title = cancellation
@@ -320,31 +369,11 @@ export const notifyRsvpChange = createServerFn({ method: "POST" })
         : `${who} can't attend ${meetingTitle}.`
       : `${who} switched to attending ${meetingTitle}.`;
 
-    // Persist the event in every other admin's inbox, even if push is disabled.
-    // AppHeader already listens to INSERT events on this table.
-    try {
-      const { error } = await (supabaseAdmin as any)
-        .from("user_notifications")
-        .insert(
-          admins.map((userId) => ({
-            user_id: userId,
-            kind: "meeting",
-            title,
-            message: body,
-            task_id: null,
-            created_by: context.userId,
-            requires_ack: false,
-            popup_dismissed_at: new Date().toISOString(),
-          })),
-        );
-
-      if (error) {
-        console.error("[push] RSVP inbox notification failed", error);
-      }
-    } catch (error) {
-      console.error("[push] RSVP inbox notification failed", error);
-    }
-
+    // RSVP changes belong in Admin Activity, not the personal Notifications
+    // inbox. AppStore records the activity in public.notifications.
+    //
+    // Deliberately do NOT insert RSVP rows into user_notifications.
+    // This also avoids redundant realtime events and inbox reloads.
     const sent = await sendPushToUsers(admins, {
       title,
       body,
@@ -397,7 +426,9 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
 
     if (!adminRole) throw new Error("Forbidden");
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
 
     const [subscriptionsResult, clientsResult] = await Promise.all([
       (supabaseAdmin as any)
@@ -405,6 +436,7 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
         .select(
           "user_id, endpoint, last_attempt_at, last_success_at, last_failure_at, last_failure_status, last_failure_message",
         ),
+
       (supabaseAdmin as any)
         .from("push_clients")
         .select(
@@ -412,22 +444,33 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
         ),
     ]);
 
-    if (subscriptionsResult.error) throw new Error(subscriptionsResult.error.message);
-    if (clientsResult.error) throw new Error(clientsResult.error.message);
+    if (subscriptionsResult.error) {
+      throw new Error(subscriptionsResult.error.message);
+    }
+
+    if (clientsResult.error) {
+      throw new Error(clientsResult.error.message);
+    }
 
     const subscriptions = (subscriptionsResult.data ?? []) as SubscriptionHealthRow[];
     const clients = (clientsResult.data ?? []) as ClientHealthRow[];
 
-    const userIds = [...new Set([
-      ...subscriptions.map((row) => row.user_id),
-      ...clients.map((row) => row.user_id),
-    ])];
+    const userIds = [
+      ...new Set([
+        ...subscriptions.map((row) => row.user_id),
+        ...clients.map((row) => row.user_id),
+      ]),
+    ];
 
     const now = Date.now();
 
     const userStatuses: PushAdminUserHealth[] = userIds.map((userId) => {
-      const userSubscriptions = subscriptions.filter((row) => row.user_id === userId);
-      const userClients = clients.filter((row) => row.user_id === userId);
+      const userSubscriptions = subscriptions.filter(
+        (row) => row.user_id === userId,
+      );
+      const userClients = clients.filter(
+        (row) => row.user_id === userId,
+      );
 
       let workingDevices = 0;
       let failingDevices = 0;
@@ -439,13 +482,19 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
         const successMs = timestampMs(row.last_success_at);
         const failureMs = timestampMs(row.last_failure_at);
 
-        if (failureMs !== null && (successMs === null || failureMs > successMs)) {
+        if (
+          failureMs !== null &&
+          (successMs === null || failureMs > successMs)
+        ) {
           failingDevices += 1;
           failingSubscriptionRows.push(row);
           continue;
         }
 
-        if (successMs !== null && now - successMs <= PUSH_WORKING_WINDOW_MS) {
+        if (
+          successMs !== null &&
+          now - successMs <= PUSH_WORKING_WINDOW_MS
+        ) {
           workingDevices += 1;
           continue;
         }
@@ -487,22 +536,29 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
           ? failingSubscriptionRows
           : userSubscriptions;
 
-      const latestFailureRow = failureRowsForDetails.reduce<SubscriptionHealthRow | null>(
-        (latest, row) => {
-          const rowMs = timestampMs(row.last_failure_at);
-          const latestMs = timestampMs(latest?.last_failure_at);
-          if (rowMs === null) return latest;
-          return latestMs === null || rowMs > latestMs ? row : latest;
-        },
-        null,
-      );
+      const latestFailureRow =
+        failureRowsForDetails.reduce<SubscriptionHealthRow | null>(
+          (latest, row) => {
+            const rowMs = timestampMs(row.last_failure_at);
+            const latestMs = timestampMs(latest?.last_failure_at);
+            if (rowMs === null) return latest;
+
+            return latestMs === null || rowMs > latestMs
+              ? row
+              : latest;
+          },
+          null,
+        );
 
       const latestClient = userClients.reduce<ClientHealthRow | null>(
         (latest, row) => {
           const rowMs = timestampMs(row.last_seen_at);
           const latestMs = timestampMs(latest?.last_seen_at);
           if (rowMs === null) return latest;
-          return latestMs === null || rowMs > latestMs ? row : latest;
+
+          return latestMs === null || rowMs > latestMs
+            ? row
+            : latest;
         },
         null,
       );
@@ -534,7 +590,11 @@ export const getPushAdminStatus = createServerFn({ method: "GET" })
       .filter((status) => status.registeredDevices > 0)
       .map((status) => status.userId);
 
-    return { enabledUserIds, userStatuses, workingWindowDays: 30 };
+    return {
+      enabledUserIds,
+      userStatuses,
+      workingWindowDays: 30,
+    };
   });
 
 export const broadcastPush = createServerFn({ method: "POST" })
@@ -550,14 +610,19 @@ export const broadcastPush = createServerFn({ method: "POST" })
 
     if (!adminRole) throw new Error("Forbidden");
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
     const { sendPushToUsers } = await import("./push.server");
 
     let targetUserIds: string[];
 
     if (data.userIds) {
       const requested = [...new Set(data.userIds)];
-      if (requested.length === 0) return { sent: 0, recipients: 0 };
+
+      if (requested.length === 0) {
+        return { sent: 0, recipients: 0 };
+      }
 
       const { data: profiles, error } = await supabaseAdmin
         .from("profiles")
@@ -565,7 +630,10 @@ export const broadcastPush = createServerFn({ method: "POST" })
         .in("id", requested);
 
       if (error) throw new Error(error.message);
-      targetUserIds = (profiles ?? []).map((profile) => profile.id);
+
+      targetUserIds = (profiles ?? []).map(
+        (profile) => profile.id,
+      );
     } else {
       const { data: subscriptions, error } = await supabaseAdmin
         .from("push_subscriptions")
@@ -573,12 +641,18 @@ export const broadcastPush = createServerFn({ method: "POST" })
 
       if (error) throw new Error(error.message);
 
-      targetUserIds = [...new Set<string>(
-        (subscriptions ?? []).map((subscription) => String(subscription.user_id)),
-      )];
+      targetUserIds = [
+        ...new Set<string>(
+          (subscriptions ?? []).map(
+            (subscription) => String(subscription.user_id),
+          ),
+        ),
+      ];
     }
 
-    if (targetUserIds.length === 0) return { sent: 0, recipients: 0 };
+    if (targetUserIds.length === 0) {
+      return { sent: 0, recipients: 0 };
+    }
 
     const sent = await sendPushToUsers(targetUserIds, {
       title: data.title,
@@ -587,7 +661,10 @@ export const broadcastPush = createServerFn({ method: "POST" })
       tag: `admin-broadcast-${Date.now()}`,
     });
 
-    return { sent, recipients: targetUserIds.length };
+    return {
+      sent,
+      recipients: targetUserIds.length,
+    };
   });
 
 async function assertPushAdmin(context: any) {
@@ -619,7 +696,10 @@ export const listPushTemplates = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<PushTemplate[]> => {
     await assertPushAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
 
     const { data, error } = await (supabaseAdmin as any)
       .from("push_templates")
@@ -635,7 +715,10 @@ export const savePushTemplate = createServerFn({ method: "POST" })
   .validator(pushTemplateSchema)
   .handler(async ({ data, context }): Promise<PushTemplate> => {
     await assertPushAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
 
     const row = {
       name: data.name,
@@ -665,7 +748,10 @@ export const deletePushTemplate = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string().uuid() }))
   .handler(async ({ data, context }) => {
     await assertPushAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { supabaseAdmin } = await import(
+      "@/integrations/supabase/client.server"
+    );
 
     const { error } = await (supabaseAdmin as any)
       .from("push_templates")
