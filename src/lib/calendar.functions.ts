@@ -20,11 +20,24 @@ async function manager(context: { supabase: SupabaseClient<Database>; userId: st
   return supabaseAdmin;
 }
 
+const validDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T12:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+});
+
+const calendarRangeSchema = z.object({
+  startDate: validDate,
+  endDate: validDate,
+}).refine(({ startDate, endDate }) => {
+  const start = Date.parse(`${startDate}T12:00:00Z`);
+  const end = Date.parse(`${endDate}T12:00:00Z`);
+  return start <= end && end - start <= 120 * 86_400_000;
+}, "Select a valid period of up to 120 days.");
+
 export const getCalendarData = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    // The calendar page only uses these columns. Avoid fetching creation,
-    // auditing and other unrendered data on every calendar refresh.
+  .inputValidator(calendarRangeSchema)
+  .handler(async ({ context, data }) => {
     const [calendars, events, visibility, roles] = await Promise.all([
       context.supabase
         .from("calendars")
@@ -33,6 +46,9 @@ export const getCalendarData = createServerFn({ method: "GET" })
       context.supabase
         .from("calendar_events")
         .select("id, calendar_id, title, description, location, start_date, end_date, start_time, end_time, all_day, team_id, meeting_id, is_meeting")
+        // Include events that started before the window but end inside it.
+        .lte("start_date", data.endDate)
+        .gte("end_date", data.startDate)
         .order("start_date")
         .order("start_time"),
       context.supabase
@@ -131,11 +147,11 @@ export const saveCalendarEvent = createServerFn({ method: "POST" })
 
     const result = data.id
       ? await admin.from("calendar_events").update(values)
-          .eq("id", data.id).select("*").single()
+          .eq("id", data.id).select("id, meeting_id").single()
       : await admin.from("calendar_events").insert({
           ...values,
           created_by: context.userId,
-        }).select("*").single();
+        }).select("id, meeting_id").single();
 
     if (result.error) {
       console.error("Calendar event save failed", result.error.message);
@@ -158,9 +174,7 @@ export const saveCalendarEvent = createServerFn({ method: "POST" })
           );
           if (error) console.error("Calendar meeting notification failed", error.message);
           const { filterUsersByPreference } = await import("./preferences.server");
-          const pushAudience = await filterUsersByPreference(
-            userIds, "new_meeting_notifications",
-          );
+          const pushAudience = await filterUsersByPreference(userIds, "new_meeting_notifications");
           await sendPushToUsers(pushAudience, {
             title: "New meeting scheduled",
             body: `${data.title} · ${data.startDate} at ${data.allDay ? "09:00" : data.startTime}`,
