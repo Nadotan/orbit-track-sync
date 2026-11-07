@@ -296,93 +296,12 @@ export const notifyMeetingCreated = createServerFn({ method: "POST" })
     return { sent };
   });
 
+// RSVP responses are activity-log events, not personal or push notifications.
+// Preserve this endpoint as a no-op for older clients that might still call it.
 export const notifyRsvpChange = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(rsvpChangeSchema)
-  .handler(async ({ data, context }) => {
-    // Don't send a push for an unchanged response or first-time Attending.
-    // Both first-time Declined and actual status changes are relevant.
-    if (
-      data.previousStatus === data.status ||
-      (data.previousStatus === null && data.status === "Attending")
-    ) {
-      return { sent: 0 };
-    }
-
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
-
-    const { data: storedRsvp, error: storedRsvpError } = await supabaseAdmin
-      .from("rsvps")
-      .select("status")
-      .eq("meeting_id", data.meetingId)
-      .eq("user_id", context.userId)
-      .maybeSingle();
-
-    // Never send an alert for a failed or superseded response.
-    if (
-      storedRsvpError ||
-      !storedRsvp ||
-      storedRsvp.status !== data.status
-    ) {
-      return { sent: 0 };
-    }
-
-    const { sendPushToUsers, adminUserIds } = await import(
-      "./push.server"
-    );
-
-    const [meetingResult, profileResult, allAdmins] = await Promise.all([
-      supabaseAdmin
-        .from("meetings")
-        .select("title")
-        .eq("id", data.meetingId)
-        .maybeSingle(),
-
-      supabaseAdmin
-        .from("profiles")
-        .select("name")
-        .eq("id", context.userId)
-        .maybeSingle(),
-
-      adminUserIds(),
-    ]);
-
-    const admins = allAdmins.filter((id) => id !== context.userId);
-    if (admins.length === 0) return { sent: 0 };
-
-    const who = profileResult.data?.name ?? "Someone";
-    const meetingTitle = meetingResult.data?.title ?? "a meeting";
-
-    const cancellation = data.status === "Declined";
-
-    const title = cancellation
-      ? data.previousStatus === "Attending"
-        ? "Attendance cancelled"
-        : "Can't attend"
-      : "Attendance changed";
-
-    const body = cancellation
-      ? data.previousStatus === "Attending"
-        ? `${who} cancelled their attendance for ${meetingTitle}.`
-        : `${who} can't attend ${meetingTitle}.`
-      : `${who} switched to attending ${meetingTitle}.`;
-
-    // RSVP changes belong in Admin Activity, not the personal Notifications
-    // inbox. AppStore records the activity in public.notifications.
-    //
-    // Deliberately do NOT insert RSVP rows into user_notifications.
-    // This also avoids redundant realtime events and inbox reloads.
-    const sent = await sendPushToUsers(admins, {
-      title,
-      body,
-      url: "/meetings",
-      tag: `rsvp-${data.meetingId}-${context.userId}`,
-    });
-
-    return { sent };
-  });
+  .handler(async () => ({ sent: 0 }));
 
 /** Daily RSVP reminders remain handled by the existing Supabase cron. */
 export async function sweepReminders() {

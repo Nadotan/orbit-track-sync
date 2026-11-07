@@ -25,7 +25,6 @@ import {
   markTimerRunning,
   markTimerStopped,
   notifyMeetingCreated,
-  notifyRsvpChange,
   sweepReminders,
 } from "./push.functions";
 
@@ -656,22 +655,8 @@ export function AppStoreProvider({
           status === "Attending" ? "positive" : "negative",
         );
 
-        // First-time Attending responses do not require an extra server call.
-        // First-time declines and actual status changes retain phone pushes.
-        if (previous !== null || status === "Declined") {
-          void notifyRsvpChange({
-            data: {
-              meetingId,
-              status,
-              previousStatus: previous,
-            },
-          }).catch((error) => {
-            console.error(
-              "Failed to send RSVP change push:",
-              error,
-            );
-          });
-        }
+        // RSVP responses are recorded in Admin Activity only.
+        // Do not invoke the push server function for RSVP changes.
 
         // An admin also needs the newly inserted Admin Activity row.
         // Ordinary members avoid this expensive full-store refresh.
