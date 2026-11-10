@@ -5,13 +5,14 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { addDays, format, isBefore, parseISO, startOfDay } from "date-fns";
 import {
   AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown,
-  ChevronRight, Circle, Loader2, Plus, RefreshCw, Pencil, Archive,
+  ChevronRight, Circle, Loader2, Plus, RefreshCw, Pencil, Archive, Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -298,7 +299,7 @@ function TaskLine({
             "grid size-6 shrink-0 place-items-center rounded-full border-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary",
             done ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground/40 text-transparent hover:border-primary hover:text-primary",
           )}
-          title={done ? "Reopen task" : "Mark done"}
+          title={done ? "Reopen task" : new Set([task.ownerId, ...task.assigneeIds]).size > 1 ? "Mark done for all assigned people" : "Mark done"}
           aria-label={`${done ? "Reopen" : "Complete"} ${task.title}`}
           onClick={() => onDone(task)}
         >
@@ -319,6 +320,9 @@ function TaskLine({
         </span>
         <span className="mt-1 block truncate text-xs text-muted-foreground">
           {mine ? teamName : task.ownerName}
+          {new Set([task.ownerId, ...task.assigneeIds]).size > 1
+            ? ` · ${new Set([task.ownerId, ...task.assigneeIds]).size} people`
+            : ""}
           {task.status === "Blocked" && task.blockedReason ? ` · ${task.blockedReason}` : ""}
         </span>
       </button>
@@ -360,6 +364,10 @@ function TasksPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [ownerId, setOwnerId] = useState("");
+  // A task has one lead and can have any number of additional assignees.
+  const [additionalAssigneeIds, setAdditionalAssigneeIds] = useState<string[]>([]);
+  const [showAssigneePicker, setShowAssigneePicker] = useState(false);
+  const [personSearch, setPersonSearch] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newDue, setNewDue] = useState(initialDue);
   const [newDescription, setNewDescription] = useState("");
@@ -419,7 +427,45 @@ function TasksPage() {
   const selectedOwner = allowedPeople.find((person) => person.id === ownerId);
   const ownerTeamOptions = (selectedOwner?.teamIds ?? []).filter((id) =>
     data?.role === "admin" || data?.teamIds.includes(id));
+  const effectiveTeamId = ownerTeamOptions.includes(newTeamId ?? "")
+    ? newTeamId
+    : ownerTeamOptions[0] ?? null;
+  const assignableTeammates = allowedPeople.filter(
+    (person) => person.id !== ownerId &&
+      (effectiveTeamId === null || person.teamIds.includes(effectiveTeamId)),
+  );
+  const matchingTeammates = assignableTeammates.filter((person) =>
+    person.name.toLocaleLowerCase().includes(personSearch.trim().toLocaleLowerCase()),
+  );
+  const personById = new Map(people.map((person) => [person.id, person]));
+  const selectedAssignees = additionalAssigneeIds
+    .map((id) => personById.get(id))
+    .filter((person): person is FeedPerson => Boolean(person));
   const teamOf = (id: string | null) => id === null ? "General" : teams.find((team) => team.id === id)?.name ?? "Team";
+  const participantIds = (task: FeedTask) => [...new Set([task.ownerId, ...task.assigneeIds])];
+
+  function setOwnerAndTeam(nextOwnerId: string) {
+    const person = allowedPeople.find((candidate) => candidate.id === nextOwnerId);
+    const nextTeamId = person?.teamIds.find(
+      (id) => data?.role === "admin" || data?.teamIds.includes(id),
+    ) ?? null;
+    setOwnerId(nextOwnerId);
+    setNewTeamId(nextTeamId);
+    setAdditionalAssigneeIds((existing) => existing.filter((id) => {
+      const teammate = allowedPeople.find((candidate) => candidate.id === id);
+      return id !== nextOwnerId && Boolean(teammate) &&
+        (nextTeamId === null || teammate!.teamIds.includes(nextTeamId));
+    }));
+  }
+
+  function setTeamAndPruneAssignees(nextTeamId: string | null) {
+    setNewTeamId(nextTeamId);
+    setAdditionalAssigneeIds((existing) => existing.filter((id) => {
+      const teammate = allowedPeople.find((candidate) => candidate.id === id);
+      return Boolean(teammate) &&
+        (nextTeamId === null || teammate!.teamIds.includes(nextTeamId));
+    }));
+  }
 
   function updateLocally(taskId: string, patch: Partial<FeedTask>) {
     queryClient.setQueryData<SimpleTaskFeed>(keyFor(currentUser.id), (old) =>
@@ -459,6 +505,9 @@ function TasksPage() {
     const suggestedTeam = first.teamIds.find((id) => data?.role === "admin" || data?.teamIds.includes(id)) ?? null;
     setOwnerId(first.id);
     setNewTeamId(suggestedTeam);
+    setAdditionalAssigneeIds([]);
+    setShowAssigneePicker(false);
+    setPersonSearch("");
     setNewDue(initialDue());
     setNewTitle("");
     setNewDescription("");
@@ -470,6 +519,9 @@ function TasksPage() {
     setEditingId(task.id);
     setOwnerId(task.ownerId);
     setNewTeamId(task.teamId);
+    setAdditionalAssigneeIds([...new Set(task.assigneeIds.filter((id) => id !== task.ownerId))]);
+    setShowAssigneePicker(false);
+    setPersonSearch("");
     setNewTitle(task.title);
     setNewDue(task.deadline);
     setNewDescription(task.description);
@@ -510,13 +562,15 @@ function TasksPage() {
     setSaving(true);
     try {
       const editing = editingId ? tasks.find((task) => task.id === editingId) : undefined;
-      const retainedAssignees = editing
-        ? editing.assigneeIds.filter((id) => {
-            const participant = people.find((candidate) => candidate.id === id);
-            return assignedTeam === null || participant?.teamIds.includes(assignedTeam);
-          })
-        : [];
-      const assigneeIds = Array.from(new Set([...retainedAssignees, person.id]));
+      // Keep the lead in task_assignees so every assigned person sees this in My Tasks.
+      // The existing server validates membership and updates assignment notifications.
+      const assigneeIds = Array.from(new Set([
+        person.id,
+        ...additionalAssigneeIds.filter((id) => {
+          const teammate = allowedPeople.find((candidate) => candidate.id === id);
+          return teammate && (assignedTeam === null || teammate.teamIds.includes(assignedTeam));
+        }),
+      ]));
 
       if (editing) {
         await edit({
@@ -557,7 +611,7 @@ function TasksPage() {
             blockedReason: "",
             projectId: null,
             teamId: assignedTeam,
-            assigneeIds: [person.id],
+            assigneeIds,
           },
         });
         const now = new Date().toISOString();
@@ -570,7 +624,7 @@ function TasksPage() {
           priority: "Medium",
           ownerId: person.id,
           ownerName: person.name,
-          assigneeIds: [person.id],
+          assigneeIds,
           teamId: assignedTeam,
           projectId: null,
           blockedReason: "",
@@ -578,7 +632,7 @@ function TasksPage() {
           updatedAt: now,
           canEditDetails: data.role === "admin" ||
             (assignedTeam !== null && data.teamIds.includes(assignedTeam)),
-          canEditStatus: data.role === "admin" || person.id === currentUser.id ||
+          canEditStatus: data.role === "admin" || assigneeIds.includes(currentUser.id) ||
             (assignedTeam !== null && data.teamIds.includes(assignedTeam)),
         };
         queryClient.setQueryData<SimpleTaskFeed>(keyFor(currentUser.id), (old) =>
@@ -588,7 +642,7 @@ function TasksPage() {
       setCreating(false);
       setEditingId(null);
       toast.success(editing ? "Task updated" : "Task created");
-      if (person.id !== currentUser.id) {
+      if (!assigneeIds.includes(currentUser.id)) {
         setPage("teams");
         setTeamId(assignedTeam ?? GENERAL_ID);
       } else {
@@ -803,13 +857,8 @@ function TasksPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="min-w-0 space-y-1.5">
-                <Label htmlFor="new-task-owner">Who is responsible?</Label>
-                <Select value={ownerId} onValueChange={(value) => {
-                  const person = allowedPeople.find((candidate) => candidate.id === value);
-                  const firstTeam = person?.teamIds.find((id) => data?.role === "admin" || data?.teamIds.includes(id)) ?? null;
-                  setOwnerId(value);
-                  setNewTeamId(firstTeam);
-                }}>
+                <Label htmlFor="new-task-owner">Task lead</Label>
+                <Select value={ownerId} onValueChange={setOwnerAndTeam}>
                   <SelectTrigger id="new-task-owner" className="min-w-0"><SelectValue placeholder="Choose person" /></SelectTrigger>
                   <SelectContent>{allowedPeople.map((person) => (
                     <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>
@@ -821,7 +870,45 @@ function TasksPage() {
                 <Input id="new-task-date" type="date" required value={newDue} onChange={(event) => setNewDue(event.target.value)} />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">Team: {teamOf(newTeamId)} · Selected automatically</p>
+            <div className="space-y-2 rounded-xl border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">Assigned people</p>
+                  <p className="text-xs text-muted-foreground">{1 + additionalAssigneeIds.length} selected · all can update this task</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => setShowAssigneePicker((open) => !open)}>
+                  <Users className="mr-1.5 size-3.5" /> {showAssigneePicker ? "Done selecting" : "+ Add people"}
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <span className="max-w-full truncate rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">{selectedOwner?.name ?? "Task lead"} · lead</span>
+                {selectedAssignees.map((person) => (
+                  <span key={person.id} dir="auto" className="max-w-full truncate rounded-md bg-muted px-2 py-1 text-xs">{person.name}</span>
+                ))}
+              </div>
+              {showAssigneePicker && (
+                <div className="space-y-2 border-t border-border pt-3">
+                  <p className="text-xs text-muted-foreground">Choose additional people from {teamOf(effectiveTeamId)}.</p>
+                  <Input aria-label="Search people to assign" placeholder="Search people…" value={personSearch} onChange={(event) => setPersonSearch(event.target.value)} className="h-9" />
+                  <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                    {matchingTeammates.map((person) => (
+                      <label key={person.id} htmlFor={`assign-person-${person.id}`} className="flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-muted/60">
+                        <Checkbox
+                          id={`assign-person-${person.id}`}
+                          checked={additionalAssigneeIds.includes(person.id)}
+                          onCheckedChange={(checked) => setAdditionalAssigneeIds((ids) => checked === true
+                            ? [...new Set([...ids, person.id])]
+                            : ids.filter((id) => id !== person.id))}
+                        />
+                        <span dir="auto" className="min-w-0 truncate text-sm">{person.name}</span>
+                      </label>
+                    ))}
+                    {matchingTeammates.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground">No matching team members.</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">Team: {teamOf(effectiveTeamId)} · Selected automatically</p>
             <details className="rounded-lg border border-border px-3 py-2">
               <summary className="cursor-pointer py-1 text-xs font-semibold text-primary">Add details (optional)</summary>
               <div className="mt-2 space-y-3">
@@ -829,7 +916,7 @@ function TasksPage() {
                 {ownerTeamOptions.length > 1 && (
                   <div className="space-y-1.5">
                     <Label>Team</Label>
-                    <Select value={newTeamId ?? GENERAL_ID} onValueChange={(value) => setNewTeamId(value === GENERAL_ID ? null : value)}>
+                    <Select value={newTeamId ?? GENERAL_ID} onValueChange={(value) => setTeamAndPruneAssignees(value === GENERAL_ID ? null : value)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>{ownerTeamOptions.map((id) => <SelectItem key={id} value={id}>{teamOf(id)}</SelectItem>)}</SelectContent>
                     </Select>
@@ -858,7 +945,15 @@ function TasksPage() {
               <div className="mt-1"><StatusTag status={selected.status} /></div>
               <div className="overflow-hidden rounded-xl border border-border text-sm">
                 <div className="flex justify-between gap-4 border-b border-border px-3 py-3">
-                  <span className="text-muted-foreground">Responsible</span><span className="font-medium">{selected.ownerName}</span>
+                  <span className="shrink-0 text-muted-foreground">Assigned to</span>
+                  <div className="flex min-w-0 flex-wrap justify-end gap-1 text-right">
+                    {participantIds(selected).map((id) => (
+                      <span key={id} dir="auto" className="rounded-md bg-muted px-2 py-1 text-xs font-medium">
+                        {personById.get(id)?.name ?? (id === selected.ownerId ? selected.ownerName : "Member")}
+                        {id === selected.ownerId && participantIds(selected).length > 1 ? " · lead" : ""}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex justify-between gap-4 border-b border-border px-3 py-3">
                   <span className="text-muted-foreground">Due</span><span className="font-medium">{dueText(selected.deadline)}</span>
@@ -891,6 +986,9 @@ function TasksPage() {
               )}
               {selected.canEditStatus ? (
                 <div className="space-y-3">
+                  {participantIds(selected).length > 1 && (
+                    <p className="text-xs text-muted-foreground">Shared task: changing its status updates it for everyone assigned.</p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {selected.status !== "In Progress" && (
                       <Button type="button" variant="outline" disabled={!!workingId} onClick={() => void changeStatus(selected, "In Progress")}>Start</Button>
