@@ -76,7 +76,7 @@ export function layoutTimedEvents(
 ): Map<string, { column: number; columns: number }> {
   const minutes = (value: string) => {
     const [hour, minute] = value.split(":").map(Number);
-    return hour * 60 + minute;
+    return (hour ?? 0) * 60 + (minute ?? 0);
   };
   const sorted = events.map((event) => ({
     id: event.id, start: minutes(event.start_time), end: minutes(event.end_time),
