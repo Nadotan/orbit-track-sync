@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -16,6 +15,8 @@ interface ActivePollSummary {
 }
 
 const POLL_CACHE_MS = 5 * 60_000;
+const POLL_CACHE_RETENTION_MS = 30 * 60_000;
+const POLL_CHANGE_COALESCE_MS = 400;
 
 async function fetchActivePollSummary(): Promise<ActivePollSummary[]> {
   const nowIso = new Date().toISOString();
@@ -70,13 +71,14 @@ export function ActivePollButton() {
   const queryKey = ["pom-active-poll-button", currentUser.id];
   const [now, setNow] = useState(() => Date.now());
 
-  // Query caching avoids re-reading the same two tables on every route change.
-  // The user ID in the key prevents data reuse after account changes.
+  // The shared cache survives route changes and short app switches.
+  // The global focus policy only refreshes after this data is stale.
   const { data: polls = [], error } = useQuery({
     queryKey,
     queryFn: fetchActivePollSummary,
     enabled: !onPollsPage,
     staleTime: POLL_CACHE_MS,
+    gcTime: POLL_CACHE_RETENTION_MS,
     refetchOnWindowFocus: true,
     retry: 1,
   });
@@ -89,12 +91,30 @@ export function ActivePollButton() {
     (poll) => new Date(poll.closesAt).getTime() > now,
   );
 
-  // Poll expiry updates the countdown locally, with no database requests.
+  // Keep the countdown responsive while visible, with no database requests.
+  // Pausing the local timer while hidden also avoids unnecessary browser work.
   useEffect(() => {
     if (onPollsPage || !hasActivePolls) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+
+    let timer: number | null = null;
+    const stop = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = null;
+    };
+    const handleVisibility = () => {
+      stop();
+      if (document.visibilityState === "visible") {
+        setNow(Date.now());
+        timer = window.setInterval(() => setNow(Date.now()), 1000);
+      }
+    };
+
+    handleVisibility();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [onPollsPage, hasActivePolls]);
 
   useEffect(() => {
@@ -102,14 +122,17 @@ export function ActivePollButton() {
 
     let refreshTimer: number | null = null;
     const refresh = () => {
-      // A local mutation and a realtime event can arrive together. Reload once.
+      // Realtime and local mutations can both report the same change.
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         refreshTimer = null;
         void queryClient.invalidateQueries({
           queryKey: ["pom-active-poll-button", currentUser.id],
+          // Mark data stale while backgrounded, but don't issue a network
+          // request until the app becomes visible again.
+          refetchType: document.visibilityState === "visible" ? "active" : "none",
         });
-      }, 300);
+      }, POLL_CHANGE_COALESCE_MS);
     };
 
     const channel = supabase
@@ -129,8 +152,8 @@ export function ActivePollButton() {
     };
   }, [onPollsPage, currentUser.id, queryClient]);
 
-  // A vote can be cast while the Polls page hides this button. Mark its cached
-  // summary stale so it refetches on return only when something changed.
+  // A vote may be cast while this global button is hidden on the Polls page.
+  // Invalidate the cache without starting a second request on that page.
   useEffect(() => {
     if (!onPollsPage) return;
     const invalidate = () => {
