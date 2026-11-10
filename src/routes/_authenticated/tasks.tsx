@@ -371,7 +371,8 @@ function TasksPage() {
   const [newTitle, setNewTitle] = useState("");
   const [newDue, setNewDue] = useState(initialDue);
   const [newDescription, setNewDescription] = useState("");
-  const [newTeamId, setNewTeamId] = useState<string | null>(null);
+  // Empty means no team selected. "general" is an explicit admin-only choice.
+  const [newTeamId, setNewTeamId] = useState("");
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [needHelp, setNeedHelp] = useState(false);
@@ -424,16 +425,19 @@ function TasksPage() {
     return [];
   }, [data, people]);
 
-  const selectedOwner = allowedPeople.find((person) => person.id === ownerId);
-  const ownerTeamOptions = (selectedOwner?.teamIds ?? []).filter((id) =>
-    data?.role === "admin" || data?.teamIds.includes(id));
-  const effectiveTeamId = ownerTeamOptions.includes(newTeamId ?? "")
-    ? newTeamId
-    : ownerTeamOptions[0] ?? null;
-  const assignableTeammates = allowedPeople.filter(
-    (person) => person.id !== ownerId &&
-      (effectiveTeamId === null || person.teamIds.includes(effectiveTeamId)),
-  );
+  // A task's team is always chosen explicitly before choosing the lead.
+  // Never infer or silently change its team from the selected person's memberships.
+  const teamOptions = data?.role === "admin"
+    ? [{ id: GENERAL_ID, name: "General" }, ...teams]
+    : teams.filter((team) => data?.teamIds.includes(team.id));
+  const teamIsSelected = newTeamId !== "";
+  const selectedScopeId = newTeamId === GENERAL_ID ? null : newTeamId || null;
+  const peopleForTeam = teamIsSelected
+    ? allowedPeople.filter((person) =>
+        newTeamId === GENERAL_ID || person.teamIds.includes(newTeamId))
+    : [];
+  const selectedOwner = peopleForTeam.find((person) => person.id === ownerId);
+  const assignableTeammates = peopleForTeam.filter((person) => person.id !== ownerId);
   const matchingTeammates = assignableTeammates.filter((person) =>
     person.name.toLocaleLowerCase().includes(personSearch.trim().toLocaleLowerCase()),
   );
@@ -444,27 +448,21 @@ function TasksPage() {
   const teamOf = (id: string | null) => id === null ? "General" : teams.find((team) => team.id === id)?.name ?? "Team";
   const participantIds = (task: FeedTask) => [...new Set([task.ownerId, ...task.assigneeIds])];
 
-  function setOwnerAndTeam(nextOwnerId: string) {
-    const person = allowedPeople.find((candidate) => candidate.id === nextOwnerId);
-    const nextTeamId = person?.teamIds.find(
-      (id) => data?.role === "admin" || data?.teamIds.includes(id),
-    ) ?? null;
-    setOwnerId(nextOwnerId);
+  function selectTaskTeam(nextTeamId: string) {
+    // Choosing a new team retains only people who actually belong to it.
+    // A manager can explicitly select General when creating a cross-team task.
+    const isMember = (id: string) => allowedPeople.some((person) =>
+      person.id === id && (nextTeamId === GENERAL_ID || person.teamIds.includes(nextTeamId)));
     setNewTeamId(nextTeamId);
-    setAdditionalAssigneeIds((existing) => existing.filter((id) => {
-      const teammate = allowedPeople.find((candidate) => candidate.id === id);
-      return id !== nextOwnerId && Boolean(teammate) &&
-        (nextTeamId === null || teammate!.teamIds.includes(nextTeamId));
-    }));
+    setOwnerId((id) => isMember(id) ? id : "");
+    setAdditionalAssigneeIds((ids) => ids.filter((id) => isMember(id)));
+    setShowAssigneePicker(false);
+    setPersonSearch("");
   }
 
-  function setTeamAndPruneAssignees(nextTeamId: string | null) {
-    setNewTeamId(nextTeamId);
-    setAdditionalAssigneeIds((existing) => existing.filter((id) => {
-      const teammate = allowedPeople.find((candidate) => candidate.id === id);
-      return Boolean(teammate) &&
-        (nextTeamId === null || teammate!.teamIds.includes(nextTeamId));
-    }));
+  function selectTaskLead(nextOwnerId: string) {
+    setOwnerId(nextOwnerId);
+    setAdditionalAssigneeIds((ids) => ids.filter((id) => id !== nextOwnerId));
   }
 
   function updateLocally(taskId: string, patch: Partial<FeedTask>) {
@@ -497,14 +495,12 @@ function TasksPage() {
 
   function showCreate() {
     setEditingId(null);
-    const first = allowedPeople.find((person) => person.id === currentUser.id) ?? allowedPeople[0];
-    if (!first) {
-      toast.error("No eligible team members are available.");
+    if (teamOptions.length === 0) {
+      toast.error("No teams are available for assigning tasks.");
       return;
     }
-    const suggestedTeam = first.teamIds.find((id) => data?.role === "admin" || data?.teamIds.includes(id)) ?? null;
-    setOwnerId(first.id);
-    setNewTeamId(suggestedTeam);
+    setOwnerId("");
+    setNewTeamId("");
     setAdditionalAssigneeIds([]);
     setShowAssigneePicker(false);
     setPersonSearch("");
@@ -518,7 +514,7 @@ function TasksPage() {
     if (!task.canEditDetails) return;
     setEditingId(task.id);
     setOwnerId(task.ownerId);
-    setNewTeamId(task.teamId);
+    setNewTeamId(task.teamId ?? GENERAL_ID);
     setAdditionalAssigneeIds([...new Set(task.assigneeIds.filter((id) => id !== task.ownerId))]);
     setShowAssigneePicker(false);
     setPersonSearch("");
@@ -550,13 +546,25 @@ function TasksPage() {
   async function submitTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!data || !canCreate || saving) return;
-    const person = allowedPeople.find((item) => item.id === ownerId);
-    if (!person || !newTitle.trim() || !newDue) return;
-    const validTeams = person.teamIds.filter((id) => data.role === "admin" || data.teamIds.includes(id));
-    const assignedTeam = validTeams.includes(newTeamId ?? "") ? newTeamId : validTeams[0] ?? null;
-    // A team lead/mentor may only create within their own team.
-    if (data.role !== "admin" && !assignedTeam) {
-      toast.error("Choose a member of one of your teams.");
+    if (!teamIsSelected || !teamOptions.some((team) => team.id === newTeamId)) {
+      toast.error("Choose a team for this task.");
+      return;
+    }
+    const assignedTeam = selectedScopeId;
+    // The team is explicit; never fall back to one of the assignee's teams.
+    if (data.role !== "admin" && (!assignedTeam || !data.teamIds.includes(assignedTeam))) {
+      toast.error("You can only create tasks for your teams.");
+      return;
+    }
+    const person = peopleForTeam.find((item) => item.id === ownerId);
+    if (!person) {
+      toast.error("Choose a task lead from the selected team.");
+      return;
+    }
+    if (!newTitle.trim() || !newDue) return;
+    if (additionalAssigneeIds.some((id) =>
+      !peopleForTeam.some((candidate) => candidate.id === id))) {
+      toast.error("All assigned people must belong to the selected team.");
       return;
     }
     setSaving(true);
@@ -567,8 +575,7 @@ function TasksPage() {
       const assigneeIds = Array.from(new Set([
         person.id,
         ...additionalAssigneeIds.filter((id) => {
-          const teammate = allowedPeople.find((candidate) => candidate.id === id);
-          return teammate && (assignedTeam === null || teammate.teamIds.includes(assignedTeam));
+          return peopleForTeam.some((candidate) => candidate.id === id);
         }),
       ]));
 
@@ -855,12 +862,21 @@ function TasksPage() {
               <Label htmlFor="new-task-title">What needs to be done?</Label>
               <Input id="new-task-title" autoFocus required maxLength={120} dir="auto" placeholder="e.g. Check motor connections" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-task-team">Team</Label>
+              <Select value={newTeamId} onValueChange={selectTaskTeam}>
+                <SelectTrigger id="new-task-team" className="w-full"><SelectValue placeholder="Choose a team" /></SelectTrigger>
+                <SelectContent>{teamOptions.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
+                ))}</SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="min-w-0 space-y-1.5">
                 <Label htmlFor="new-task-owner">Task lead</Label>
-                <Select value={ownerId} onValueChange={setOwnerAndTeam}>
-                  <SelectTrigger id="new-task-owner" className="min-w-0"><SelectValue placeholder="Choose person" /></SelectTrigger>
-                  <SelectContent>{allowedPeople.map((person) => (
+                <Select value={ownerId} onValueChange={selectTaskLead} disabled={!teamIsSelected}>
+                  <SelectTrigger id="new-task-owner" className="min-w-0"><SelectValue placeholder={teamIsSelected ? "Choose person" : "Choose team first"} /></SelectTrigger>
+                  <SelectContent>{peopleForTeam.map((person) => (
                     <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>
                   ))}</SelectContent>
                 </Select>
@@ -874,21 +890,21 @@ function TasksPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">Assigned people</p>
-                  <p className="text-xs text-muted-foreground">{1 + additionalAssigneeIds.length} selected · all can update this task</p>
+                  <p className="text-xs text-muted-foreground">{(ownerId ? 1 : 0) + additionalAssigneeIds.length} selected · all can update this task</p>
                 </div>
-                <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => setShowAssigneePicker((open) => !open)}>
+                <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" disabled={!teamIsSelected || !ownerId} onClick={() => setShowAssigneePicker((open) => !open)}>
                   <Users className="mr-1.5 size-3.5" /> {showAssigneePicker ? "Done selecting" : "+ Add people"}
                 </Button>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <span className="max-w-full truncate rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">{selectedOwner?.name ?? "Task lead"} · lead</span>
+                {selectedOwner && <span className="max-w-full truncate rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">{selectedOwner.name} · lead</span>}
                 {selectedAssignees.map((person) => (
                   <span key={person.id} dir="auto" className="max-w-full truncate rounded-md bg-muted px-2 py-1 text-xs">{person.name}</span>
                 ))}
               </div>
               {showAssigneePicker && (
                 <div className="space-y-2 border-t border-border pt-3">
-                  <p className="text-xs text-muted-foreground">Choose additional people from {teamOf(effectiveTeamId)}.</p>
+                  <p className="text-xs text-muted-foreground">Choose additional people from {teamOf(selectedScopeId)}.</p>
                   <Input aria-label="Search people to assign" placeholder="Search people…" value={personSearch} onChange={(event) => setPersonSearch(event.target.value)} className="h-9" />
                   <div className="max-h-40 space-y-0.5 overflow-y-auto">
                     {matchingTeammates.map((person) => (
@@ -908,23 +924,13 @@ function TasksPage() {
                 </div>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">Team: {teamOf(effectiveTeamId)} · Selected automatically</p>
             <details className="rounded-lg border border-border px-3 py-2">
               <summary className="cursor-pointer py-1 text-xs font-semibold text-primary">Add details (optional)</summary>
               <div className="mt-2 space-y-3">
                 <Textarea placeholder="Helpful context or a link" dir="auto" maxLength={2000} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} />
-                {ownerTeamOptions.length > 1 && (
-                  <div className="space-y-1.5">
-                    <Label>Team</Label>
-                    <Select value={newTeamId ?? GENERAL_ID} onValueChange={(value) => setTeamAndPruneAssignees(value === GENERAL_ID ? null : value)}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{ownerTeamOptions.map((id) => <SelectItem key={id} value={id}>{teamOf(id)}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                )}
               </div>
             </details>
-            <Button type="submit" disabled={saving || !newTitle.trim() || !ownerId || !newDue} className="h-11 w-full rounded-xl">
+            <Button type="submit" disabled={saving || !newTitle.trim() || !teamIsSelected || !ownerId || !newDue} className="h-11 w-full rounded-xl">
               {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
               {editingId ? "Save changes" : "Create task"}
             </Button>
@@ -1017,7 +1023,7 @@ function TasksPage() {
                   )}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Everyone can view team work. Only responsible members can update this task.</p>
+                <p className="text-xs text-muted-foreground">Everyone can view team work. Piece And Love, Piece Of Mind💜.</p>
               )}
             </>
           )}
