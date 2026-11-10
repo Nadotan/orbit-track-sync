@@ -48,7 +48,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 const minutes = (value: string) => {
   const [hour, minute] = value.split(":").map(Number);
-  return hour * 60 + minute;
+  return (hour ?? 0) * 60 + (minute ?? 0);
 };
 
 const toTime = (value: number) => {
@@ -775,7 +775,7 @@ function CalendarPage() {
     view === "day"
       ? format(fromKey(selectedDate), "EEE, MMM d, yyyy")
       : view === "week"
-        ? `${format(weekDays[0], "MMM d")} – ${format(weekDays[6], "MMM d")}`
+        ? `${format(weekDays[0]!, "MMM d")} – ${format(weekDays[6]!, "MMM d")}`
         : format(anchor, "MMMM yyyy");
 
   return (
@@ -872,7 +872,7 @@ function CalendarPage() {
               >
                 {item === "agenda"
                   ? "List"
-                  : item[0].toUpperCase() + item.slice(1)}
+                  : item.charAt(0).toUpperCase() + item.slice(1)}
               </button>
             ))}
           </div>
