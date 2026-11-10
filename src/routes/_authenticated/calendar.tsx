@@ -1343,13 +1343,16 @@ function CalendarPage() {
 
               <details
                 className="rounded-lg border border-border bg-muted/20 p-3"
-                {...{ open: undefined }} data-default-open={
-                  !!(
-                    eventEditor.location ||
-                    eventEditor.description ||
-                    eventEditor.isMeeting
-                  )
-                }
+                ref={(el) => {
+                  if (el && !el.dataset["init"]) {
+                    el.dataset["init"] = "1";
+                    el.open = !!(
+                      eventEditor.location ||
+                      eventEditor.description ||
+                      eventEditor.isMeeting
+                    );
+                  }
+                }}
               >
                 <summary className="cursor-pointer text-sm font-medium">
                   More options
