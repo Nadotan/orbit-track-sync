@@ -1343,7 +1343,7 @@ function CalendarPage() {
 
               <details
                 className="rounded-lg border border-border bg-muted/20 p-3"
-                defaultOpen={
+                {...{ open: undefined }} data-default-open={
                   !!(
                     eventEditor.location ||
                     eventEditor.description ||
