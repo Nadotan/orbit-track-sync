@@ -17,6 +17,12 @@ import { CLOCK_ENABLED } from "@/lib/feature-flags";
 
 const items = [
   {
+    title: "Meetings",
+    url: "/meetings",
+    icon: CalendarDays,
+    admin: false,
+  },
+  {
     title: "Calendar",
     url: "/calendar",
     icon: CalendarRange,
@@ -26,12 +32,6 @@ const items = [
     title: "Clock",
     url: "/clock",
     icon: Clock3,
-    admin: false,
-  },
-  {
-    title: "Meetings",
-    url: "/meetings",
-    icon: CalendarDays,
     admin: false,
   },
   {
