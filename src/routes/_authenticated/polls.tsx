@@ -1,8 +1,10 @@
+
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -70,6 +72,12 @@ interface PollDraft {
   closesLocal: string;
   options: string[];
 }
+
+// Realtime changes are debounced; focus does not need a full reload on every
+// app switch. The 1-second on-screen countdown does not access the database.
+const POLL_REALTIME_DEBOUNCE_MS = 400;
+const POLL_FOCUS_MIN_AGE_MS = 60_000;
+const POLL_ADMIN_HISTORY_STALE_MS = 5 * 60_000;
 
 const LABEL_PRESETS = [
   "Question of the Day",
@@ -230,82 +238,75 @@ function PollsPage() {
     () => defaultDraft(),
   );
 
+  const requestInFlight = useRef<Promise<void> | null>(null);
+  const reloadRequested = useRef(false);
+  const lastLoadedAt = useRef(0);
+  const lastAdminHistoryAt = useRef(0);
+  const lastActivePollIds = useRef("");
+
   const load = useCallback(
-    async (quiet = false) => {
-      if (!quiet) {
-        setRefreshing(true);
+    (quiet = false, queueIfBusy = false): Promise<void> => {
+      if (requestInFlight.current) {
+        // Preserve a server change that arrived during an ongoing request.
+        if (queueIfBusy) reloadRequested.current = true;
+        return requestInFlight.current;
       }
 
-      try {
-        const active =
-          await loadActivePolls();
+      const request = (async () => {
+        if (!quiet) setRefreshing(true);
+        try {
+          const active = await loadActivePolls();
+          setWorkspace(active);
+          const activeIds = active.polls.map((poll) => poll.id).sort().join(",");
+          const activeSetChanged = lastActivePollIds.current !== activeIds;
+          lastActivePollIds.current = activeIds;
 
-        setWorkspace(active);
-
-        if (active.isAdmin) {
-          try {
-            const history =
-              await loadAdminPolls();
-
-            setAdminPolls(
-              history.polls,
-            );
-          } catch (error) {
-            console.error(
-              "[polls] Could not load admin poll history",
-              error,
-            );
+          if (active.isAdmin) {
+            if (!quiet || activeSetChanged || Date.now() - lastAdminHistoryAt.current >= POLL_ADMIN_HISTORY_STALE_MS) {
+              try {
+                const history = await loadAdminPolls();
+                setAdminPolls(history.polls);
+                lastAdminHistoryAt.current = Date.now();
+              } catch (error) {
+                console.error("[polls] Could not load admin poll history", error);
+              }
+            }
+          } else {
+            setAdminPolls([]);
+            lastAdminHistoryAt.current = 0;
           }
-        } else {
-          setAdminPolls([]);
-        }
 
-        if (
-          requestedPollId &&
-          !active.polls.some(
-            (poll) =>
-              poll.id ===
-              requestedPollId,
-          )
-        ) {
-          try {
-            const requested =
-              await loadOnePoll({
-                data: {
-                  pollId:
-                    requestedPollId,
-                },
-              });
-
-            setExtraPoll(
-              requested,
-            );
-          } catch {
+          if (requestedPollId && !active.polls.some((poll) => poll.id === requestedPollId)) {
+            try {
+              setExtraPoll(await loadOnePoll({ data: { pollId: requestedPollId } }));
+            } catch {
+              setExtraPoll(null);
+            }
+          } else {
             setExtraPoll(null);
           }
-        } else {
-          setExtraPoll(null);
+          lastLoadedAt.current = Date.now();
+        } catch (error) {
+          console.error("[polls] Could not load polls", error);
+          toast.error("Could not load polls.");
+        } finally {
+          setLoading(false);
+          setRefreshing(false);
         }
-      } catch (error) {
-        console.error(
-          "[polls] Could not load polls",
-          error,
-        );
+      })();
 
-        toast.error(
-          "Could not load polls.",
-        );
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
+      requestInFlight.current = request;
+      void request.finally(() => {
+        if (requestInFlight.current !== request) return;
+        requestInFlight.current = null;
+        if (reloadRequested.current) {
+          reloadRequested.current = false;
+          void load(true);
+        }
+      });
+      return request;
     },
-    [
-      loadActivePolls,
-      loadAdminPolls,
-      loadOnePoll,
-      requestedPollId,
-    ],
+    [loadActivePolls, loadAdminPolls, loadOnePoll, requestedPollId],
   );
 
   useEffect(() => {
@@ -337,58 +338,42 @@ function PollsPage() {
   ]);
 
   useEffect(() => {
+    let timer: number | null = null;
+    const scheduleRefresh = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        void load(true, true);
+      }, POLL_REALTIME_DEBOUNCE_MS);
+    };
+
     const channel = supabase
       .channel("polls-page")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "polls",
-        },
-        () => {
-          void load(true);
-        },
-      )
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "polls",
+      }, scheduleRefresh)
       .subscribe();
 
     return () => {
-      void supabase.removeChannel(
-        channel,
-      );
+      if (timer !== null) window.clearTimeout(timer);
+      void supabase.removeChannel(channel);
     };
   }, [load]);
 
   useEffect(() => {
-    function refreshOnVisible() {
-      if (
-        document.visibilityState ===
-        "visible"
-      ) {
-        void load(true);
-      }
-    }
-
-    window.addEventListener(
-      "focus",
-      refreshOnVisible,
-    );
-
-    document.addEventListener(
-      "visibilitychange",
-      refreshOnVisible,
-    );
-
+    const refreshOnVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (requestInFlight.current) return;
+      if (Date.now() - lastLoadedAt.current < POLL_FOCUS_MIN_AGE_MS) return;
+      void load(true);
+    };
+    window.addEventListener("focus", refreshOnVisible);
+    document.addEventListener("visibilitychange", refreshOnVisible);
     return () => {
-      window.removeEventListener(
-        "focus",
-        refreshOnVisible,
-      );
-
-      document.removeEventListener(
-        "visibilitychange",
-        refreshOnVisible,
-      );
+      window.removeEventListener("focus", refreshOnVisible);
+      document.removeEventListener("visibilitychange", refreshOnVisible);
     };
   }, [load]);
 
@@ -402,7 +387,7 @@ function PollsPage() {
       !polls.some(
         (poll) =>
           poll.id ===
-          extraPoll.id,
+          extraPoll.id
       )
     ) {
       polls.unshift(extraPoll);
@@ -736,7 +721,8 @@ function PollsPage() {
           : "Poll is live 🎉",
       );
 
-      await load(true);
+      lastAdminHistoryAt.current = 0;
+      await load(true, true);
 
       navigate({
         to: "/polls",

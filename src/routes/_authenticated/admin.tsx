@@ -1,3 +1,4 @@
+
 import { MentionText } from "@/components/mention-textarea";
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment as FragmentRow, useEffect, useMemo, useState } from "react";
@@ -18,6 +19,8 @@ import {
   Users,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
+import { CLOCK_ENABLED } from "@/lib/feature-flags";
 import { toast } from "sonner";
 
 import { AdminAvailability } from "@/components/admin-availability";
@@ -71,7 +74,7 @@ import {
   type PushTemplate,
 } from "@/lib/push.functions";
 import { useStore } from "@/lib/store";
-import type { Meeting, Profile, Rsvp } from "@/lib/types";
+import type { Meeting, Profile, Rsvp, TimeEntry } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [
@@ -270,7 +273,6 @@ function AdminPage() {
     teams,
     meetings,
     rsvps,
-    timeEntries,
     teamName,
     setUserTeams,
     setRoles,
@@ -282,13 +284,40 @@ function AdminPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newTeam, setNewTeam] = useState("");
   const [adminTab, setAdminTab] = useState<AdminTab>("analytics");
+
+  // Historical time entries are needed only by the Admin dashboard.
+  // Keep this separate from the app-wide chrona-db cache to avoid a costly
+  // full-table read each time the administrator opens another POM page.
+  const { data: adminTimeEntries = [], isLoading: loadingTimeEntries } = useQuery<TimeEntry[]>({
+    queryKey: ["pom-admin-time-entries", currentUser.id],
+    enabled: currentUser.role === "Admin" && !CLOCK_ENABLED,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("time_entries")
+        .select("id, user_id, start_time, end_time, duration_ms, description")
+        .order("start_time", { ascending: false });
+      if (error) throw new Error(error.message);
+      return (data ?? []).map((entry) => ({
+        id: entry.id,
+        userId: entry.user_id,
+        startTime: entry.start_time,
+        endTime: entry.end_time,
+        durationMs: Number(entry.duration_ms),
+        description: entry.description,
+      }));
+    },
+  });
+  const timeEntries = CLOCK_ENABLED ? store.timeEntries : adminTimeEntries;
   const [queryMetric, setQueryMetric] = useState<QueryMetric>("unanswered");
   const [queryRule, setQueryRule] = useState<QueryRule>("at-least");
   const [queryAmount, setQueryAmount] = useState(1);
   const [queryPeriod, setQueryPeriod] = useState<QueryPeriod>("next7");
   const [queryTeam, setQueryTeam] = useState("all");
-  const [cancelledRsvpIds, setCancelledRsvpIds] = useState<Set<string>>(
-    () => new Set(),
+  const cancelledRsvpIds = useMemo(
+    () => new Set(rsvps.filter((rsvp) => rsvp.cancelled === true).map((rsvp) => rsvp.id)),
+    [rsvps],
   );
   const [form, setForm] = useState({
     title: "",
@@ -296,40 +325,6 @@ function AdminPage() {
     time: "",
     teamId: "general",
   });
-
-  useEffect(() => {
-    if (currentUser.role !== "Admin") return;
-
-    let active = true;
-
-    void (async () => {
-      const { data, error } = await supabase.from("rsvps").select("*");
-
-      if (error) {
-        console.error("Failed to load RSVP cancellation flags:", error);
-        return;
-      }
-
-      const rows = (data ?? []) as Array<{
-        id: string;
-        cancelled?: boolean | null;
-      }>;
-
-      if (!active) return;
-
-      setCancelledRsvpIds(
-        new Set(
-          rows
-            .filter((row) => row.cancelled === true)
-            .map((row) => row.id),
-        ),
-      );
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [currentUser.role, rsvps]);
 
   const activeToday = useMemo(() => {
     const today = new Date().toDateString();
@@ -440,7 +435,7 @@ function AdminPage() {
         <Stat label="Active today" value={String(activeToday)} icon={Users} />
         <Stat
           label="Hours logged"
-          value={formatHours(totalHours)}
+          value={loadingTimeEntries ? "…" : formatHours(totalHours)}
           icon={Clock}
         />
         <Stat

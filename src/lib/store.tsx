@@ -149,7 +149,7 @@ async function fetchDb(
 
     supabase
       .from("rsvps")
-      .select("id, user_id, meeting_id, status, created_at"),
+      .select("id, user_id, meeting_id, status, created_at, cancelled"),
 
     supabase
       .from("team_members")
@@ -163,7 +163,7 @@ async function fetchDb(
   );
 
   const [entries, notifications] = await Promise.all([
-    isAdmin || CLOCK_ENABLED
+    CLOCK_ENABLED
       ? supabase
           .from("time_entries")
           .select(
@@ -317,6 +317,7 @@ async function fetchDb(
       meetingId: rsvp.meeting_id,
       status: rsvp.status as RsvpStatus,
       createdAt: rsvp.created_at,
+      cancelled: rsvp.cancelled === true,
     })),
 
     notifications: (notifications.data ?? []).map((notification) => ({
@@ -444,8 +445,41 @@ export function AppStoreProvider({
   );
 
   // This is the legacy Admin Activity feed, NOT user_notifications.
+  // Admins get the inserted row back so RSVP writes do not refetch every table.
   const notify = useCallback(
     async (message: string, tone: AppNotification["tone"]) => {
+      if (currentUser.role === "Admin") {
+        const { data: inserted, error } = await supabase
+          .from("notifications")
+          .insert({ message, tone })
+          .select("id, message, created_at, read, tone")
+          .single();
+
+        if (error) {
+          console.error("Failed to create admin activity:", error);
+          return;
+        }
+
+        queryClient.setQueryData<Db>(["chrona-db", userId], (previous) =>
+          previous
+            ? {
+                ...previous,
+                notifications: [
+                  {
+                    id: inserted.id,
+                    message: inserted.message,
+                    createdAt: inserted.created_at,
+                    read: inserted.read,
+                    tone: inserted.tone as AppNotification["tone"],
+                  },
+                  ...previous.notifications.filter((item) => item.id !== inserted.id),
+                ],
+              }
+            : previous,
+        );
+        return;
+      }
+
       const { error } = await supabase
         .from("notifications")
         .insert({ message, tone });
@@ -454,7 +488,7 @@ export function AppStoreProvider({
         console.error("Failed to create admin activity:", error);
       }
     },
-    [],
+    [currentUser.role, queryClient, userId],
   );
 
   const value: AppStore = {
@@ -592,7 +626,7 @@ export function AppStoreProvider({
         // Keep the original upsert behavior independent of this read.
         const { data: savedRsvp, error: readError } = await supabase
           .from("rsvps")
-          .select("id, user_id, meeting_id, status, created_at")
+          .select("id, user_id, meeting_id, status, created_at, cancelled")
           .eq("user_id", userId)
           .eq("meeting_id", meetingId)
           .maybeSingle();
@@ -604,6 +638,7 @@ export function AppStoreProvider({
             meetingId: savedRsvp.meeting_id,
             status: savedRsvp.status as RsvpStatus,
             createdAt: savedRsvp.created_at,
+            cancelled: savedRsvp.cancelled === true,
           };
 
           queryClient.setQueryData<Db>(
@@ -627,12 +662,9 @@ export function AppStoreProvider({
             },
           );
 
-          // Mark the overall store stale without immediately re-fetching it.
-          // The normal focus refresh can reconcile other users' updates.
-          void queryClient.invalidateQueries({
-            queryKey: ["chrona-db", userId],
-            refetchType: "none",
-          });
+          // The local RSVP cache is already updated. Marking it stale here
+          // would trigger a FULL shared-data reload on the next tab focus,
+          // defeating the existing five-minute React Query cache.
         } else {
           // Preserve correct behavior if the supplementary read is unavailable.
           refresh();
@@ -658,11 +690,8 @@ export function AppStoreProvider({
         // RSVP responses are recorded in Admin Activity only.
         // Do not invoke the push server function for RSVP changes.
 
-        // An admin also needs the newly inserted Admin Activity row.
-        // Ordinary members avoid this expensive full-store refresh.
-        if (currentUser.role === "Admin") {
-          refresh();
-        }
+        // Admin Activity is updated from the insert result inside notify().
+        // Do not reload all shared tables after an RSVP change.
       })();
     },
 
@@ -923,7 +952,17 @@ export function AppStoreProvider({
           return;
         }
 
-        refresh();
+        queryClient.setQueryData<Db>(["chrona-db", userId], (previous) =>
+          previous
+            ? {
+                ...previous,
+                notifications: previous.notifications.map((notification) => ({
+                  ...notification,
+                  read: true,
+                })),
+              }
+            : previous,
+        );
       })();
     },
 
@@ -936,8 +975,7 @@ export function AppStoreProvider({
             : {}),
 
           ...(patch.avatarUrl !== undefined
-            ? { avatar_url: patch.avatarUrl }
-            : {}),
+            ? { avatar_url: patch.avatarUrl } : {}),
         })
         .eq("id", userId);
 

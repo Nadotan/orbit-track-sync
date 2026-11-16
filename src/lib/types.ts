@@ -1,3 +1,4 @@
+
 export type Role = "Admin" | "User" | "Mentor";
 
 export interface Team {
@@ -46,6 +47,8 @@ export interface Rsvp {
   meetingId: string;
   status: RsvpStatus;
   createdAt: string;
+  // Existing legacy data may not specify the cancellation flag.
+  cancelled?: boolean;
 }
 
 export interface AppNotification {

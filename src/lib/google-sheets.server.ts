@@ -1,3 +1,4 @@
+
 import {
   supabaseAdmin,
 } from "@/integrations/supabase/client.server";
@@ -992,21 +993,34 @@ export async function syncGoogleSheetsSnapshot():
  * Google Sheets sync on their own. This keeps usage cheap.
  * Admin can always use the manual Sync Sheets button.
  */
+// Coalesce overlapping automatic snapshots in the same server instance.
+// Unlike a timer-based debounce, the caller still awaits a completed sync.
+// A distributed, cross-instance solution would require a durable job queue or
+// extending the Google Apps Script receiver to support incremental updates.
+let inFlightAutomaticSnapshot: Promise<void> | null = null;
+let needsAnotherSnapshot = false;
+
 export async function safeSyncGoogleSheetsSnapshot() {
-  if (
-    !googleSheetsConfigured()
-  ) {
-    return;
+  if (!googleSheetsConfigured()) return;
+
+  needsAnotherSnapshot = true;
+  if (!inFlightAutomaticSnapshot) {
+    inFlightAutomaticSnapshot = (async () => {
+      try {
+        do {
+          needsAnotherSnapshot = false;
+          try {
+            await syncGoogleSheetsSnapshot();
+          } catch (error) {
+            // Preserve the existing best-effort behavior for task mutations.
+            console.error("[google-sheets] Automatic sync failed", error);
+          }
+        } while (needsAnotherSnapshot);
+      } finally {
+        inFlightAutomaticSnapshot = null;
+      }
+    })();
   }
 
-  try {
-    await syncGoogleSheetsSnapshot();
-  } catch (
-    error
-  ) {
-    console.error(
-      "[google-sheets] Automatic sync failed",
-      error,
-    );
-  }
+  await inFlightAutomaticSnapshot;
 }
