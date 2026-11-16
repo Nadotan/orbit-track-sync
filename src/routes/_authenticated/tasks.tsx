@@ -214,8 +214,8 @@ const getSimpleTaskFeed = createServerFn({ method: "GET" })
 export const Route = createFileRoute("/_authenticated/tasks")({
   component: TasksPage,
   validateSearch: (search: Record<string, unknown>) => ({
-    task: typeof search.task === "string" ? search.task : undefined,
-    project: typeof search.project === "string" ? search.project : undefined,
+    task: typeof search['task'] === "string" ? search['task'] : undefined,
+    project: typeof search['project'] === "string" ? search['project'] : undefined,
   }),
   head: () => ({ meta: [{ title: "Tasks · POM" }] }),
 });
