@@ -52,16 +52,24 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/polls")({
   validateSearch: (search: Record<string, unknown>) => ({
-    poll: typeof search['poll'] === "string" ? search['poll'] : undefined,
+    poll: typeof search["poll"] === "string" ? search["poll"] : undefined,
   }),
-  head: () => ({ meta: [
-    {"title": "Polls - POM"} ,
-    {"name": "description", "content": "Vote in active POM polls and see the current results."} ,
-    {"property": "og:title", "content": "Polls - POM"} ,
-    {"property": "og:description", "content": "Vote in active POM polls and see the current results."} ,
-    {"property": "og:type", "content": "website"} ,
-    {"name": "twitter:card", "content": "summary"} ,
-  ] }),
+  head: () => ({
+    meta: [
+      { title: "Polls - POM" },
+      {
+        name: "description",
+        content: "Vote in active POM polls and see the current results.",
+      },
+      { property: "og:title", content: "Polls - POM" },
+      {
+        property: "og:description",
+        content: "Vote in active POM polls and see the current results.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: PollsPage,
 });
 
@@ -73,9 +81,8 @@ interface PollDraft {
   options: string[];
 }
 
-// Realtime changes are debounced; focus does not need a full reload on every
-// app switch. The 1-second on-screen countdown does not access the database.
 const POLL_REALTIME_DEBOUNCE_MS = 400;
+const POLL_VOTE_REFRESH_MIN_AGE_MS = 15_000;
 const POLL_FOCUS_MIN_AGE_MS = 60_000;
 const POLL_ADMIN_HISTORY_STALE_MS = 5 * 60_000;
 
@@ -102,13 +109,10 @@ const CONFETTI = Array.from({ length: 30 }, (_, index) => ({
 
 function toLocalDateTime(date: Date) {
   const local = new Date(
-    date.getTime() -
-      date.getTimezoneOffset() * 60_000,
+    date.getTime() - date.getTimezoneOffset() * 60_000,
   );
 
-  return local
-    .toISOString()
-    .slice(0, 16);
+  return local.toISOString().slice(0, 16);
 }
 
 function defaultDraft(): PollDraft {
@@ -117,10 +121,7 @@ function defaultDraft(): PollDraft {
     question: "",
     description: "",
     closesLocal: toLocalDateTime(
-      new Date(
-        Date.now() +
-          2 * 60 * 60 * 1000,
-      ),
+      new Date(Date.now() + 2 * 60 * 60 * 1000),
     ),
     options: ["", ""],
   };
@@ -132,143 +133,149 @@ function countdownParts(target: string, now: number) {
     new Date(target).getTime() - now,
   );
 
-  const totalSeconds = Math.floor(
-    remaining / 1000,
-  );
+  const totalSeconds = Math.floor(remaining / 1000);
 
   return {
     remaining,
-    days: Math.floor(
-      totalSeconds / 86_400,
-    ),
-    hours: Math.floor(
-      (totalSeconds % 86_400) /
-        3_600,
-    ),
-    minutes: Math.floor(
-      (totalSeconds % 3_600) /
-        60,
-    ),
+    days: Math.floor(totalSeconds / 86_400),
+    hours: Math.floor((totalSeconds % 86_400) / 3_600),
+    minutes: Math.floor((totalSeconds % 3_600) / 60),
     seconds: totalSeconds % 60,
   };
 }
 
 function PollsPage() {
-  const loadActivePolls = useServerFn(
-    getActivePolls,
-  );
-
-  const loadAdminPolls = useServerFn(
-    getAdminPolls,
-  );
-
-  const loadOnePoll = useServerFn(
-    getPoll,
-  );
-
-  const publishPoll = useServerFn(
-    createPoll,
-  );
-
-  const castVote = useServerFn(
-    voteInPoll,
-  );
+  const loadActivePolls = useServerFn(getActivePolls);
+  const loadAdminPolls = useServerFn(getAdminPolls);
+  const loadOnePoll = useServerFn(getPoll);
+  const publishPoll = useServerFn(createPoll);
+  const castVote = useServerFn(voteInPoll);
 
   const navigate = useNavigate();
+  const { poll: requestedPollId } = Route.useSearch();
 
-  const {
-    poll: requestedPollId,
-  } = Route.useSearch();
+  const [workspace, setWorkspace] =
+    useState<ActivePollsWorkspace | null>(null);
 
-  const [
-    workspace,
-    setWorkspace,
-  ] = useState<ActivePollsWorkspace | null>(
-    null,
-  );
+  const [adminPolls, setAdminPolls] =
+    useState<PollResult[]>([]);
 
-  const [
-    adminPolls,
-    setAdminPolls,
-  ] = useState<PollResult[]>([]);
+  const [extraPoll, setExtraPoll] =
+    useState<PollResult | null>(null);
 
-  const [
-    extraPoll,
-    setExtraPoll,
-  ] = useState<PollResult | null>(
-    null,
-  );
-
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
-
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
-
-  const [
-    now,
-    setNow,
-  ] = useState(() => Date.now());
-
-  const [
-    votingKey,
-    setVotingKey,
-  ] = useState<string | null>(
-    null,
-  );
-
-  const [
-    createOpen,
-    setCreateOpen,
-  ] = useState(false);
-
-  const [
-    creating,
-    setCreating,
-  ] = useState(false);
-
-  const [
-    draft,
-    setDraft,
-  ] = useState<PollDraft>(
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [votingKey, setVotingKey] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<PollDraft>(
     () => defaultDraft(),
   );
 
+  const serverFnsRef = useRef({
+    loadActivePolls,
+    loadAdminPolls,
+    loadOnePoll,
+  });
+
+  const mountedRef = useRef(false);
+  const latestRequestedPollId = useRef(requestedPollId);
   const requestInFlight = useRef<Promise<void> | null>(null);
+  const loadingPollId = useRef<string | undefined>(undefined);
+  const hiddenRealtimeChange = useRef(false);
+  const activePollsVisible = useRef(false);
   const reloadRequested = useRef(false);
   const lastLoadedAt = useRef(0);
   const lastAdminHistoryAt = useRef(0);
   const lastActivePollIds = useRef("");
 
+  // These effects keep the loader stable across renders.
+  // Ref updates are performed in effects, not during rendering.
+  useEffect(() => {
+    serverFnsRef.current = {
+      loadActivePolls,
+      loadAdminPolls,
+      loadOnePoll,
+    };
+  }, [loadActivePolls, loadAdminPolls, loadOnePoll]);
+
+  useEffect(() => {
+    latestRequestedPollId.current = requestedPollId;
+  }, [requestedPollId]);
+
+  useEffect(() => {
+    activePollsVisible.current =
+      Boolean(workspace?.polls.length);
+  }, [workspace?.polls.length]);
+
   const load = useCallback(
     (quiet = false, queueIfBusy = false): Promise<void> => {
+      const requestPollId = latestRequestedPollId.current;
+
       if (requestInFlight.current) {
-        // Preserve a server change that arrived during an ongoing request.
-        if (queueIfBusy) reloadRequested.current = true;
+        // A new route or an explicit refresh must not be lost,
+        // even if the previous request has not finished.
+        if (
+          queueIfBusy ||
+          !quiet ||
+          loadingPollId.current !== requestPollId
+        ) {
+          reloadRequested.current = true;
+        }
+
         return requestInFlight.current;
       }
 
+      loadingPollId.current = requestPollId;
+
       const request = (async () => {
-        if (!quiet) setRefreshing(true);
+        if (!quiet) {
+          setRefreshing(true);
+        }
+
         try {
-          const active = await loadActivePolls();
+          const active =
+            await serverFnsRef.current.loadActivePolls();
+
+          if (!mountedRef.current) {
+            return;
+          }
+
           setWorkspace(active);
-          const activeIds = active.polls.map((poll) => poll.id).sort().join(",");
-          const activeSetChanged = lastActivePollIds.current !== activeIds;
+
+          const activeIds = active.polls
+            .map((poll) => poll.id)
+            .sort()
+            .join(",");
+
+          const activeSetChanged =
+            lastActivePollIds.current !== activeIds;
+
           lastActivePollIds.current = activeIds;
 
           if (active.isAdmin) {
-            if (!quiet || activeSetChanged || Date.now() - lastAdminHistoryAt.current >= POLL_ADMIN_HISTORY_STALE_MS) {
+            if (
+              !quiet ||
+              activeSetChanged ||
+              Date.now() - lastAdminHistoryAt.current >=
+                POLL_ADMIN_HISTORY_STALE_MS
+            ) {
               try {
-                const history = await loadAdminPolls();
+                const history =
+                  await serverFnsRef.current.loadAdminPolls();
+
+                if (!mountedRef.current) {
+                  return;
+                }
+
                 setAdminPolls(history.polls);
                 lastAdminHistoryAt.current = Date.now();
               } catch (error) {
-                console.error("[polls] Could not load admin poll history", error);
+                console.error(
+                  "[polls] Could not load admin poll history",
+                  error,
+                );
               }
             }
           } else {
@@ -276,200 +283,317 @@ function PollsPage() {
             lastAdminHistoryAt.current = 0;
           }
 
-          if (requestedPollId && !active.polls.some((poll) => poll.id === requestedPollId)) {
+          if (
+            requestPollId &&
+            !active.polls.some(
+              (poll) => poll.id === requestPollId,
+            )
+          ) {
             try {
-              setExtraPoll(await loadOnePoll({ data: { pollId: requestedPollId } }));
+              const detail =
+                await serverFnsRef.current.loadOnePoll({
+                  data: { pollId: requestPollId },
+                });
+
+              // A previous poll must never overwrite the new route.
+              if (
+                mountedRef.current &&
+                latestRequestedPollId.current === requestPollId
+              ) {
+                setExtraPoll(detail);
+              }
             } catch {
-              setExtraPoll(null);
+              if (
+                mountedRef.current &&
+                latestRequestedPollId.current === requestPollId
+              ) {
+                setExtraPoll(null);
+              }
             }
-          } else {
+          } else if (
+            latestRequestedPollId.current === requestPollId
+          ) {
             setExtraPoll(null);
           }
+
           lastLoadedAt.current = Date.now();
         } catch (error) {
           console.error("[polls] Could not load polls", error);
-          toast.error("Could not load polls.");
+
+          if (mountedRef.current) {
+            toast.error("Could not load polls.");
+          }
         } finally {
-          setLoading(false);
-          setRefreshing(false);
+          if (mountedRef.current) {
+            setLoading(false);
+            setRefreshing(false);
+          }
         }
       })();
 
       requestInFlight.current = request;
+
       void request.finally(() => {
-        if (requestInFlight.current !== request) return;
+        if (requestInFlight.current !== request) {
+          return;
+        }
+
         requestInFlight.current = null;
-        if (reloadRequested.current) {
+        loadingPollId.current = undefined;
+
+        // Never start a queued request after leaving the page.
+        if (!mountedRef.current) {
+          reloadRequested.current = false;
+          return;
+        }
+
+        if (
+          reloadRequested.current ||
+          latestRequestedPollId.current !== requestPollId
+        ) {
           reloadRequested.current = false;
           void load(true);
         }
       });
+
       return request;
     },
-    [loadActivePolls, loadAdminPolls, loadOnePoll, requestedPollId],
+    [],
   );
 
   useEffect(() => {
-    void load(true);
-  }, [load]);
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
-    if (
-      !workspace?.polls.length &&
-      !extraPoll
-    ) {
+    void load(true);
+  }, [load, requestedPollId]);
+
+  // This timer only updates the countdown UI; it does not query the DB.
+  useEffect(() => {
+    if (!workspace?.polls.length && !extraPoll) {
       return;
     }
 
-    const timer =
-      window.setInterval(
-        () =>
-          setNow(Date.now()),
-        1000,
-      );
+    const timer = window.setInterval(
+      () => setNow(Date.now()),
+      1000,
+    );
 
-    return () =>
-      window.clearInterval(
-        timer,
-      );
-  }, [
-    workspace?.polls.length,
-    extraPoll,
-  ]);
+    return () => window.clearInterval(timer);
+  }, [workspace?.polls.length, extraPoll]);
 
   useEffect(() => {
     let timer: number | null = null;
-    const scheduleRefresh = () => {
-      if (timer !== null) window.clearTimeout(timer);
+    let scheduledFor = Number.POSITIVE_INFINITY;
+
+    const scheduleRefresh = (minimumDelayMs: number) => {
+      if (document.visibilityState !== "visible") {
+        hiddenRealtimeChange.current = true;
+        return;
+      }
+
+      const delay = Math.max(
+        POLL_REALTIME_DEBOUNCE_MS,
+        minimumDelayMs,
+      );
+
+      const dueAt = Date.now() + delay;
+
+      // Keep the earlier pending update. Many votes arriving
+      // together should result in one bounded refresh.
+      if (timer !== null && scheduledFor <= dueAt) {
+        return;
+      }
+
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+
+      scheduledFor = dueAt;
+
       timer = window.setTimeout(() => {
         timer = null;
+        scheduledFor = Number.POSITIVE_INFINITY;
         void load(true, true);
-      }, POLL_REALTIME_DEBOUNCE_MS);
+      }, delay);
     };
 
     const channel = supabase
       .channel("polls-page")
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "polls",
-      }, scheduleRefresh)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "polls",
+        },
+        () => {
+          scheduleRefresh(POLL_REALTIME_DEBOUNCE_MS);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "poll_votes",
+        },
+        () => {
+          if (!activePollsVisible.current) {
+            return;
+          }
+
+          // Depends on poll_votes Realtime publication and RLS.
+          // Do not query the server once per individual vote.
+          scheduleRefresh(
+            Math.max(
+              POLL_REALTIME_DEBOUNCE_MS,
+              POLL_VOTE_REFRESH_MIN_AGE_MS -
+                (Date.now() - lastLoadedAt.current),
+            ),
+          );
+        },
+      )
       .subscribe();
 
+    const pauseWhileHidden = () => {
+      if (
+        document.visibilityState === "visible" ||
+        timer === null
+      ) {
+        return;
+      }
+
+      window.clearTimeout(timer);
+      timer = null;
+      scheduledFor = Number.POSITIVE_INFINITY;
+      hiddenRealtimeChange.current = true;
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      pauseWhileHidden,
+    );
+
     return () => {
-      if (timer !== null) window.clearTimeout(timer);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+
+      document.removeEventListener(
+        "visibilitychange",
+        pauseWhileHidden,
+      );
+
       void supabase.removeChannel(channel);
     };
   }, [load]);
 
   useEffect(() => {
     const refreshOnVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      if (requestInFlight.current) return;
-      if (Date.now() - lastLoadedAt.current < POLL_FOCUS_MIN_AGE_MS) return;
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      if (hiddenRealtimeChange.current) {
+        hiddenRealtimeChange.current = false;
+        void load(true, true);
+        return;
+      }
+
+      if (requestInFlight.current) {
+        return;
+      }
+
+      if (
+        Date.now() - lastLoadedAt.current <
+        POLL_FOCUS_MIN_AGE_MS
+      ) {
+        return;
+      }
+
       void load(true);
     };
+
     window.addEventListener("focus", refreshOnVisible);
-    document.addEventListener("visibilitychange", refreshOnVisible);
+    document.addEventListener(
+      "visibilitychange",
+      refreshOnVisible,
+    );
+
     return () => {
       window.removeEventListener("focus", refreshOnVisible);
-      document.removeEventListener("visibilitychange", refreshOnVisible);
+      document.removeEventListener(
+        "visibilitychange",
+        refreshOnVisible,
+      );
     };
   }, [load]);
 
   const visiblePolls = useMemo(() => {
-    const polls = [
-      ...(workspace?.polls ?? []),
-    ];
+    const polls = [...(workspace?.polls ?? [])];
 
+    // An old closed poll is not shown for a newly selected route.
     if (
       extraPoll &&
-      !polls.some(
-        (poll) =>
-          poll.id ===
-          extraPoll.id
-      )
+      extraPoll.id === requestedPollId &&
+      !polls.some((poll) => poll.id === extraPoll.id)
     ) {
       polls.unshift(extraPoll);
     }
 
     polls.sort((a, b) => {
       if (requestedPollId) {
-        if (
-          a.id ===
-          requestedPollId
-        ) {
+        if (a.id === requestedPollId) {
           return -1;
         }
 
-        if (
-          b.id ===
-          requestedPollId
-        ) {
+        if (b.id === requestedPollId) {
           return 1;
         }
       }
 
       return (
-        new Date(
-          a.closesAt,
-        ).getTime() -
-        new Date(
-          b.closesAt,
-        ).getTime()
+        new Date(a.closesAt).getTime() -
+        new Date(b.closesAt).getTime()
       );
     });
 
     return polls;
-  }, [
-    workspace?.polls,
-    extraPoll,
-    requestedPollId,
-  ]);
+  }, [workspace?.polls, extraPoll, requestedPollId]);
 
-  const closedAdminPolls =
-    useMemo(
-      () =>
-        adminPolls.filter(
-          (poll) =>
-            new Date(
-              poll.closesAt,
-            ).getTime() <= now,
-        ),
-      [adminPolls, now],
-    );
+  const closedAdminPolls = useMemo(
+    () =>
+      adminPolls.filter(
+        (poll) => new Date(poll.closesAt).getTime() <= now,
+      ),
+    [adminPolls, now],
+  );
 
-  function replacePoll(
-    updated: PollResult,
-  ) {
+  function replacePoll(updated: PollResult) {
     setWorkspace((current) =>
       current
         ? {
             ...current,
-            polls:
-              current.polls.map(
-                (poll) =>
-                  poll.id ===
-                  updated.id
-                    ? updated
-                    : poll,
-              ),
+            polls: current.polls.map((poll) =>
+              poll.id === updated.id ? updated : poll,
+            ),
           }
         : current,
     );
 
     setExtraPoll((current) =>
-      current?.id ===
-      updated.id
-        ? updated
-        : current,
+      current?.id === updated.id ? updated : current,
     );
 
     setAdminPolls((current) =>
       current.map((poll) =>
-        poll.id === updated.id
-          ? updated
-          : poll,
+        poll.id === updated.id ? updated : poll,
       ),
     );
   }
@@ -479,48 +603,36 @@ function PollsPage() {
     optionId: string,
   ) {
     const closed =
-      new Date(
-        poll.closesAt,
-      ).getTime() <=
-      Date.now();
+      new Date(poll.closesAt).getTime() <= Date.now();
 
     if (
       closed ||
       votingKey ||
-      poll.userOptionId ===
-        optionId
+      poll.userOptionId === optionId
     ) {
       return;
     }
 
-    const previousVote =
-      poll.userOptionId;
+    const previousVote = poll.userOptionId;
 
-    setVotingKey(
-      `${poll.id}:${optionId}`,
-    );
+    setVotingKey(`${poll.id}:${optionId}`);
 
     try {
-      const updated =
-        await castVote({
-          data: {
-            pollId: poll.id,
-            optionId,
-          },
-        });
+      const updated = await castVote({
+        data: {
+          pollId: poll.id,
+          optionId,
+        },
+      });
 
       replacePoll(updated);
 
       window.dispatchEvent(
-        new Event(
-          "pom:polls-changed",
-        ),
+        new Event("pom:polls-changed"),
       );
 
       toast.success(
-        previousVote
-          ? "Vote changed ✨"
-          : "Vote counted 🎉",
+        previousVote ? "Vote changed ✨" : "Vote counted 🎉",
       );
     } catch (error) {
       toast.error(
@@ -533,69 +645,36 @@ function PollsPage() {
     }
   }
 
-  function setQuickClose(
-    milliseconds: number,
-  ) {
+  function setQuickClose(milliseconds: number) {
     setDraft((current) => ({
       ...current,
-      closesLocal:
-        toLocalDateTime(
-          new Date(
-            Date.now() +
-              milliseconds,
-          ),
-        ),
+      closesLocal: toLocalDateTime(
+        new Date(Date.now() + milliseconds),
+      ),
     }));
   }
 
-  function setTodayAt(
-    hour: number,
-  ) {
-    const target =
-      new Date();
+  function setTodayAt(hour: number) {
+    const target = new Date();
 
-    target.setHours(
-      hour,
-      0,
-      0,
-      0,
-    );
+    target.setHours(hour, 0, 0, 0);
 
-    if (
-      target.getTime() <=
-      Date.now()
-    ) {
-      target.setDate(
-        target.getDate() + 1,
-      );
+    if (target.getTime() <= Date.now()) {
+      target.setDate(target.getDate() + 1);
     }
 
     setDraft((current) => ({
       ...current,
-      closesLocal:
-        toLocalDateTime(
-          target,
-        ),
+      closesLocal: toLocalDateTime(target),
     }));
   }
 
-  function updateOption(
-    index: number,
-    value: string,
-  ) {
+  function updateOption(index: number, value: string) {
     setDraft((current) => ({
       ...current,
-      options:
-        current.options.map(
-          (
-            option,
-            optionIndex,
-          ) =>
-            optionIndex ===
-            index
-              ? value
-              : option,
-        ),
+      options: current.options.map((option, optionIndex) =>
+        optionIndex === index ? value : option,
+      ),
     }));
   }
 
@@ -605,77 +684,47 @@ function PollsPage() {
       options:
         current.options.length >= 10
           ? current.options
-          : [
-              ...current.options,
-              "",
-            ],
+          : [...current.options, ""],
     }));
   }
 
-  function removeOption(
-    index: number,
-  ) {
+  function removeOption(index: number) {
     setDraft((current) => ({
       ...current,
       options:
         current.options.length <= 2
           ? current.options
           : current.options.filter(
-              (
-                _,
-                optionIndex,
-              ) =>
-                optionIndex !==
-                index,
+              (_, optionIndex) => optionIndex !== index,
             ),
     }));
   }
 
   async function handleCreate() {
-    const options =
-      draft.options
-        .map((option) =>
-          option.trim(),
-        )
-        .filter(Boolean);
+    const options = draft.options
+      .map((option) => option.trim())
+      .filter(Boolean);
 
-    if (
-      !draft.question.trim()
-    ) {
-      toast.error(
-        "Write a question first.",
-      );
+    if (!draft.question.trim()) {
+      toast.error("Write a question first.");
       return;
     }
 
-    if (
-      options.length < 2
-    ) {
-      toast.error(
-        "Add at least two options.",
-      );
+    if (options.length < 2) {
+      toast.error("Add at least two options.");
       return;
     }
 
     if (!draft.closesLocal) {
-      toast.error(
-        "Choose when the poll closes.",
-      );
+      toast.error("Choose when the poll closes.");
       return;
     }
 
-    const closesAt =
-      new Date(
-        draft.closesLocal,
-      );
+    const closesAt = new Date(draft.closesLocal);
 
     if (
-      !Number.isFinite(
-        closesAt.getTime(),
-      ) ||
-      closesAt.getTime() <=
-        Date.now() +
-          60_000
+      !Number.isFinite(closesAt.getTime()) ||
+      closesAt.getTime() <= Date.now() + 60_000
     ) {
       toast.error(
         "Closing time must be at least one minute in the future.",
@@ -686,49 +735,39 @@ function PollsPage() {
     setCreating(true);
 
     try {
-      const result =
-        await publishPoll({
-          data: {
-            label:
-              draft.label.trim() ||
-              "Question of the Day",
-
-            question:
-              draft.question.trim(),
-
-            description:
-              draft.description.trim(),
-
-            closesAt:
-              closesAt.toISOString(),
-
-            options,
-          },
-        });
+      const result = await publishPoll({
+        data: {
+          label: draft.label.trim() || "Question of the Day",
+          question: draft.question.trim(),
+          description: draft.description.trim(),
+          closesAt: closesAt.toISOString(),
+          options,
+        },
+      });
 
       setCreateOpen(false);
       setDraft(defaultDraft());
 
       window.dispatchEvent(
-        new Event(
-          "pom:polls-changed",
-        ),
+        new Event("pom:polls-changed"),
       );
 
       toast.success(
         result.pushSent > 0
-          ? `Poll is live 🎉 · ${result.pushSent} push notification${result.pushSent === 1 ? "" : "s"} sent`
+          ? `Poll is live 🎉 · ${result.pushSent} push notification${
+              result.pushSent === 1 ? "" : "s"
+            } sent`
           : "Poll is live 🎉",
       );
 
       lastAdminHistoryAt.current = 0;
-      await load(true, true);
 
+      // Changing the URL triggers the loader through requestedPollId.
+      // Avoid a duplicate full workspace request here.
       navigate({
         to: "/polls",
         search: {
-          poll:
-            result.poll.id,
+          poll: result.poll.id,
         },
         replace: true,
       });
@@ -760,9 +799,7 @@ function PollsPage() {
               Polls
             </h1>
 
-            {(workspace?.polls.length ??
-              0) >
-              0 && (
+            {(workspace?.polls.length ?? 0) > 0 && (
               <Badge className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
                 <Sparkles className="mr-1 size-3" />
                 Live now
@@ -771,10 +808,8 @@ function PollsPage() {
           </div>
 
           <p className="mt-1 text-sm text-muted-foreground">
-            Pick a side, watch the
-            results move, and change
-            your vote until time runs
-            out.
+            Pick a side, watch the results move, and change your vote
+            until time runs out.
           </p>
         </div>
 
@@ -783,15 +818,12 @@ function PollsPage() {
             type="button"
             variant="outline"
             disabled={refreshing}
-            onClick={() =>
-              void load()
-            }
+            onClick={() => void load()}
           >
             <RefreshCw
               className={cn(
                 "size-4",
-                refreshing &&
-                  "animate-spin",
+                refreshing && "animate-spin",
               )}
             />
             Refresh
@@ -802,9 +834,7 @@ function PollsPage() {
               type="button"
               className="rounded-xl"
               onClick={() => {
-                setDraft(
-                  defaultDraft(),
-                );
+                setDraft(defaultDraft());
                 setCreateOpen(true);
               }}
             >
@@ -826,10 +856,8 @@ function PollsPage() {
           </h2>
 
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            When a new poll opens, a
-            countdown button will appear
-            across POM and users with
-            push enabled will get a
+            When a new poll opens, a countdown button will appear
+            across POM and users with push enabled will get a
             notification.
           </p>
 
@@ -837,9 +865,7 @@ function PollsPage() {
             <Button
               type="button"
               className="mt-5 rounded-xl"
-              onClick={() =>
-                setCreateOpen(true)
-              }
+              onClick={() => setCreateOpen(true)}
             >
               <Sparkles className="size-4" />
               Create something fun
@@ -848,128 +874,98 @@ function PollsPage() {
         </div>
       ) : (
         <div className="space-y-5">
-          {visiblePolls.map(
-            (poll, index) => (
-              <PollCard
-                key={poll.id}
-                poll={poll}
-                now={now}
-                featured={
-                  index === 0 &&
-                  new Date(
-                    poll.closesAt,
-                  ).getTime() > now
-                }
-                votingKey={votingKey}
-                onVote={handleVote}
-              />
-            ),
-          )}
+          {visiblePolls.map((poll, index) => (
+            <PollCard
+              key={poll.id}
+              poll={poll}
+              now={now}
+              featured={
+                index === 0 &&
+                new Date(poll.closesAt).getTime() > now
+              }
+              votingKey={votingKey}
+              onVote={handleVote}
+            />
+          ))}
         </div>
       )}
 
-      {workspace?.isAdmin &&
-        closedAdminPolls.length >
-          0 && (
-          <section className="space-y-3 pt-2">
-            <div>
-              <h2 className="text-base font-semibold">
-                Recent polls
-              </h2>
+      {workspace?.isAdmin && closedAdminPolls.length > 0 && (
+        <section className="space-y-3 pt-2">
+          <div>
+            <h2 className="text-base font-semibold">
+              Recent polls
+            </h2>
 
-              <p className="mt-1 text-xs text-muted-foreground">
-                Closed polls stay here so
-                you can check the final
-                result.
-              </p>
-            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Closed polls stay here so you can check the final
+              result.
+            </p>
+          </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              {closedAdminPolls
-                .slice(0, 8)
-                .map((poll) => {
-                  const leader = [
-                    ...poll.options,
-                  ].sort(
-                    (a, b) =>
-                      b.votes -
-                      a.votes,
-                  )[0];
+          <div className="grid gap-2 sm:grid-cols-2">
+            {closedAdminPolls.slice(0, 8).map((poll) => {
+              const leader = [...poll.options].sort(
+                (a, b) => b.votes - a.votes,
+              )[0];
 
-                  return (
-                    <button
-                      key={poll.id}
-                      type="button"
-                      className="surface-card min-w-0 rounded-2xl p-4 text-left transition-colors hover:bg-muted/30"
-                      onClick={() =>
-                        navigate({
-                          to: "/polls",
-                          search: {
-                            poll:
-                              poll.id,
-                          },
-                        })
-                      }
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-primary">
-                            {poll.label}
-                          </p>
-
-                          <p className="mt-1 line-clamp-2 text-sm font-semibold">
-                            {poll.question}
-                          </p>
-                        </div>
-
-                        <Badge
-                          variant="outline"
-                          className="shrink-0 rounded-full text-[10px]"
-                        >
-                          Closed
-                        </Badge>
-                      </div>
-
-                      <p className="mt-3 text-xs text-muted-foreground">
-                        {poll.totalVotes}{" "}
-                        vote
-                        {poll.totalVotes ===
-                        1
-                          ? ""
-                          : "s"}
-
-                        {leader &&
-                        poll.totalVotes >
-                          0
-                          ? ` · ${leader.label} leads`
-                          : ""}
+              return (
+                <button
+                  key={poll.id}
+                  type="button"
+                  className="surface-card min-w-0 rounded-2xl p-4 text-left transition-colors hover:bg-muted/30"
+                  onClick={() =>
+                    navigate({
+                      to: "/polls",
+                      search: { poll: poll.id },
+                    })
+                  }
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-primary">
+                        {poll.label}
                       </p>
-                    </button>
-                  );
-                })}
-            </div>
-          </section>
-        )}
+
+                      <p className="mt-1 line-clamp-2 text-sm font-semibold">
+                        {poll.question}
+                      </p>
+                    </div>
+
+                    <Badge
+                      variant="outline"
+                      className="shrink-0 rounded-full text-[10px]"
+                    >
+                      Closed
+                    </Badge>
+                  </div>
+
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {poll.totalVotes} vote
+                    {poll.totalVotes === 1 ? "" : "s"}
+
+                    {leader && poll.totalVotes > 0
+                      ? ` · ${leader.label} leads`
+                      : ""}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <CreatePollDialog
         open={createOpen}
         creating={creating}
         draft={draft}
-        onOpenChange={
-          setCreateOpen
-        }
+        onOpenChange={setCreateOpen}
         onDraftChange={setDraft}
-        onSetQuickClose={
-          setQuickClose
-        }
+        onSetQuickClose={setQuickClose}
         onSetTodayAt={setTodayAt}
-        onUpdateOption={
-          updateOption
-        }
+        onUpdateOption={updateOption}
         onAddOption={addOption}
-        onRemoveOption={
-          removeOption
-        }
+        onRemoveOption={removeOption}
         onCreate={handleCreate}
       />
     </div>
@@ -993,44 +989,23 @@ function CreatePollDialog({
   creating: boolean;
   draft: PollDraft;
 
-  onOpenChange: (
-    open: boolean,
-  ) => void;
+  onOpenChange: (open: boolean) => void;
 
   onDraftChange: (
     draft:
       | PollDraft
-      | ((
-          current: PollDraft,
-        ) => PollDraft),
+      | ((current: PollDraft) => PollDraft),
   ) => void;
 
-  onSetQuickClose: (
-    milliseconds: number,
-  ) => void;
-
-  onSetTodayAt: (
-    hour: number,
-  ) => void;
-
-  onUpdateOption: (
-    index: number,
-    value: string,
-  ) => void;
-
+  onSetQuickClose: (milliseconds: number) => void;
+  onSetTodayAt: (hour: number) => void;
+  onUpdateOption: (index: number, value: string) => void;
   onAddOption: () => void;
-
-  onRemoveOption: (
-    index: number,
-  ) => void;
-
+  onRemoveOption: (index: number) => void;
   onCreate: () => Promise<void>;
 }) {
   return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-3xl p-4 sm:max-w-xl sm:rounded-3xl sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -1039,11 +1014,8 @@ function CreatePollDialog({
           </DialogTitle>
 
           <DialogDescription>
-            Publish it instantly.
-            Everyone can vote,
-            including admins, until
-            the countdown reaches
-            zero.
+            Publish it instantly. Everyone can vote, including
+            admins, until the countdown reaches zero.
           </DialogDescription>
         </DialogHeader>
 
@@ -1052,46 +1024,35 @@ function CreatePollDialog({
             <Label>Type</Label>
 
             <div className="flex flex-wrap gap-2">
-              {LABEL_PRESETS.map(
-                (label) => (
-                  <Button
-                    key={label}
-                    type="button"
-                    size="sm"
-                    variant={
-                      draft.label ===
-                      label
-                        ? "default"
-                        : "outline"
-                    }
-                    className="rounded-full"
-                    onClick={() =>
-                      onDraftChange(
-                        (current) => ({
-                          ...current,
-                          label,
-                        }),
-                      )
-                    }
-                  >
-                    {label}
-                  </Button>
-                ),
-              )}
+              {LABEL_PRESETS.map((label) => (
+                <Button
+                  key={label}
+                  type="button"
+                  size="sm"
+                  variant={
+                    draft.label === label ? "default" : "outline"
+                  }
+                  className="rounded-full"
+                  onClick={() =>
+                    onDraftChange((current) => ({
+                      ...current,
+                      label,
+                    }))
+                  }
+                >
+                  {label}
+                </Button>
+              ))}
             </div>
 
             <Input
               maxLength={40}
               value={draft.label}
               onChange={(event) =>
-                onDraftChange(
-                  (current) => ({
-                    ...current,
-                    label:
-                      event.target
-                        .value,
-                  }),
-                )
+                onDraftChange((current) => ({
+                  ...current,
+                  label: event.target.value,
+                }))
               }
               placeholder="Or write your own label"
             />
@@ -1106,14 +1067,10 @@ function CreatePollDialog({
               className="resize-none rounded-2xl text-base"
               value={draft.question}
               onChange={(event) =>
-                onDraftChange(
-                  (current) => ({
-                    ...current,
-                    question:
-                      event.target
-                        .value,
-                  }),
-                )
+                onDraftChange((current) => ({
+                  ...current,
+                  question: event.target.value,
+                }))
               }
               placeholder="What should we build on Friday?"
             />
@@ -1131,18 +1088,12 @@ function CreatePollDialog({
               rows={2}
               maxLength={500}
               className="resize-none rounded-2xl"
-              value={
-                draft.description
-              }
+              value={draft.description}
               onChange={(event) =>
-                onDraftChange(
-                  (current) => ({
-                    ...current,
-                    description:
-                      event.target
-                        .value,
-                  }),
-                )
+                onDraftChange((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
               }
               placeholder="A little context makes a poll better…"
             />
@@ -1153,58 +1104,42 @@ function CreatePollDialog({
               <Label>Options</Label>
 
               <span className="text-xs text-muted-foreground">
-                {draft.options.length}
-                /10
+                {draft.options.length}/10
               </span>
             </div>
 
             <div className="space-y-2">
-              {draft.options.map(
-                (option, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-2"
+              {draft.options.map((option, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-2"
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                    {index + 1}
+                  </span>
+
+                  <Input
+                    maxLength={80}
+                    value={option}
+                    onChange={(event) =>
+                      onUpdateOption(index, event.target.value)
+                    }
+                    placeholder={`Option ${index + 1}`}
+                  />
+
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="shrink-0 rounded-full"
+                    disabled={draft.options.length <= 2}
+                    onClick={() => onRemoveOption(index)}
+                    aria-label={`Remove option ${index + 1}`}
                   >
-                    <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                      {index + 1}
-                    </span>
-
-                    <Input
-                      maxLength={80}
-                      value={option}
-                      onChange={(
-                        event,
-                      ) =>
-                        onUpdateOption(
-                          index,
-                          event.target
-                            .value,
-                        )
-                      }
-                      placeholder={`Option ${index + 1}`}
-                    />
-
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="shrink-0 rounded-full"
-                      disabled={
-                        draft.options
-                          .length <= 2
-                      }
-                      onClick={() =>
-                        onRemoveOption(
-                          index,
-                        )
-                      }
-                      aria-label={`Remove option ${index + 1}`}
-                    >
-                      <X className="size-4" />
-                    </Button>
-                  </div>
-                ),
-              )}
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
 
             <Button
@@ -1212,10 +1147,7 @@ function CreatePollDialog({
               variant="outline"
               size="sm"
               className="rounded-full"
-              disabled={
-                draft.options.length >=
-                10
-              }
+              disabled={draft.options.length >= 10}
               onClick={onAddOption}
             >
               <Plus className="size-4" />
@@ -1228,24 +1160,15 @@ function CreatePollDialog({
 
             <Input
               type="datetime-local"
-              value={
-                draft.closesLocal
-              }
+              value={draft.closesLocal}
               min={toLocalDateTime(
-                new Date(
-                  Date.now() +
-                    60_000,
-                ),
+                new Date(Date.now() + 60_000),
               )}
               onChange={(event) =>
-                onDraftChange(
-                  (current) => ({
-                    ...current,
-                    closesLocal:
-                      event.target
-                        .value,
-                  }),
-                )
+                onDraftChange((current) => ({
+                  ...current,
+                  closesLocal: event.target.value,
+                }))
               }
             />
 
@@ -1255,11 +1178,7 @@ function CreatePollDialog({
                 size="sm"
                 variant="outline"
                 className="rounded-full"
-                onClick={() =>
-                  onSetQuickClose(
-                    30 * 60_000,
-                  )
-                }
+                onClick={() => onSetQuickClose(30 * 60_000)}
               >
                 30 min
               </Button>
@@ -1269,11 +1188,7 @@ function CreatePollDialog({
                 size="sm"
                 variant="outline"
                 className="rounded-full"
-                onClick={() =>
-                  onSetQuickClose(
-                    60 * 60_000,
-                  )
-                }
+                onClick={() => onSetQuickClose(60 * 60_000)}
               >
                 1 hour
               </Button>
@@ -1284,11 +1199,7 @@ function CreatePollDialog({
                 variant="outline"
                 className="rounded-full"
                 onClick={() =>
-                  onSetQuickClose(
-                    3 *
-                      60 *
-                      60_000,
-                  )
+                  onSetQuickClose(3 * 60 * 60_000)
                 }
               >
                 3 hours
@@ -1299,9 +1210,7 @@ function CreatePollDialog({
                 size="sm"
                 variant="outline"
                 className="rounded-full"
-                onClick={() =>
-                  onSetTodayAt(20)
-                }
+                onClick={() => onSetTodayAt(20)}
               >
                 20:00
               </Button>
@@ -1314,9 +1223,7 @@ function CreatePollDialog({
             type="button"
             variant="outline"
             disabled={creating}
-            onClick={() =>
-              onOpenChange(false)
-            }
+            onClick={() => onOpenChange(false)}
           >
             Cancel
           </Button>
@@ -1324,9 +1231,7 @@ function CreatePollDialog({
           <Button
             type="button"
             disabled={creating}
-            onClick={() =>
-              void onCreate()
-            }
+            onClick={() => void onCreate()}
           >
             {creating ? (
               <Loader2 className="size-4 animate-spin" />
@@ -1334,9 +1239,7 @@ function CreatePollDialog({
               <Sparkles className="size-4" />
             )}
 
-            {creating
-              ? "Publishing…"
-              : "Publish Poll"}
+            {creating ? "Publishing…" : "Publish Poll"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1355,36 +1258,21 @@ function PollCard({
   now: number;
   featured: boolean;
   votingKey: string | null;
-
-  onVote: (
-    poll: PollResult,
-    optionId: string,
-  ) => Promise<void>;
+  onVote: (poll: PollResult, optionId: string) => Promise<void>;
 }) {
-  const countdown =
-    countdownParts(
-      poll.closesAt,
-      now,
-    );
-
-  const closed =
-    countdown.remaining <= 0;
+  const countdown = countdownParts(poll.closesAt, now);
+  const closed = countdown.remaining <= 0;
 
   const maxVotes = Math.max(
     0,
-    ...poll.options.map(
-      (option) => option.votes,
-    ),
+    ...poll.options.map((option) => option.votes),
   );
 
-  const hasVote =
-    poll.userOptionId !== null;
+  const hasVote = poll.userOptionId !== null;
 
   return (
     <Card className="relative isolate overflow-hidden rounded-[2rem] border border-slate-200 bg-white text-slate-950 shadow-[0_18px_60px_-28px_rgba(15,23,42,0.35)]">
-      {featured && (
-        <PollConfetti />
-      )}
+      {featured && <PollConfetti />}
 
       <CardContent className="relative z-10 p-4 sm:p-7">
         <div className="flex flex-col gap-5">
@@ -1416,8 +1304,7 @@ function PollCard({
                     variant="outline"
                     className="rounded-full border-amber-200 bg-amber-50 text-amber-700"
                   >
-                    Your vote is
-                    waiting
+                    Your vote is waiting
                   </Badge>
                 )}
               </div>
@@ -1433,158 +1320,113 @@ function PollCard({
               )}
             </div>
 
-            <CountdownBubble
-              poll={poll}
-              now={now}
-            />
+            <CountdownBubble poll={poll} now={now} />
           </div>
 
           <div className="space-y-2.5">
-            {poll.options.map(
-              (option) => {
-                const selected =
-                  poll.userOptionId ===
-                  option.id;
+            {poll.options.map((option) => {
+              const selected = poll.userOptionId === option.id;
+              const leading =
+                maxVotes > 0 && option.votes === maxVotes;
+              const busy =
+                votingKey === `${poll.id}:${option.id}`;
 
-                const leading =
-                  maxVotes > 0 &&
-                  option.votes ===
-                    maxVotes;
-
-                const busy =
-                  votingKey ===
-                  `${poll.id}:${option.id}`;
-
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={
-                      selected
-                    }
-                    disabled={
-                      closed ||
-                      Boolean(
-                        votingKey,
-                      )
-                    }
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={closed || Boolean(votingKey)}
+                  className={cn(
+                    "group relative w-full overflow-hidden rounded-2xl border p-3.5 text-left transition-all sm:p-4",
+                    selected
+                      ? "border-violet-400 bg-violet-50 shadow-sm"
+                      : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-sm",
+                    closed && "cursor-default hover:translate-y-0",
+                  )}
+                  onClick={() => void onVote(poll, option.id)}
+                >
+                  <div
                     className={cn(
-                      "group relative w-full overflow-hidden rounded-2xl border p-3.5 text-left transition-all sm:p-4",
+                      "pointer-events-none absolute inset-y-0 left-0 transition-[width] duration-500",
                       selected
-                        ? "border-violet-400 bg-violet-50 shadow-sm"
-                        : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-sm",
-                      closed &&
-                        "cursor-default hover:translate-y-0",
+                        ? "bg-violet-100/80"
+                        : "bg-slate-100/80",
                     )}
-                    onClick={() =>
-                      void onVote(
-                        poll,
-                        option.id,
-                      )
-                    }
-                  >
-                    <div
+                    style={{ width: `${option.percentage}%` }}
+                  />
+
+                  <div className="relative flex items-center gap-3">
+                    <span
                       className={cn(
-                        "pointer-events-none absolute inset-y-0 left-0 transition-[width] duration-500",
+                        "grid size-9 shrink-0 place-items-center rounded-full border text-sm font-semibold",
                         selected
-                          ? "bg-violet-100/80"
-                          : "bg-slate-100/80",
+                          ? "border-violet-500 bg-violet-600 text-white"
+                          : "border-slate-200 bg-white text-slate-500",
                       )}
-                      style={{
-                        width:
-                          `${option.percentage}%`,
-                      }}
-                    />
+                    >
+                      {busy ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : selected ? (
+                        <Check className="size-4" />
+                      ) : (
+                        option.position + 1
+                      )}
+                    </span>
 
-                    <div className="relative flex items-center gap-3">
-                      <span
-                        className={cn(
-                          "grid size-9 shrink-0 place-items-center rounded-full border text-sm font-semibold",
-                          selected
-                            ? "border-violet-500 bg-violet-600 text-white"
-                            : "border-slate-200 bg-white text-slate-500",
-                        )}
-                      >
-                        {busy ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : selected ? (
-                          <Check className="size-4" />
-                        ) : (
-                          option.position +
-                          1
-                        )}
-                      </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="break-words text-sm font-semibold sm:text-base">
+                          {option.label}
+                        </span>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="break-words text-sm font-semibold sm:text-base">
-                            {option.label}
+                        {selected && (
+                          <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            Your vote
                           </span>
+                        )}
 
-                          {selected && (
-                            <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                              Your vote
-                            </span>
-                          )}
-
-                          {leading && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                              <Trophy className="size-3" />
-                              Leading
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                          <span>
-                            {option.votes}{" "}
-                            vote
-                            {option.votes ===
-                            1
-                              ? ""
-                              : "s"}
+                        {leading && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                            <Trophy className="size-3" />
+                            Leading
                           </span>
-
-                          {!closed &&
-                            !selected && (
-                              <span>
-                                · tap to
-                                vote
-                              </span>
-                            )}
-
-                          {!closed &&
-                            selected && (
-                              <span>
-                                · tap
-                                another
-                                option to
-                                change
-                              </span>
-                            )}
-                        </div>
+                        )}
                       </div>
 
-                      <span className="shrink-0 text-lg font-bold tabular-nums text-slate-800 sm:text-xl">
-                        {option.percentage}
-                        %
-                      </span>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span>
+                          {option.votes} vote
+                          {option.votes === 1 ? "" : "s"}
+                        </span>
+
+                        {!closed && !selected && (
+                          <span>· tap to vote</span>
+                        )}
+
+                        {!closed && selected && (
+                          <span>
+                            · tap another option to change
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </button>
-                );
-              },
-            )}
+
+                    <span className="shrink-0 text-lg font-bold tabular-nums text-slate-800 sm:text-xl">
+                      {option.percentage}%
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" />
-                {poll.totalVotes}{" "}
-                vote
-                {poll.totalVotes === 1
-                  ? ""
-                  : "s"}
+                {poll.totalVotes} vote
+                {poll.totalVotes === 1 ? "" : "s"}
               </span>
 
               <span className="inline-flex items-center gap-1.5">
@@ -1620,10 +1462,7 @@ function CountdownBubble({
     hours,
     minutes,
     seconds,
-  } = countdownParts(
-    poll.closesAt,
-    now,
-  );
+  } = countdownParts(poll.closesAt, now);
 
   if (remaining <= 0) {
     return (
@@ -1647,24 +1486,10 @@ function CountdownBubble({
       </p>
 
       <p className="mt-1 font-mono text-lg font-bold tabular-nums text-violet-800">
-        {days > 0
-          ? `${days}d `
-          : ""}
-
-        {String(hours).padStart(
-          2,
-          "0",
-        )}
-        :
-        {String(minutes).padStart(
-          2,
-          "0",
-        )}
-        :
-        {String(seconds).padStart(
-          2,
-          "0",
-        )}
+        {days > 0 ? `${days}d ` : ""}
+        {String(hours).padStart(2, "0")}:
+        {String(minutes).padStart(2, "0")}:
+        {String(seconds).padStart(2, "0")}
       </p>
     </div>
   );
@@ -1692,26 +1517,22 @@ function PollConfetti() {
         `}
       </style>
 
-      {CONFETTI.map(
-        (piece, index) => (
-          <span
-            key={index}
-            className="absolute h-2.5 w-1.5 rounded-[2px] opacity-70"
-            style={
-              {
-                left: piece.left,
-                top: piece.top,
-                backgroundColor:
-                  piece.color,
-                animation:
-                  `pomPollConfetti ${piece.duration} ease-in-out ${piece.delay} infinite`,
-                "--poll-rotation":
-                  piece.rotation,
-              } as CSSProperties
-            }
-          />
-        ),
-      )}
+      {CONFETTI.map((piece, index) => (
+        <span
+          key={index}
+          className="absolute h-2.5 w-1.5 rounded-[2px] opacity-70"
+          style={
+            {
+              left: piece.left,
+              top: piece.top,
+              backgroundColor: piece.color,
+              animation:
+                `pomPollConfetti ${piece.duration} ease-in-out ${piece.delay} infinite`,
+              "--poll-rotation": piece.rotation,
+            } as CSSProperties
+          }
+        />
+      ))}
     </div>
   );
 }

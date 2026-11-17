@@ -1005,7 +1005,10 @@ export async function safeSyncGoogleSheetsSnapshot() {
 
   needsAnotherSnapshot = true;
   if (!inFlightAutomaticSnapshot) {
-    inFlightAutomaticSnapshot = (async () => {
+    // Schedule the first snapshot in a microtask so simultaneous mutations
+    // in this instance can share a single DB scan. Mid-flight writes still
+    // request a catch-up snapshot for correctness.
+    inFlightAutomaticSnapshot = Promise.resolve().then(async () => {
       try {
         do {
           needsAnotherSnapshot = false;
@@ -1019,7 +1022,7 @@ export async function safeSyncGoogleSheetsSnapshot() {
       } finally {
         inFlightAutomaticSnapshot = null;
       }
-    })();
+    });
   }
 
   await inFlightAutomaticSnapshot;
